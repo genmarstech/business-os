@@ -1,1 +1,46 @@
+# ==========================================
+# 1. Python Environment & Caches
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environments (adjust if your folder has a different name)
+.venv/
+venv/
+ENV/
+env/
 virtual/
+
+# ==========================================
+# 2. Django Specific Files
+# ==========================================
+# Local development database
+db.sqlite3
+db.sqlite3-journal
+
+# Media files uploaded by users (never track these in git)
+/media/
+/staticfiles/
+
+# ==========================================
+# 3. Security & Environment Variables
+# ==========================================
+# Private configurations containing secrets/passwords
+.env
+.env.local
+secrets.json
+
+# ==========================================
+# 4. OS & Editor Specific Files
+# ==========================================
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

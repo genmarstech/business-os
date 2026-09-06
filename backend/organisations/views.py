@@ -2,6 +2,9 @@ from django.shortcuts import render
 from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from rest_framework import viewsets
+from .models import BusinessOrganization
+from .serializers import BusinessOrganizationSerializer
 
 
 # Create your views here.
@@ -11,3 +14,9 @@ def greetings(request):
     message = 'Greetings from the organisations backend application.'
 
     return Response({"message": message})
+
+
+class BusinessOrganizationViewSet(viewsets.ModelViewSet):
+
+    queryset = BusinessOrganization.objects.all()
+    serializer_class = BusinessOrganizationSerializer
