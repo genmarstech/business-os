@@ -49,7 +49,7 @@ Procurements
 
 ```
 
-## Current State
+## 1 Current State(organisatins app)
 
 The current state of the backend is at the very Beginning:
 
@@ -64,3 +64,17 @@ The current state of the backend is at the very Beginning:
 - org_number(self-generated)
 
 - staff_size_display
+
+## 2 Current State(organisations app)
+
+The current state of the organisations app is that the models of that table has been updated and now. there is the organisations staff models that write the staff into the database and is assigned the current organisation to operate in
+
+```The core model of the staff is below and can be updated for future advancements: ```
+
+- personal details
+
+- professional details
+
+## NB 
+
+This current model is still under surveillance and a stable release will be done soon
