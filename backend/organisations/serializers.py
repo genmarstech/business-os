@@ -27,6 +27,7 @@ class BusinessOrganizationSerializer(serializers.ModelSerializer):
 # they can be edited to the systems liking but consider the current one
 class OrganizationStaffSerializer(serializers.ModelSerializer):
 
+    organization = serializers.PrimaryKeyRelatedField(queryset=BusinessOrganization.objects.all())
     class Meta:
         model = OrganizationStaff
         fields = [
@@ -34,6 +35,7 @@ class OrganizationStaffSerializer(serializers.ModelSerializer):
             'full_name',
             'email',
             'phone_number',
+            'organization',
             'address',
             'city',
             'kra_pin',
@@ -44,3 +46,10 @@ class OrganizationStaffSerializer(serializers.ModelSerializer):
 
 
         read_only_fields = ['created_at', 'staff_number', 'updated_at']
+
+    def to_representation(self, instance):
+        response = super().to_representation(instance)
+        
+        if instance.organization:
+            response['organization'] = BusinessOrganizationSerializer(instance.organization).data
+        return response

@@ -1,5 +1,7 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from organisations.models import BusinessOrganization, OrganizationStaff
 import random
 import string
 
@@ -20,10 +22,103 @@ def branch_number_generator():
     return generated_number
 
 class Branches(models.Model):
+    organization = models.ForeignKey(BusinessOrganization, on_delete=models.CASCADE, related_name='branches', default=1)
     branch_name = models.CharField(max_length=38)
     branch_location = models.CharField(max_length=155)
     branch_allocation = models.CharField(max_length=255)
     branch_manager = models.CharField(max_length=15, unique=True)
     branch_number = models.CharField(default=branch_number_generator, max_length=18)
-    created_at = models.DateTimeField(default=timezone.now)
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=timezone.now)
+
+    def __str__(self):
+        return self.branch_name
+
+
+class Register(models.Model):
+
+    branch = models.ForeignKey(Branches, on_delete=models.CASCADE, related_name='registers')
+
+    name = models.CharField(max_length=100, unique=True)
+    register_number = models.CharField(max_length=100, unique=True)
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class RegisterShift(models.Model):
+
+    register = models.ForeignKey(Register, on_delete=models.PROTECT, related_name='shifts')
+
+    operator = models.ForeignKey(OrganizationStaff, on_delete=models.PROTECT, related_name='register_shifts')
+
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    opening_cash = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    closing_cash = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=[('OPEN', 'open'), ('CLOSED', 'closed')], default='OPEN')
+
+    def __str__(self):
+        return f"{self.register} and {self.operator}"
+
+class staffAssignment(models.Model):
+
+    class StaffRoles(models.TextChoices):
+        AssistantManager = 'AM', 'Assistant manager'
+        Cashier = 'CA', 'Cashier'
+        SaleAssociate = 'SA', 'Sales Associate'
+        InventoryClerk = 'IC', 'Inventory Clerk'
+        PurchasingOfficer = 'PO', 'Purchasing Officer'
+        FinanceClerk = 'FC', 'Finance Clerk'
+        BranchAuditor = 'BA', 'Branch Auditor'
+
+
+    staff_member = models.ForeignKey(OrganizationStaff, on_delete=models.CASCADE, related_name='assignments')
+
+    branch = models.ForeignKey(Branches, on_delete=models.CASCADE, related_name='staff')
+
+    is_active = models.BooleanField(default=True)
+
+    staff_assignment = models.CharField(choices=StaffRoles.choices, default=StaffRoles.Cashier)
+
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            # Blocks entering the EXACT SAME staff, branch, and role more than once while active
+            models.UniqueConstraint(
+                fields=['staff_member', 'branch', 'staff_assignment'],
+                condition=models.Q(is_active=True),
+                name='unique_active_staff_role_per_branch'
+            )
+        ]
+
+    def clean(self):
+        # Validation layer to return a clean error message to the user
+        if self.is_active:
+            duplicate = staffAssignment.objects.filter(
+                staff_member=self.staff_member,
+                branch=self.branch,
+                staff_assignment=self.staff_assignment,
+                is_active=True
+            ).exclude(pk=self.pk)
+            
+            if duplicate.exists():
+                raise ValidationError(
+                    f"{self.staff_member.full_name} is already assigned as a "
+                    f"{self.get_staff_assignment_display()} at {self.branch.branch_name}."
+                )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+        
+    def __str__(self):
+        return f"{self.staff_member} as {self.get_staff_assignment_display()} at {self.branch}"
+
