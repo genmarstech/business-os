@@ -32,7 +32,7 @@ class BusinessOrganization(models.Model):
         LARGE = 'LG', '25'
 
 
-    name = models.CharField(max_length=15)
+    name = models.CharField(max_length=15, unique=True)
     staff_size = models.CharField(choices=StaffSize.choices, default=StaffSize.MEDIUM)
     org_number = models.CharField(max_length=18, default=OrgNumberGenerator, unique=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -77,7 +77,7 @@ class OrganizationStaff(models.Model):
     phone_number = models.CharField(max_length=20, unique=True)
     address = models.CharField('Address', max_length=255)
     city = models.CharField('City', max_length=100, blank=True, null=True)
-    kra_pin = models.CharField(max_length=11, blank=True, null=True, unique=True)
+    kra_pin = models.CharField( blank=True, null=True, unique=True)
     id_number = models.IntegerField(unique=True)
 
     # professional details
@@ -86,6 +86,11 @@ class OrganizationStaff(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=timezone.now)
     staff_number = models.CharField(max_length=20, default=staffNumberGenerator, unique=True)
+
+    # organization
+    # In your models.py, ensure it is a ForeignKey, NOT a CharField
+    organization = models.ForeignKey(BusinessOrganization, on_delete=models.CASCADE)
+
 
     class Meta:
         ordering = ['-start_date']

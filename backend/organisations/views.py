@@ -5,7 +5,7 @@ from rest_framework.decorators import api_view
 from rest_framework import viewsets
 from .models import BusinessOrganization, OrganizationStaff
 from .serializers import BusinessOrganizationSerializer, OrganizationStaffSerializer
-from .permissions import HasRole
+
 
 # Create your views here.
 
@@ -26,6 +26,4 @@ class OrganizationsStaffViewSet(viewsets.ModelViewSet):
     
     queryset = OrganizationStaff.objects.all()
     serializer_class = OrganizationStaffSerializer
-    permission_classes = [HasRole]
 
-    roles_allowed = ['Org Admins']
