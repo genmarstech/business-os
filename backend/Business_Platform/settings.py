@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'organisations',
     'rest_framework',
     'branches',
+    'catalog',
 ]
 
 MIDDLEWARE = [

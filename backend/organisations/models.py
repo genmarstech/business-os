@@ -32,7 +32,7 @@ class BusinessOrganization(models.Model):
         LARGE = 'LG', '25'
 
 
-    name = models.CharField(max_length=15)
+    name = models.CharField(max_length=15, unique=True)
     staff_size = models.CharField(choices=StaffSize.choices, default=StaffSize.MEDIUM)
     org_number = models.CharField(max_length=18, default=OrgNumberGenerator, unique=True)
     created_at = models.DateTimeField(default=timezone.now)
