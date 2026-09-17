@@ -1,69 +1,133 @@
+
 from rest_framework import serializers
-from .models import Branches, Register, RegisterShift, staffAssignment
-from organisations.models import OrganizationStaff
+
+from .models import (
+    Branches,
+    Register,
+    RegisterShift,
+    staffAssignment,
+)
+
+from organisations.models import (
+    OrganizationStaff,
+    BusinessOrganization,
+)
+
+from organisations.serializers import (
+    BusinessOrganizationSerializer,
+)
 
 
-# relevant serializers
+# ============================================================
+# BRANCH
+# ============================================================
 
-class BranchesSerializers(serializers.ModelSerializer):
+class BranchesSerializer(serializers.ModelSerializer):
 
-    organization = serializers.StringRelatedField(read_only=True)
+    # Read
+    organization = BusinessOrganizationSerializer(
+        read_only=True
+    )
+
+    # Write
+    organization_id = serializers.PrimaryKeyRelatedField(
+        queryset=BusinessOrganization.objects.all(),
+        source='organization',
+        write_only=True
+    )
+
     class Meta:
         model = Branches
+
         fields = [
             'id',
+            'organization',
+            'organization_id',
             'branch_name',
             'branch_location',
             'branch_allocation',
             'branch_manager',
             'branch_number',
-            'organization',
         ]
 
-        read_only_fields = ['created_at', 'updated_at', 'branch_number', 'organization']
+        read_only_fields = [
+            'id',
+            'branch_number',
+        ]
+
+
+# ============================================================
+# REGISTER
+# ============================================================
 
 class RegisterSerializer(serializers.ModelSerializer):
 
-    branch = serializers.PrimaryKeyRelatedField(queryset=Branches.objects.all())
+    # Read
+    branch = BranchesSerializer(
+        read_only=True
+    )
+
+    # Write
+    branch_id = serializers.PrimaryKeyRelatedField(
+        queryset=Branches.objects.all(),
+        source='branch',
+        write_only=True
+    )
 
     class Meta:
         model = Register
+
         fields = [
             'id',
             'branch',
+            'branch_id',
             'name',
             'register_number',
             'is_active',
-            'created_at'
+            'created_at',
         ]
 
-        read_only_fields = ['created_at']
+        read_only_fields = [
+            'id',
+            'register_number',
+            'created_at',
+        ]
 
-    def to_representation(self, instance):
-        response = super().to_representation(instance)
 
-        if instance.branch:
-            response['branch'] = BranchesSerializers(instance.branch).data
-        return response
+# ============================================================
+# REGISTER SHIFT
+# ============================================================
 
 class RegisterShiftSerializer(serializers.ModelSerializer):
+
+    # Read
+    register = RegisterSerializer(
+        read_only=True
+    )
 
     operator_name = serializers.CharField(
         source='operator.full_name',
         read_only=True
     )
 
-    register_name = serializers.CharField(
-        source='register.name',
-        read_only=True
+    # Write
+    register_id = serializers.PrimaryKeyRelatedField(
+        queryset=Register.objects.all(),
+        source='register',
+        write_only=True
+    )
+
+    operator = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all()
     )
 
     class Meta:
         model = RegisterShift
+
         fields = [
             'id',
             'register',
-            'register_name',
+            'register_id',
             'operator',
             'operator_name',
             'opened_at',
@@ -76,75 +140,92 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'operator_name',
-            'register_name',
             'opened_at',
             'closed_at',
             'status',
         ]
 
+    # --------------------------------------------------------
+    # OPENING CASH VALIDATION
+    # --------------------------------------------------------
+
     def validate_opening_cash(self, value):
 
         if value < 0:
             raise serializers.ValidationError(
-                'Opening cash cannot be negative'
+                'Opening cash cannot be negative.'
             )
+
         return value
+
+    # --------------------------------------------------------
+    # CLOSING CASH VALIDATION
+    # --------------------------------------------------------
 
     def validate_closing_cash(self, value):
+
         if value is not None and value < 0:
             raise serializers.ValidationError(
-                'Closing cash cannot be negative'
+                'Closing cash cannot be negative.'
             )
+
         return value
 
-    def to_representation(self, instance):
-        response =  super().to_representation(instance)
 
-        if instance.operator:
+# ============================================================
+# STAFF ASSIGNMENT
+# ============================================================
 
-            response['operator'] = instance.operator.full_name
+class StaffAssignmentSerializer(serializers.ModelSerializer):
 
-        return response
+    # --------------------------------------------------------
+    # STAFF
+    # --------------------------------------------------------
 
-class staffAssignmentsSerializer(serializers.ModelSerializer):
+    staff_member = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all(),
+        write_only=True
+    )
 
-    staff_member = serializers.PrimaryKeyRelatedField(queryset=OrganizationStaff.objects.all())
+    staff_member_name = serializers.CharField(
+        source='staff_member.full_name',
+        read_only=True
+    )
 
-    branch = serializers.PrimaryKeyRelatedField(queryset=Branches.objects.all())
+    # --------------------------------------------------------
+    # BRANCH
+    # --------------------------------------------------------
+
+    branch = BranchesSerializer(
+        read_only=True
+    )
+
+    branch_id = serializers.PrimaryKeyRelatedField(
+        queryset=Branches.objects.all(),
+        source='branch',
+        write_only=True
+    )
+
+    # --------------------------------------------------------
+    # META
+    # --------------------------------------------------------
 
     class Meta:
         model = staffAssignment
+
         fields = [
             'id',
             'staff_member',
+            'staff_member_name',
             'branch',
+            'branch_id',
             'staff_assignment',
             'is_active',
-            'assigned_at'
+            'assigned_at',
         ]
 
-    def to_representation(self, instance):
-        response = super().to_representation(instance)
-
-        # Check if instance is a model object (has an attribute) or a dictionary
-        is_model = hasattr(instance, 'staff_member')
-
-        # Safely fetch the human-readable staff name
-        if is_model and instance.staff_member:
-            response['staff_member'] = instance.staff_member.full_name
-        elif isinstance(instance, dict) and 'staff_member' in response:
-            # If it's a dict from a fresh POST, fetch the object from the DB to get the name
-            staff_obj = OrganizationStaff.objects.filter(id=response['staff_member']).first()
-            if staff_obj:
-                response['staff_member'] = staff_obj.full_name
-
-        # Safely fetch the human-readable branch name
-        if is_model and instance.branch:
-            response['branch'] = instance.branch.branch_name
-        elif isinstance(instance, dict) and 'branch' in response:
-            # If it's a dict from a fresh POST, fetch the object from the DB to get the name
-            branch_obj = Branches.objects.filter(id=response['branch']).first()
-            if branch_obj:
-                response['branch'] = branch_obj.branch_name
-
-        return response
+        read_only_fields = [
+            'id',
+            'staff_member_name',
+            'assigned_at',
+        ]

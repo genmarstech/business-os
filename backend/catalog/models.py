@@ -18,22 +18,64 @@ class CatalogCategories(models.Model):
 
 
 class CatalogCategoryProduct(models.Model):
-    organization = models.ForeignKey(BusinessOrganization, on_delete=models.CASCADE, related_name='products')
-    category = models.ForeignKey(CatalogCategories, on_delete=models.CASCADE, related_name='products')
+    organization = models.ForeignKey(
+        BusinessOrganization,
+        on_delete=models.CASCADE,
+        related_name="products"
+    )
 
-    name = models.CharField(max_length=200, unique=True)
-    description = models.TextField(blank=True)
-    sku = models.CharField(max_length=100, unique=True)
+    category = models.ForeignKey(
+        CatalogCategories,
+        on_delete=models.PROTECT,
+        related_name="products"
+    )
 
-    cost_price = models.DecimalField(max_digits=12, decimal_places=2)
+    name = models.CharField(
+        max_length=200
+    )
 
-    selling_price = models.DecimalField(max_digits=12, decimal_places=2)
+    description = models.TextField(
+        blank=True
+    )
 
-    is_active = models.BooleanField(blank=True)
+    sku = models.CharField(
+        max_length=100
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    cost_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2
+    )
 
+    selling_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2
+    )
+
+    is_active = models.BooleanField(
+        default=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_product_name_per_organization"
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "sku"],
+                name="unique_product_sku_per_organization"
+            ),
+        ]
+        ordering = ["name"]
 
     def __str__(self):
-        return f"{self.organization} for product {self.name}"
+        return f"{self.organization} - {self.name}"
