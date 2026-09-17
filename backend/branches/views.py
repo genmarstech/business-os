@@ -2,7 +2,7 @@ from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import viewsets
-from .serializers import BranchesSerializers, RegisterSerializer, RegisterShiftSerializer, staffAssignmentsSerializer
+from .serializers import RegisterSerializer, RegisterShiftSerializer, BranchesSerializer, StaffAssignmentSerializer
 from .models import Branches, Register, RegisterShift, staffAssignment
 
 
@@ -17,7 +17,7 @@ def greeting(request):
 class BranchesViewSets(viewsets.ModelViewSet):
 
     queryset = Branches.objects.all()
-    serializer_class = BranchesSerializers
+    serializer_class = BranchesSerializer
 
 
 class RegisterViewSets(viewsets.ModelViewSet):
@@ -34,7 +34,7 @@ class RegisterShiftViewSets(viewsets.ModelViewSet):
 class StaffAssignmentViewSet(viewsets.ModelViewSet):
 
     queryset = staffAssignment.objects.all()
-    serializer_class = staffAssignmentsSerializer
+    serializer_class = StaffAssignmentSerializer
 
     def perform_create(self, serializer):
         # 1. Get the staff member from the validated data payload
