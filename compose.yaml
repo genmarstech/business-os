@@ -2,9 +2,23 @@
 # Genmars Business Platform.
 #
 #   cd /opt/business-os
-#   set -a && . ./backend/.env && set +a
 #   docker compose up -d --build
 #   docker compose exec api python manage.py migrate
+#
+# ── THE .env SYMLINK IS NOT OPTIONAL ────────────────────────────────────────
+# The environment lives at backend/.env, because that is what `env_file` below
+# hands to the container. But compose reads its OWN interpolation variables —
+# POSTGRES_PASSWORD in the db service and in DATABASE_URL — from a `.env` in
+# the PROJECT ROOT, and finds nothing there. Every command in this directory
+# then fails before it reaches Docker, including read-only ones like
+# `docker compose ps`.
+#
+# The deployment makes `.env` a symlink to `backend/.env`. The alternative is
+# prefixing every command with `set -a && . ./backend/.env && set +a`, and the
+# step people forget is the one they need during an outage. If you have
+# cloned this fresh:
+#
+#   ln -s backend/.env .env
 #
 # ⚠ db PUBLISHES NOTHING. It is reachable only across the internal network.
 #   The api is published to 127.0.0.1 only, so Caddy is the single public way
