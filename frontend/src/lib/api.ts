@@ -32,7 +32,7 @@
 
 import "server-only";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 const ORIGIN = process.env.API_ORIGIN ?? "http://127.0.0.1:8020";
 
@@ -69,6 +69,50 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Headers that must survive the hop from this server to Django.
+ *
+ * ── THE HOST HEADER IS NOT OPTIONAL ────────────────────────────────────────
+ *
+ * Server-side fetches go to API_ORIGIN, which in production is
+ * `http://api:8020` — a compose service name. Django therefore sees
+ * `Host: api:8020`, which is not in ALLOWED_HOSTS, and answers **400 Bad
+ * Request** to everything.
+ *
+ * It does not show up in development, because ALLOWED_HOSTS contains
+ * 127.0.0.1 when DEBUG is on and that is exactly what the dev fetch sends. So
+ * the whole app works locally and returns 500 on the server, with a Django log
+ * line about DisallowedHost that nothing in the frontend mentions.
+ *
+ * The fix is to forward the host the BROWSER asked for, not to widen
+ * ALLOWED_HOSTS to include an internal service name. Two reasons:
+ *
+ *   · ALLOWED_HOSTS stays exactly the public name, which is what it is for.
+ *   · Any absolute URL Django builds — a redirect, a link in an email — comes
+ *     out as business.genmars.co.ke rather than `api:8020`.
+ *
+ * Forwarding a client-supplied Host is safe here precisely because Django
+ * still validates it: Caddy only routes business.genmars.co.ke to this app,
+ * and anything else is refused at the other end rather than trusted.
+ */
+async function forwarded(): Promise<Record<string, string>> {
+  const incoming = await headers();
+  const out: Record<string, string> = {};
+
+  const host = incoming.get("host");
+  if (host) out.host = host;
+
+  // Django reads this to know the original request was HTTPS. Without it a
+  // CSRF origin check on an unsafe method compares against http:// and fails.
+  const proto = incoming.get("x-forwarded-proto");
+  if (proto) out["x-forwarded-proto"] = proto;
+
+  const cookie = await cookieHeader();
+  if (cookie) out.cookie = cookie;
+
+  return out;
+}
+
 async function cookieHeader(): Promise<string> {
   const jar = await cookies();
   return FORWARDED.map((name) => jar.get(name))
@@ -85,10 +129,8 @@ async function cookieHeader(): Promise<string> {
  * another — the single worst bug this application could have.
  */
 export async function get<T>(path: string): Promise<T> {
-  const cookie = await cookieHeader();
-
   const response = await fetch(`${ORIGIN}${path}`, {
-    headers: cookie ? { cookie } : {},
+    headers: await forwarded(),
     cache: "no-store",
   });
 
