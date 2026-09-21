@@ -15,9 +15,27 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
 
+# ── LIVENESS, NOT READINESS ─────────────────────────────────────────────────
+#
+# Answers as long as the process is running and can route a request. It does
+# NOT touch the database, deliberately: with a single instance behind Caddy,
+# failing this during a brief database blip only converts a 500 into a 502 —
+# nothing is gained, and a restart loop is easy to provoke.
+#
+# It is unauthenticated and says nothing about the system. Caddy reads it every
+# ten seconds (deploy/business.caddy); anything that needs a credential cannot
+# be a health check, which is the mistake this replaced — /auth/me returns 403
+# to an anonymous caller, so Caddy would have marked the app permanently
+# unhealthy and taken it out of rotation for good.
+def healthz(_request):
+    return JsonResponse({"status": "ok"})
+
+
 urlpatterns = [
+    path('healthz', healthz, name='healthz'),
     path('admin/', admin.site.urls),
     path('org/', include('organisations.urls')),
     path('brn/', include('branches.urls')),

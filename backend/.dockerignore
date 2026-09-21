@@ -1,0 +1,19 @@
+# The virtualenv, which is a developer's and is the wrong architecture anyway.
+virtual/
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+
+# The development database. Never ships.
+*.sqlite3
+db.sqlite3
+
+# Secrets.
+.env
+*.env
+!.env.example
+
+.git/
+.gitignore

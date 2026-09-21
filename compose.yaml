@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Genmars Business Platform.
+#
+#   cd /opt/business-os
+#   set -a && . ./backend/.env && set +a
+#   docker compose up -d --build
+#   docker compose exec api python manage.py migrate
+#
+# ⚠ db PUBLISHES NOTHING. It is reachable only across the internal network.
+#   The api is published to 127.0.0.1 only, so Caddy is the single public way
+#   in — see deploy/business.caddy.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: business-platform
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: business-platform-db
+    restart: unless-stopped
+
+    # No `ports:` at all. Anything that needs this database is on this network.
+    networks:
+      - data
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-business_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-business_platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+    volumes:
+      - business-platform-db:/var/lib/postgresql/data
+
+    healthcheck:
+      # The api waits on this. Without it the first boot races the database and
+      # fails its own migration for a reason that looks like a code bug.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-business_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ghcr.io/genmarstech/business-platform-api:latest
+    container_name: business-platform-api
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - data
+      - edge
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      # Assembled here rather than written into .env, so the password lives in
+      # exactly one place.
+      DATABASE_URL: postgres://${POSTGRES_USER:-business_platform}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-business_platform}
+
+    # ⚠ LOOPBACK ONLY. Do not change to "8020:8020".
+    #
+    # The moment this binds 0.0.0.0 the API is on the public internet with no
+    # TLS and none of the headers Caddy adds — and X-Real-IP becomes whatever
+    # the caller says it is, which is what identity/authentication.py trusts to
+    # tell one caller from another.
+    ports:
+      - "127.0.0.1:8020:8020"
+
+    # ── HARDENING ───────────────────────────────────────────────────────────
+    #
+    # read_only because nothing here writes to the image: PYTHONDONTWRITEBYTECODE
+    # is set, static files are built into the image, and gunicorn's scratch dir
+    # is /tmp, which the tmpfs supplies. An attacker who achieves execution
+    # cannot leave anything behind that survives a restart.
+    #
+    # noexec on the tmpfs because /tmp is the obvious place to drop a binary
+    # and run it, and nothing here executes out of it.
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777,noexec,nosuid,nodev
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  # Split so the database is not on the same network as anything that talks to
+  # the outside world. Only `api` is on both, and it is the only thing that
+  # needs to be.
+  data:
+    internal: true
+  edge:
+
+volumes:
+  business-platform-db:

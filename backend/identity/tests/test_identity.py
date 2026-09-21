@@ -351,3 +351,25 @@ class EndpointTests(TestCase):
         session.save()
 
         self.assertIn(self.client.get(reverse("whoami")).status_code, (401, 403))
+
+
+class HealthCheckTests(TestCase):
+    """
+    Caddy reads /healthz every ten seconds and takes the app out of rotation
+    when it fails (deploy/business.caddy).
+
+    The first version of that block pointed at /auth/me, which returns 403 to
+    an anonymous caller — Caddy would have marked the app permanently unhealthy
+    and served 502 to everybody. Anything requiring a credential cannot be a
+    health check.
+    """
+
+    def test_it_answers_without_a_credential(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_it_says_nothing_about_the_system(self):
+        """A public endpoint is not a place to report versions or hostnames."""
+        body = self.client.get("/healthz").content.decode()
+        self.assertEqual(len(body), len('{"status": "ok"}'))

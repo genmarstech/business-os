@@ -124,3 +124,40 @@ neither does.
   is written but nothing enforces it yet
 - Binding a `StaffSession` to a `Register`, for blueprint §11 offline work
 - Entitlement: this application must not take money. See the architecture note.
+
+## Running it
+
+```bash
+cp backend/.env.example backend/.env    # fill it in; never commit it
+set -a && . ./backend/.env && set +a
+docker compose up -d --build
+docker compose exec api python manage.py migrate
+```
+
+Postgres, not SQLite — settings refuse to boot outside DEBUG on SQLite, because
+two tills writing at the same moment is the normal case for a POS rather than
+an edge case.
+
+The API is published on `127.0.0.1:8020` only. `deploy/business.caddy` is the
+single public way in, and it needs a `sudo cp` onto the host:
+
+```bash
+sudo cp deploy/business.caddy /etc/caddy/conf.d/business.caddy
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+systemctl is-active caddy
+```
+
+Installing that block is what triggers certificate issuance — until it exists,
+`business.genmars.co.ke` resolves, 308s to https and then fails TLS, because
+Caddy has no certificate for a name it has never been asked about.
+
+### The order matters
+
+1. `docker compose up` — something must answer on 8020 or Caddy serves 502
+2. the Caddy block — the certificate is issued on reload
+3. register the app in ops → Settings → Engineering → Sibling sign-in, with
+   redirect `https://business.genmars.co.ke/auth/callback`
+4. put the client id and secret into `backend/.env` and restart the api
+
+Step 3 is founder-only and the secret is shown **once**.
