@@ -88,16 +88,19 @@ def _exact(value):
 
 class TaxRuleViewSet(TenantScoped, viewsets.ModelViewSet):
     """
-    Tax configuration is organisation-owned (§7) and changing it changes every
-    receipt the business issues from here on, so writing is held at
-    SETTINGS_MANAGE while anybody who can see a price can see the rule behind
-    it.
+    Tax configuration is organisation-owned (§7). Writing is held at
+    SETTINGS_TAX — an owner or an org admin, because a VAT rate change is
+    ordinary work that should not need the owner fetched — while anybody who
+    can see a price can see the rule behind it.
+
+    Changing a rate is not retroactive: TaxRule.rate is copied onto every
+    SaleItem at the moment of sale, so nothing already charged moves.
     """
 
     tenant_path = "organization_id"
     queryset = TaxRule.objects.all()
     serializer_class = TaxRuleSerializer
-    default_permission = access.SETTINGS_MANAGE
+    default_permission = access.SETTINGS_TAX
     permissions = {
         "list": access.CATALOG_VIEW,
         "retrieve": access.CATALOG_VIEW,

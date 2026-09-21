@@ -14,7 +14,7 @@ from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import services, signon
+from . import access, services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from .models import PlatformAccount
 from .permissions import IsTenantMember, tenant_scope
@@ -212,11 +212,24 @@ class StaffSignOutView(APIView):
 
 class WhoAmIView(APIView):
     """
-    What the caller is, and what they may touch.
+    What the caller is, what they may touch, and what they may do.
 
     Useful to a client on boot, and useful in review: if this ever reports a
     scope wider than the caller's memberships, the isolation layer is wrong and
     this is where it shows.
+
+    ── THE PERMISSION LIST IS FOR DRAWING A SCREEN, NOT FOR GUARDING ONE ───
+    A frontend needs it to decide whether to render a Refund button. That is
+    the whole of what it is for. Every endpoint checks the same permissions
+    again server-side, because a list returned to a browser is a list the
+    browser can edit — `identity/scoping.py` and `sales/views.py` do the
+    enforcing, and this only saves the user being offered something they will
+    be refused.
+
+    `branches` is null for organisation-wide authority, mirroring
+    `access.branch_scope`: null means UNRESTRICTED, an empty array means
+    confined to nothing. A client that treats null as "no branches" will show
+    an owner an empty shop.
     """
 
     permission_classes = [IsTenantMember]
@@ -235,6 +248,19 @@ class WhoAmIView(APIView):
                         "name": principal.organization.name,
                     },
                     "scope": tenant_scope(principal),
+                    "branches": access.branch_scope(principal),
+                    "permissions": sorted(access.granted(principal)),
+                    # Per branch as well as overall, because a cashier at one
+                    # branch and a manager at another holds different
+                    # permissions in each — and a screen drawn from the union
+                    # would offer a Refund button at the till where it will be
+                    # refused.
+                    "permissions_by_branch": {
+                        str(branch_id): sorted(
+                            access.granted(principal, branch_id)
+                        )
+                        for branch_id in (access.branch_scope(principal) or [])
+                    },
                 }
             )
 
@@ -250,6 +276,10 @@ class WhoAmIView(APIView):
                         for m in services.tenants_for(principal)
                     ],
                     "scope": tenant_scope(principal),
+                    # None: a subscriber's authority is organisation-wide by
+                    # §2, so no branch narrows it.
+                    "branches": access.branch_scope(principal),
+                    "permissions": sorted(access.granted(principal)),
                 }
             )
 

@@ -53,13 +53,14 @@ class BusinessOrganizationViewSet(TenantScoped, viewsets.ModelViewSet):
     # must be able to see the business they account for, and they hold no
     # settings permission.
     #
-    # What IS gated is changing an organisation that already exists, which is
-    # a settings act — there is no permission that lets an operational
-    # principal rename the business that employs them.
+    # What IS gated is changing an organisation that already exists — its
+    # registered identity, which is the owner's, not the administrator's.
+    # There is no permission that lets an operational principal rename the
+    # business that employs them.
     permissions = {
-        "update": access.SETTINGS_MANAGE,
-        "partial_update": access.SETTINGS_MANAGE,
-        "destroy": access.SETTINGS_MANAGE,
+        "update": access.SETTINGS_ORGANISATION,
+        "partial_update": access.SETTINGS_ORGANISATION,
+        "destroy": access.SETTINGS_ORGANISATION,
     }
     queryset = BusinessOrganization.objects.all()
     serializer_class = BusinessOrganizationSerializer

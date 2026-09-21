@@ -70,7 +70,7 @@ talking to.
 | Role | Holds | Notably does not |
 |---|---|---|
 | Owner | everything | — |
-| Org admin | everything operational | `staff.manage`, `settings.manage` |
+| Org admin | everything operational, tax included | `staff.manage`, `settings.organisation` |
 | Accountant | reads the money, reports | voids, refunds, checkout |
 | Branch manager | the branch, end to end | `reports.organisation` |
 | Cashier | checkout, open a shift | **voids, refunds, reports** |
@@ -78,7 +78,14 @@ talking to.
 | Finance clerk | sales and branch reports | any write |
 | Branch auditor | reads the branch | every write |
 
-Two things are worth knowing before changing it:
+`GET /auth/me` returns the caller's permissions so a client can draw a screen
+without offering buttons the server will refuse — plus `permissions_by_branch`
+for an operational principal, because a cashier at one branch and a manager at
+another must not be shown a Refund button at the till where it will be denied.
+**It is for drawing, never for guarding**: every endpoint checks again, since a
+list returned to a browser is a list the browser can edit.
+
+Three things are worth knowing before changing it:
 
 - **Scope is two questions.** `tenant_scope` answers *which organisations*;
   `branch_scope` answers *which branches* and returns **None** for
@@ -88,6 +95,11 @@ Two things are worth knowing before changing it:
   be a cashier at Westlands and manager at Karen; the union of their roles
   applied everywhere would make them a manager at Westlands. `checkout` and
   `refund` pass the branch once the shift or the request identifies it.
+- **Settings is two permissions.** `settings.tax` changes what future receipts
+  charge and is ordinary work an admin does; `settings.organisation` changes
+  what the business *is* and stays with the owner. Neither is retroactive —
+  `TaxRule.rate` is copied onto every `SaleItem` at the moment of sale, which
+  is what makes granting the first one safe.
 
 A cashier deliberately cannot void or refund. Module 6 lists "manager
 approvals" beside cashier access for exactly this reason: those two are how a
@@ -137,5 +149,5 @@ These are written down rather than left to be rediscovered.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 148 tests
+virtual/bin/python manage.py test          # 154 tests
 ```

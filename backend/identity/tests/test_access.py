@@ -146,9 +146,13 @@ class SubscriberRoleTests(TestCase):
         owner = self.account(TenantMembership.Role.OWNER, number=13)
 
         self.assertFalse(access.may(admin, access.STAFF_MANAGE))
-        self.assertFalse(access.may(admin, access.SETTINGS_MANAGE))
+        self.assertFalse(access.may(admin, access.SETTINGS_ORGANISATION))
         self.assertTrue(access.may(owner, access.STAFF_MANAGE))
-        self.assertTrue(access.may(owner, access.SETTINGS_MANAGE))
+        self.assertTrue(access.may(owner, access.SETTINGS_ORGANISATION))
+
+        # But tax IS an admin's job — the settings split. A VAT rate change
+        # is ordinary work and should not need the owner fetched.
+        self.assertTrue(access.may(admin, access.SETTINGS_TAX))
 
         # The control: an admin is not simply powerless.
         self.assertTrue(access.may(admin, access.SALES_REFUND))
@@ -617,3 +621,138 @@ class EveryViewsetIsGatedTests(TestCase):
             [],
             f"these reach a branch but are not scoped to one: {missing}",
         )
+
+
+class WhoAmITells(TestCase):
+    """
+    What a client is handed on boot, so it can draw a screen without offering
+    buttons the server will refuse.
+
+    The permission list is for DRAWING, never for guarding — every endpoint
+    checks again. These tests are about it being accurate, because a list that
+    disagrees with enforcement is worse than none: it either hides a button
+    that works or offers one that does not.
+    """
+
+    def setUp(self):
+        self.org, (self.westlands, self.karen) = a_shop(
+            "Shop A", branches=("Westlands", "Karen")
+        )
+
+    def as_subscriber(self, role, *, number):
+        account = PlatformAccount.objects.create(
+            genmars_account_id=number, email=f"{role}-{number}@a.co.ke"
+        )
+        TenantMembership.objects.create(
+            account=account, organization=self.org, role=role
+        )
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = account.pk
+        session.save()
+        return account
+
+    def test_a_subscriber_is_told_what_they_may_do(self):
+        self.as_subscriber(TenantMembership.Role.ACCOUNTANT, number=31)
+        body = self.client.get("/auth/me").json()
+
+        self.assertEqual(body["kind"], "subscriber")
+        self.assertIn(access.SALES_VIEW, body["permissions"])
+        self.assertNotIn(access.SALES_VOID, body["permissions"])
+
+    def test_a_subscriber_has_no_branch_restriction(self):
+        """
+        null, not []. A client that reads null as "no branches" shows an owner
+        an empty shop.
+        """
+        self.as_subscriber(TenantMembership.Role.OWNER, number=32)
+        self.assertIsNone(self.client.get("/auth/me").json()["branches"])
+
+    def test_what_it_reports_is_what_is_enforced(self):
+        """
+        The test that makes the list worth returning. It walks the reported
+        permissions and checks the server agrees — a drift between these two
+        is how a frontend comes to hide a working button.
+        """
+        self.as_subscriber(TenantMembership.Role.ADMIN, number=33)
+        body = self.client.get("/auth/me").json()
+
+        reported = set(body["permissions"])
+        self.assertEqual(reported, set(access.SUBSCRIBER_ROLES["admin"]))
+
+        # And the pair an admin must not hold is genuinely absent from both.
+        self.assertNotIn(access.STAFF_MANAGE, reported)
+        self.assertEqual(self.client.get("/brn/staff-assignments/").status_code, 403)
+
+    def test_an_admin_may_configure_tax_and_not_rename_the_business(self):
+        """
+        The settings split. A VAT rate change is ordinary work; the
+        organisation's registered identity is the owner's.
+        """
+        self.as_subscriber(TenantMembership.Role.ADMIN, number=34)
+        body = self.client.get("/auth/me").json()
+
+        self.assertIn(access.SETTINGS_TAX, body["permissions"])
+        self.assertNotIn(access.SETTINGS_ORGANISATION, body["permissions"])
+
+        made = self.client.post(
+            "/sls/tax-rules/",
+            {
+                "organization": self.org.pk,
+                "name": "VAT 16%",
+                "rate": "16.00",
+                "is_inclusive": True,
+                "is_default": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(made.status_code, 201, made.content)
+
+        renamed = self.client.patch(
+            f"/org/organizations/{self.org.pk}/",
+            {"name": "Something Else Entirely"},
+            content_type="application/json",
+        )
+        self.assertEqual(renamed.status_code, 403)
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.name, "Shop A")
+
+    def test_an_owner_may_rename_the_business(self):
+        """The control for the refusal above."""
+        self.as_subscriber(TenantMembership.Role.OWNER, number=35)
+        renamed = self.client.patch(
+            f"/org/organizations/{self.org.pk}/",
+            {"name": "Shop A Holdings"},
+            content_type="application/json",
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.content)
+
+    def test_a_till_is_told_its_permissions_per_branch(self):
+        """
+        A cashier at Westlands and manager at Karen must not be shown a Refund
+        button at Westlands. The union says "somewhere, yes"; the per-branch
+        map is what a screen should actually draw from.
+        """
+        jane = a_staff(
+            self.org, name="Jane Cashier", email="jane@a.co.ke", id_number=1001
+        )
+        assign(jane, self.westlands, staffAssignment.StaffRoles.Cashier)
+        assign(jane, self.karen, staffAssignment.StaffRoles.AssistantManager)
+        credential = a_till(self.org, jane, "jane")
+        _, token = services.open_staff_session(credential)
+
+        body = self.client.get(
+            "/auth/me", HTTP_AUTHORIZATION=f"Bearer {token}"
+        ).json()
+
+        self.assertEqual(body["kind"], "staff")
+        self.assertEqual(
+            sorted(body["branches"]), sorted([self.westlands.pk, self.karen.pk])
+        )
+
+        at_westlands = body["permissions_by_branch"][str(self.westlands.pk)]
+        at_karen = body["permissions_by_branch"][str(self.karen.pk)]
+
+        self.assertNotIn(access.SALES_REFUND, at_westlands)
+        self.assertIn(access.SALES_REFUND, at_karen)
+        # The union still says yes, which is why a screen must not use it.
+        self.assertIn(access.SALES_REFUND, body["permissions"])

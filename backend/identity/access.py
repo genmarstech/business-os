@@ -81,7 +81,26 @@ REPORTS_ORGANISATION = "reports.organisation"
 BRANCH_MANAGE = "branch.manage"
 REGISTER_MANAGE = "register.manage"
 STAFF_MANAGE = "staff.manage"
-SETTINGS_MANAGE = "settings.manage"
+
+# ── SETTINGS IS TWO PERMISSIONS, NOT ONE ────────────────────────────────────
+#
+# It was one, and the bundle was wrong. Tax configuration and the
+# organisation's own identity are both "settings" in a menu and are not the
+# same authority:
+#
+#   · SETTINGS_TAX changes what future receipts charge. It is ordinary
+#     operational work — a VAT rate changes, somebody has to enter it — and
+#     an org admin who cannot do it has to fetch the owner to run the shop.
+#   · SETTINGS_ORGANISATION changes what the business IS: its registered
+#     name, and eventually the billing identity every invoice inherits.
+#     gen-portal reserves the equivalent to a founder for the same reason,
+#     and it is the one an admin should not hold.
+#
+# Neither is retroactive: TaxRule.rate is copied onto every SaleItem at the
+# moment of sale, so changing a rate cannot rewrite what was already charged.
+# That is what makes granting the first one safe.
+SETTINGS_TAX = "settings.tax"
+SETTINGS_ORGANISATION = "settings.organisation"
 
 KNOWN = frozenset(
     {
@@ -91,7 +110,8 @@ KNOWN = frozenset(
         CATALOG_VIEW, CATALOG_MANAGE,
         CUSTOMER_VIEW, CUSTOMER_MANAGE,
         REPORTS_BRANCH, REPORTS_ORGANISATION,
-        BRANCH_MANAGE, REGISTER_MANAGE, STAFF_MANAGE, SETTINGS_MANAGE,
+        BRANCH_MANAGE, REGISTER_MANAGE, STAFF_MANAGE,
+        SETTINGS_TAX, SETTINGS_ORGANISATION,
     }
 )
 
@@ -101,13 +121,15 @@ KNOWN = frozenset(
 _OWNER = KNOWN  # everything, by definition of owning the business
 
 _ADMIN = KNOWN - {
-    # An admin runs the business day to day. What is withheld is the pair that
-    # can quietly change what the organisation IS — who else may administer
-    # it, and the tax and billing configuration every future receipt inherits.
-    # Same instinct as gen-portal reserving `can_manage_access` to a founder:
-    # the permission that grants every other permission is the narrow one.
+    # An admin runs the business day to day, tax configuration included —
+    # see the note on the two settings permissions above.
+    #
+    # What is withheld is the pair that changes what the organisation IS:
+    # who else may administer it, and its own registered identity. Same
+    # instinct as gen-portal reserving `can_manage_access` to a founder — the
+    # permission that grants every other permission is the narrow one.
     STAFF_MANAGE,
-    SETTINGS_MANAGE,
+    SETTINGS_ORGANISATION,
 }
 
 _ACCOUNTANT = frozenset(
