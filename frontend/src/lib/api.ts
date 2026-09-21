@@ -195,6 +195,25 @@ export async function getOrNull<T>(path: string): Promise<T | null> {
  * looks like a permission problem.
  */
 export async function post<T>(path: string, body: unknown): Promise<T> {
+  return write<T>("POST", path, body);
+}
+
+/**
+ * PATCH `path` — a partial update.
+ *
+ * Shares every line of `post` below, and must: the CSRF token, the forwarded
+ * cookie and the referer are not per-verb concerns, and a second copy is a
+ * second place for one of them to be forgotten.
+ */
+export async function patch<T>(path: string, body: unknown): Promise<T> {
+  return write<T>("PATCH", path, body);
+}
+
+async function write<T>(
+  method: "POST" | "PATCH",
+  path: string,
+  body: unknown,
+): Promise<T> {
   const jar = await cookies();
   const token = jar.get("csrftoken")?.value ?? "";
 
@@ -208,13 +227,13 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
    * Signing in again mints one.
    */
   if (!token) {
-    throw new ApiError(`POST ${path} → no CSRF token`, 403, {
+    throw new ApiError(`${method} ${path} → no CSRF token`, 403, {
       detail: "Your sign-in needs refreshing before you can save changes. Sign in again.",
     });
   }
 
   const response = await fetch(`${ORIGIN}${path}`, {
-    method: "POST",
+    method,
     headers: {
       ...(await forwarded()),
       "content-type": "application/json",
@@ -236,7 +255,7 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
       parsed = undefined;
     }
     throw new ApiError(
-      `POST ${path} → ${response.status}`,
+      `${method} ${path} → ${response.status}`,
       response.status,
       parsed,
     );

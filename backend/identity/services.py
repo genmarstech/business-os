@@ -248,6 +248,187 @@ def revoke_all_sessions(credential: StaffCredential) -> int:
     ).update(revoked_at=timezone.now())
 
 
+# ── issuing and withdrawing a till login ─────────────────────────────────────
+#
+# A shop's manager decides who may open a till. These four functions are the
+# whole of that decision, and they are here rather than in a serialiser for the
+# same reason everything else in this file is: the day a credential needs a
+# device check, a PIN length, or an expiry, this is the file to read.
+
+
+MINIMUM_PASSWORD_LENGTH = 8
+
+
+class CredentialError(Exception):
+    """
+    A refusal a MANAGER is expected to read and act on.
+
+    Deliberately not AuthError. AuthError's whole purpose is to say the same
+    thing whatever went wrong, because the person reading it may be probing for
+    usernames. This is the opposite situation: a manager setting up their own
+    employee needs to be told exactly what is wrong with what they typed, and
+    they already know who works for them.
+    """
+
+
+@transaction.atomic
+def issue_credential(*, staff, username: str, password: str) -> StaffCredential:
+    """
+    Give an employee a way into a till.
+
+    ⚠ THE ORGANISATION IS TAKEN FROM THE STAFF RECORD, NEVER FROM A REQUEST.
+
+    Blueprint §8. A caller who could name the organisation could attach a
+    credential they control to somebody else's shop — and because sign-in takes
+    the organisation as a parameter, that credential would then WORK there.
+    `staff` has already been scoped to the caller's tenant by the time it
+    reaches here; deriving from it is what keeps that scoping meaningful.
+    """
+    username = (username or "").strip()
+    if not username:
+        raise CredentialError("Choose a username for them.")
+
+    _check_password_quality(password, username)
+
+    # Per tenant, never globally — see the banner on StaffCredential. Checked
+    # here as well as by the constraint so the answer is a sentence rather than
+    # an IntegrityError, and case-insensitively because nobody types a username
+    # the same way twice.
+    clash = StaffCredential.objects.filter(
+        organization_id=staff.organization_id, username__iexact=username
+    ).exists()
+    if clash:
+        raise CredentialError(
+            f"Somebody in this business already signs in as {username}."
+        )
+
+    if StaffCredential.objects.filter(staff=staff).exists():
+        raise CredentialError(
+            f"{staff.full_name} already has a sign-in. Reset its password "
+            "instead of making a second one."
+        )
+
+    credential = StaffCredential(
+        staff=staff,
+        organization_id=staff.organization_id,
+        username=username,
+        # True by default on the model, and true in fact: a manager who types
+        # somebody's first password knows it, so nothing that person does is
+        # solely attributable to them until they change it.
+        must_change_password=True,
+    )
+    credential.set_password(password)
+    credential.full_clean(exclude=["password"])
+    credential.save()
+    return credential
+
+
+@transaction.atomic
+def reset_password(*, credential: StaffCredential, password: str) -> None:
+    """
+    A manager sets a new password — for somebody who has forgotten theirs.
+
+    Every session ends with it. A password reset that leaves the old sessions
+    running protects nobody: the reason to reset is usually that somebody else
+    may know the old one, and a till left signed in is exactly where they would
+    be using it.
+    """
+    _check_password_quality(password, credential.username)
+
+    credential.set_password(password)
+    credential.must_change_password = True
+    credential.failed_sign_ins = 0
+    credential.locked_until = None
+    credential.save(
+        update_fields=[
+            "password",
+            "must_change_password",
+            "failed_sign_ins",
+            "locked_until",
+            "updated_at",
+        ]
+    )
+    revoke_all_sessions(credential)
+
+
+@transaction.atomic
+def change_own_password(
+    *, credential: StaffCredential, current: str, replacement: str
+) -> None:
+    """
+    The cashier changes their own, and only then is `must_change_password` off.
+
+    The current password is required even though the caller is already holding
+    a valid session: a till left unattended is the normal state of a till, and
+    without this anybody passing it could lock the real cashier out of their
+    own login.
+
+    Their OTHER sessions end; the one making this call does not, because
+    signing somebody out of the till they are standing at, as a reward for
+    doing what they were asked, is not a security measure.
+    """
+    if not credential.check_password(current or ""):
+        raise CredentialError("That is not your current password.")
+
+    _check_password_quality(replacement, credential.username)
+
+    if credential.check_password(replacement):
+        raise CredentialError("Choose a password you have not just been using.")
+
+    credential.set_password(replacement)
+    credential.must_change_password = False
+    credential.save(
+        update_fields=["password", "must_change_password", "updated_at"]
+    )
+
+
+@transaction.atomic
+def set_credential_active(*, credential: StaffCredential, active: bool) -> None:
+    """
+    Withdraw or restore a till login. The personnel record is untouched.
+
+    Turning it off ends every session immediately rather than at expiry. The
+    moment somebody is walked off the premises is the moment this has to take
+    effect, not up to eight hours later.
+    """
+    if credential.is_active == active:
+        return
+
+    credential.is_active = active
+    if active:
+        # Somebody coming back should not inherit a lockout from before.
+        credential.failed_sign_ins = 0
+        credential.locked_until = None
+    credential.save(
+        update_fields=["is_active", "failed_sign_ins", "locked_until", "updated_at"]
+    )
+
+    if not active:
+        revoke_all_sessions(credential)
+
+
+def _check_password_quality(password: str, username: str) -> None:
+    """
+    The floor, and only the floor.
+
+    Deliberately not Django's AUTH_PASSWORD_VALIDATORS. Those are tuned for a
+    person choosing their own password at leisure on a keyboard; this is a
+    manager typing one for a cashier who will enter it on a touchscreen at the
+    start of every shift, and a common-password list that rejects what they
+    picked without saying why produces a sticky note on the monitor.
+
+    What is here is what is actually dangerous: something short enough to
+    guess, or the username itself.
+    """
+    password = password or ""
+    if len(password) < MINIMUM_PASSWORD_LENGTH:
+        raise CredentialError(
+            f"Passwords need at least {MINIMUM_PASSWORD_LENGTH} characters."
+        )
+    if password.strip().lower() == (username or "").strip().lower():
+        raise CredentialError("The password cannot be the username.")
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 _SIGN_ON_FAILED = "That sign-in could not be completed. Start again."

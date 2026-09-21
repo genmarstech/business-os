@@ -6,11 +6,13 @@ Four of them: two for a subscriber arriving from Genmars, two for a till.
 
 from __future__ import annotations
 
+from django.db import IntegrityError
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import ensure_csrf_cookie
-from rest_framework import status
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
@@ -18,8 +20,14 @@ from rest_framework.views import APIView
 
 from . import access, services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
-from .models import PlatformAccount
+from .models import PlatformAccount, StaffCredential
 from .permissions import IsKnownPrincipal, tenant_scope
+from .scoping import TenantScoped
+from .serializers import (
+    ChangeOwnPasswordSerializer,
+    PasswordSerializer,
+    StaffCredentialSerializer,
+)
 
 
 def wants_html(request) -> bool:
@@ -300,6 +308,10 @@ class WhoAmIView(APIView):
                     "kind": "staff",
                     "name": principal.staff.full_name,
                     "username": principal.credential.username,
+                    # The till draws a "choose your own password" screen from
+                    # this. Until they do, nothing they ring up is solely
+                    # attributable to them — the manager typed it and knows it.
+                    "must_change_password": principal.credential.must_change_password,
                     "organisation": {
                         "id": principal.organization_id,
                         "name": principal.organization.name,
@@ -341,3 +353,165 @@ class WhoAmIView(APIView):
             )
 
         return Response({"kind": "unknown"}, status=status.HTTP_403_FORBIDDEN)
+
+
+class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
+    """
+    Who may open a till, decided by the business that employs them.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THIS IS THE ONLY WAY A TILL LOGIN COMES INTO EXISTENCE.
+
+    Until it existed, a shop could complete onboarding, stock its shelves and
+    stand somebody at a register who then had no way to sign in — the last
+    step of the product was unreachable through the API at all.
+
+    ⚠ A CREDENTIAL HERE MUST NEVER AUTHENTICATE AGAINST api.genmars.co.ke.
+      Two credential stores, no crossover — CLAUDE.md, decided 2026-09-21.
+      These people are the customer's employees, not Genmars'. Nothing in this
+      viewset may grow a path that mints a PlatformAccount, and nothing may
+      accept a Genmars token as authority over one of these rows.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── DELETE IS NOT HERE, AND THAT IS THE POINT ──────────────────────────
+    `set_active` withdraws a login; the row stays. Blueprint §10 keeps
+    transaction history immutable, and a sale that records who rang it up is
+    worth nothing if the cashier can be deleted out from under it. Somebody
+    leaving is `is_active: false`, which ends their sessions at once.
+    """
+
+    tenant_path = "organization_id"
+    # StaffCredential reaches a branch only through the staff record's
+    # assignments, which is a many-to-many in practice — a person can work at
+    # two. There is nothing to confine here, so the organisation is the scope,
+    # and STAFF_MANAGE is organisation-wide authority in every role that has
+    # it. Saying so explicitly rather than leaving `branch_path` to default.
+    branch_path = None
+    default_permission = access.STAFF_MANAGE
+    queryset = StaffCredential.objects.select_related("staff", "organization")
+    serializer_class = StaffCredentialSerializer
+    # Deleting is refused rather than absent, so a client that tries is told
+    # why instead of receiving a 405 it will read as a routing mistake.
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        """
+        Issue a login.
+
+        The serializer validates shape and, through TenantScoped, that the
+        staff record is the caller's own. Everything else — uniqueness, the
+        password floor, the derived organisation — belongs to
+        services.issue_credential, so a second caller cannot skip it.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # TenantScoped.perform_create is what normally runs the scope check on
+        # the resolved foreign keys. This path does not call it, so the check
+        # is run here by hand — without it, `staff` could be anybody's.
+        self.refuse_out_of_scope(serializer.validated_data)
+
+        try:
+            credential = services.issue_credential(
+                staff=serializer.validated_data["staff"],
+                username=serializer.validated_data["username"],
+                password=serializer.validated_data["password"],
+            )
+        except services.CredentialError as error:
+            return Response(
+                {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except IntegrityError:
+            # The uniqueness constraint, reached despite the check above by two
+            # managers creating the same username at the same moment. Rare, and
+            # a 500 for a race is still a bug.
+            return Response(
+                {"detail": "That username was just taken. Choose another."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            self.get_serializer(credential).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        """A manager sets a new password. Every session of theirs ends with it."""
+        credential = self.get_object()
+        form = PasswordSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+
+        try:
+            services.reset_password(
+                credential=credential, password=form.validated_data["password"]
+            )
+        except services.CredentialError as error:
+            return Response(
+                {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(self.get_serializer(credential).data)
+
+    @action(detail=True, methods=["post"], url_path="set-active")
+    def set_active(self, request, pk=None):
+        """
+        Withdraw or restore the login. `{"is_active": false}`.
+
+        Separate from PATCH so the side effect is visible in the URL: turning
+        this off revokes every live session, which is not what a reader of
+        `PATCH {"is_active": false}` would necessarily expect.
+        """
+        credential = self.get_object()
+        wanted = request.data.get("is_active")
+        if not isinstance(wanted, bool):
+            return Response(
+                {"is_active": "Send true or false."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        services.set_credential_active(credential=credential, active=wanted)
+        return Response(self.get_serializer(credential).data)
+
+
+class ChangeOwnPasswordView(APIView):
+    """
+    A cashier replacing the password their manager typed for them.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE ONLY ENDPOINT IN THE APPLICATION A TILL MAY CALL ABOUT ITS OWN
+    CREDENTIAL, AND IT CAN ONLY EVER REACH ITS OWN.
+
+    There is no id in the URL and none is accepted. The credential comes from
+    the authenticated session and nothing else, so there is no parameter to
+    tamper with — which is why this is a plain view rather than another action
+    on the viewset above, where STAFF_MANAGE would have been required and no
+    cashier holds it.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    permission_classes = [IsKnownPrincipal]
+
+    def post(self, request):
+        if not isinstance(request.user, StaffPrincipal):
+            # A subscriber has no password here to change — their identity is
+            # Genmars' and is changed at Genmars.
+            return Response(
+                {"detail": "Only till staff have a password on this platform."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        form = ChangeOwnPasswordSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+
+        try:
+            services.change_own_password(
+                credential=request.user.credential,
+                current=form.validated_data["current_password"],
+                replacement=form.validated_data["new_password"],
+            )
+        except services.CredentialError as error:
+            return Response(
+                {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
