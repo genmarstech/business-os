@@ -1,0 +1,246 @@
+/*
+ * Catalogue and tax.
+ *
+ * Shared by both screens: they are the same table of the same shape over two
+ * tables in the database, and a second copy of this would drift.
+ *
+ * Semantic tokens only — never a brand constant as a background beside
+ * semantic ink. See the guard in scripts/check-theme-tokens.mjs.
+ */
+
+.page {
+  max-width: 70rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 26px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 64ch;
+}
+
+.saved {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.form {
+  margin-top: 6px;
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  margin: 0;
+  max-width: 64ch;
+}
+
+/* ── the table ──────────────────────────────────────────────────────────── */
+
+/* Its own scroll container: a price table is wider than a phone and the page
+   body must never scroll sideways. */
+.scroll {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 12px 14px 12px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Money lines up only if the digits do. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: 0 !important;
+}
+
+.table thead th.num {
+  text-align: right;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Still listed, still in every report it was ever in — just not sellable. */
+.withdrawn td {
+  opacity: 0.55;
+}
+
+.loss {
+  color: var(--danger);
+}
+
+.quiet {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  cursor: pointer;
+}
+
+.quiet:hover {
+  color: var(--ink);
+}
+
+/* ── categories ─────────────────────────────────────────────────────────── */
+
+.chips {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--sunken);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+
+.chipCount {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ── tax ────────────────────────────────────────────────────────────────── */
+
+.checks {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 2px;
+  accent-color: var(--accent-fill);
+}
+
+.check strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.note {
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  padding: 13px 15px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.note strong {
+  color: var(--ink);
+  font-weight: 500;
+}
