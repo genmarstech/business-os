@@ -1,0 +1,192 @@
+/* The two things the root route can be: a front door, or an empty dashboard. */
+
+.page {
+  padding-block: clamp(28px, 5vw, 44px) 0;
+}
+
+.wrap {
+  max-width: 1080px;
+  padding-inline: clamp(16px, 4vw, 40px);
+}
+
+.head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 22px;
+  margin-bottom: 26px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 10px;
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.6rem, 3.6vw, 2.2rem);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 10px 0 0;
+  max-width: 62ch;
+}
+
+/*
+ * The empty state.
+ *
+ * It says what to do next rather than "no data". A dashboard with nothing on
+ * it is the FIRST thing every new subscriber sees, and "no data yet" tells
+ * them nothing about how to change that.
+ */
+.empty {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(24px, 4vw, 38px);
+}
+
+.emptyTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.15rem;
+  margin: 0 0 8px;
+}
+
+.emptyBody {
+  color: var(--ink-muted);
+  margin: 0 0 20px;
+  max-width: 58ch;
+}
+
+.steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--app);
+}
+
+/*
+ * Numbered because it IS a sequence — a branch needs a business, a register
+ * needs a branch, a sale needs a register. The order carries information the
+ * reader needs, which is the only reason to number anything.
+ */
+.step::before {
+  counter-increment: step;
+  content: counter(step);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  text-align: center;
+  line-height: 22px;
+  height: 24px;
+}
+
+.stepName {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.stepNote {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.stepDone .stepName {
+  color: var(--ink-muted);
+}
+
+/* ── the anonymous front door ──────────────────────────────────────────── */
+
+.door {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+}
+
+.doorCard {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.doorBrand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 26px;
+}
+
+.doorName {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.doorPlatform {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.doorPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(22px, 4vw, 30px);
+}
+
+.button {
+  display: inline-block;
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 11px 20px;
+  font-weight: 600;
+  font-size: 14.5px;
+  text-decoration: none;
+}
+
+.button:hover {
+  filter: brightness(1.07);
+}
+
+.note {
+  border-left: 3px solid var(--accent);
+  padding: 12px 15px;
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  background: var(--app);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+
+.note strong {
+  color: var(--ink);
+}

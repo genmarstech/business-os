@@ -20,6 +20,17 @@ from .models import PlatformAccount
 from .permissions import IsTenantMember, tenant_scope
 
 
+def wants_html(request) -> bool:
+    """
+    Is this a browser following a redirect, or code calling an API?
+
+    Asked of the ACCEPT header rather than guessed from a user agent. A browser
+    asks for text/html explicitly; curl, a server and anything scripted send
+    `*/*` and must keep getting JSON.
+    """
+    return "text/html" in request.META.get("HTTP_ACCEPT", "")
+
+
 class LandingView(View):
     """
     The root of business.genmars.co.ke.
@@ -67,17 +78,21 @@ class SignOnCallbackView(APIView):
     arrives in is somebody else's link being clicked, and the code in it must
     never be spent.
 
-    ── TWO RENDERINGS OF ONE ANSWER ────────────────────────────────────────
-    This is the only endpoint here reached by a browser rather than by code,
-    and it was returning raw JSON to it — the last screen of a sign-in being a
-    wall of braces. The body below is unchanged and remains the contract; a
-    browser is handed the same facts as a page.
+    ── A BROWSER IS SENT ON; CODE IS ANSWERED ──────────────────────────────
+    This is the only endpoint here reached by a browser rather than by code.
+    It used to render a "you are signed in, there is nowhere to go" page,
+    which was true while no frontend existed. There is one now, so a browser
+    is redirected into it and the page is gone.
 
-    JSONRenderer is listed FIRST on purpose. Content negotiation walks the
-    client's Accept header in quality order, so a browser — which asks for
-    text/html at q=1 — gets the template, while curl and anything else sending
-    `*/*` falls to the first renderer and still gets JSON. Reversing these two
-    would quietly turn every scripted call into an HTML page.
+    The JSON body is unchanged and remains the contract for anything calling
+    this as an API. JSONRenderer is listed FIRST on purpose: content
+    negotiation walks the client's Accept header in quality order, so a
+    browser — which asks for text/html at q=1 — is redirected, while curl and
+    anything else sending `*/*` falls to the first renderer and still gets the
+    body. Reversing the two would quietly turn every scripted call into a 302.
+
+    ⚠ The redirect target is "/", which Caddy routes to the Next application
+      and NOT back here. Sending them to a path Django also serves would loop.
     """
 
     permission_classes = [AllowAny]
@@ -109,6 +124,12 @@ class SignOnCallbackView(APIView):
 
         memberships = list(services.tenants_for(account))
 
+        # A browser goes to the application. The client decides between the
+        # dashboard and the "create your business" screen from /auth/me —
+        # `needs_a_business` below is the same fact, for API callers.
+        if wants_html(request):
+            return redirect("/")
+
         return Response(
             {
                 "account": {"email": account.email, "full_name": account.full_name},
@@ -138,8 +159,7 @@ class SignOnCallbackView(APIView):
                 # uses it to decide between the dashboard and the "create your
                 # business" screen; the server does not care either way.
                 "needs_a_business": not memberships,
-            },
-            template_name="identity/signed_in.html",
+            }
         )
 
 

@@ -444,10 +444,11 @@ class BrowserFacingPageTests(TestCase):
             for reason in ("state_mismatch", "no_code", "state", "reason"):
                 self.assertNotIn(reason, body, f"{query} leaked {reason!r}")
 
-    def test_a_browser_gets_a_page_after_a_successful_sign_in(self):
+    def test_a_browser_is_sent_into_the_application_after_signing_in(self):
         """
-        The success path, with the portal's answer stubbed — the point is the
-        rendering, not the round trip, which test_identity covers elsewhere.
+        It used to render a "there is nowhere to go from here" page, which was
+        true while no frontend existed. Now a browser is redirected to "/",
+        which Caddy routes to Next — never back to Django, which would loop.
         """
         state = "a-state-that-matches"
         session = self.client.session
@@ -471,20 +472,21 @@ class BrowserFacingPageTests(TestCase):
                 HTTP_ACCEPT="text/html,*/*;q=0.8",
             )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/html", response["Content-Type"])
-        body = response.content.decode()
-        self.assertIn("owner@shop.co.ke", body)
-        # No membership was made, so the page must say so rather than imply a
-        # working account.
-        self.assertIn("none yet", body)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/")
 
-    def test_the_signed_in_page_does_not_show_the_token_s_organisations(self):
+        # And the session really was opened — a redirect with no session is
+        # the failure this test would otherwise pass straight through.
+        self.assertEqual(
+            PlatformAccount.objects.filter(email="owner@shop.co.ke").count(), 1
+        )
+
+    def test_the_token_s_organisations_never_become_memberships(self):
         """
         `genmars_organisations` is echoed from the token and confers nothing.
-        Printing it beside the real memberships is how somebody comes to read
-        it as authority — which is the exact confusion SignOnCallbackView's
-        comment warns about.
+        If it were ever read as authority, signing in would silently grant
+        access to a tenant nobody created — the exact confusion
+        SignOnCallbackView's comment warns about.
         """
         state = "another-state"
         session = self.client.session
@@ -503,12 +505,15 @@ class BrowserFacingPageTests(TestCase):
             "organisations": [{"id": 7, "name": "Kilimani Dental"}],
         }
         with mock.patch.object(signon, "exchange_code", return_value=payload):
-            body = self.client.get(
+            response = self.client.get(
                 reverse("sign-on-callback") + f"?code=good&state={state}",
-                HTTP_ACCEPT="text/html",
-            ).content.decode()
+                HTTP_ACCEPT="*/*",
+            )
 
-        self.assertNotIn("Kilimani Dental", body)
+        # It is echoed in the API body as an onboarding hint — that is its
+        # documented purpose — but it must never have become a membership.
+        self.assertEqual(response.json()["organisations"], [])
+        self.assertEqual(TenantMembership.objects.count(), 0)
 
     def test_the_pages_carry_no_inline_style(self):
         """
@@ -534,10 +539,6 @@ class BrowserFacingPageTests(TestCase):
                 self.client.get("/", HTTP_ACCEPT="text/html"),
                 self.client.get(
                     reverse("sign-on-callback"), HTTP_ACCEPT="text/html"
-                ),
-                self.client.get(
-                    reverse("sign-on-callback") + f"?code=good&state={state}",
-                    HTTP_ACCEPT="text/html",
                 ),
             ]
 

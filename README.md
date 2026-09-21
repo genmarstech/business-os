@@ -145,6 +145,40 @@ These are written down rather than left to be rediscovered.
   field and its comment are still there and still misleading.
 - **`StaffCredential.must_change_password`** is written but never enforced.
 
+## The frontend
+
+`frontend/` is a Next.js application served from the **same host** as the API.
+That is not a preference: `/auth/callback` sets a Django session cookie on
+`business.genmars.co.ke` with no `Domain` attribute, so the browser scopes it
+to that exact host. Serve the app from another origin and the cookie stops
+travelling, which presents as "signing in does nothing" with no error anywhere.
+
+Caddy splits by path — `/static/*` off disk, the API prefixes to Django on
+8020, everything else to Next on 3030. The rewrites in `next.config.ts` are
+for `next dev`, where there is no Caddy.
+
+`API_ORIGIN` is set **twice and neither is redundant**: as a build arg,
+because Next bakes rewrites into `routes-manifest.json` at build time; and at
+runtime, because `src/lib/api.ts` reads it per request for server-component
+fetches. gen-portal once shipped the half that looks fine.
+
+```bash
+cd frontend
+npm run dev        # :3030, expects Django on :8020
+npm run verify     # check:theme && typecheck && build — before pushing
+```
+
+`scripts/check-theme-tokens.mjs` is the same guard the other three Genmars
+frontends carry. Brand constants are fixed colours; semantic tokens flip with
+the theme, and using one as the other produces a light band with light text.
+That shipped once already, on the marketing site.
+
+The palette, typography and the rest of the plan are in
+**[the design system spec](https://claude.ai/artifact/7pixS2nV9ArYErfB7urD1g)**.
+The one rule most easily lost: **Ignition `#db7b51` is 2.75:1 on the light
+ground** and must never carry small text there — accent text on light is
+Mahogany at 6.02:1. On dark, Ignition reaches 5.78:1 and the tokens flip.
+
 ## Running the tests
 
 ```bash

@@ -1,0 +1,206 @@
+/*
+ * Genmars Business Platform — design tokens.
+ *
+ * Brand constants come from 06-brand/README.md, by way of
+ * gen-website/src/app/globals.css. They are NOT re-chosen here and must not be
+ * edited in this file — if a brand colour changes it changes in the brand
+ * document first.
+ *
+ * ── TOKEN ARCHITECTURE ──────────────────────────────────────────────────────
+ * Brand constants never change between themes. Semantic tokens do.
+ *
+ *   :root                                  light values (the default)
+ *   @media (prefers-color-scheme: dark)    system dark, unless "light" is chosen
+ *   :root[data-theme="dark"]               explicit dark choice
+ *
+ * Never give a colour its only definition inside a media or [data-theme] block.
+ * scripts/check-theme-tokens.mjs enforces the other half: a brand constant used
+ * as a background while the text uses a semantic token produces a light band
+ * with light text in one theme. That shipped once, on the marketing site.
+ *
+ * ── WHY THIS IS NOT THE MARKETING PALETTE ───────────────────────────────────
+ * genmars.co.ke sits on Canvas (#e9e3df) and Surface (#f4efec) — warm,
+ * editorial, right for a page somebody reads once. This is looked at for eight
+ * hours a day, so the ground is a half-step cooler and panels are plain white.
+ * Dense numeric tables read cleanly on it, and the warm accent stays the only
+ * warm thing on the screen. Same family, not the brochure.
+ *
+ * ── CONTRAST, MEASURED ──────────────────────────────────────────────────────
+ * Ratios below are computed against the app ground, not estimated. Charter
+ * 04 §IV: an accessibility claim is a claim.
+ *
+ * ⚠ IGNITION IS 2.75:1 ON THE LIGHT GROUND. It fails AA for text there and is
+ *   used for rules, bar fills, focus glow and display type above ~28px ONLY.
+ *   Accent TEXT on light is Mahogany at 6.02:1. On dark, Ignition reaches
+ *   5.78:1, which is why the dark theme flips --accent-text and --accent-fill
+ *   to it and the light theme does not.
+ */
+
+:root {
+  /* ---- Genmars brand constants — identical in every theme ---- */
+  --deep-well: #2e2b34;
+  --mahogany: #834f49;
+  --imperial-topaz: #8b5a48;
+  --wild-ginger: #82555b;
+  --ignition: #db7b51;
+  --canvas: #e9e3df;
+
+  /* ---- surfaces ---- */
+  --app: #f6f4f2;
+  --panel: #ffffff;
+  --sunken: #eceae7;
+  --line: #e0dcd9;
+  --line-firm: #c9c3c0;
+
+  /* ---- ink ---- */
+  --ink: #2e2b34; /* 12.67:1 */
+  --ink-muted: #5c5663; /* 6.45:1 */
+  --ink-faint: #6f6876; /* 4.89:1 */
+
+  /* ---- accent ---- */
+  --accent: #db7b51; /* non-text only on light — see the banner */
+  --accent-text: #834f49; /* 6.02:1 */
+  --accent-fill: #834f49;
+  --on-fill: #ffffff; /* 6.60:1 on the fill */
+
+  /* ---- state ---- */
+  --ok: #2f6b4f; /* 5.74:1 */
+  --warn: #8a5a12; /* 5.39:1 */
+  --danger: #9b3324; /* 6.62:1 */
+  --ok-bg: #e8f0ea;
+  --warn-bg: #f6efdf;
+  --danger-bg: #f7e8e5;
+
+  --focus: #8b5a48;
+
+  --font-brand: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+  --font-ui: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --r-sm: 4px;
+  --r-md: 7px;
+  --r-lg: 11px;
+
+  --sidebar: 236px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app: #1b191f;
+    --panel: #232027;
+    --sunken: #141317;
+    --line: #322e38;
+    --line-firm: #46414e;
+
+    --ink: #f1eff2; /* 15.24:1 */
+    --ink-muted: #b3aebb; /* 8.04:1 */
+    --ink-faint: #9a94a4; /* 5.93:1 */
+
+    --accent-text: #db7b51; /* 5.78:1 — safe as text here */
+    --accent-fill: #db7b51;
+    --on-fill: #2e2b34; /* 4.61:1 on the fill; never white */
+
+    --ok: #5fae86; /* 6.54:1 */
+    --warn: #d9a441; /* 7.75:1 */
+    --danger: #e8836f; /* 6.56:1 */
+    --ok-bg: #1d2b24;
+    --warn-bg: #2b2517;
+    --danger-bg: #2e1e1c;
+
+    --focus: #db7b51;
+  }
+}
+
+:root[data-theme="dark"] {
+  --app: #1b191f;
+  --panel: #232027;
+  --sunken: #141317;
+  --line: #322e38;
+  --line-firm: #46414e;
+
+  --ink: #f1eff2;
+  --ink-muted: #b3aebb;
+  --ink-faint: #9a94a4;
+
+  --accent-text: #db7b51;
+  --accent-fill: #db7b51;
+  --on-fill: #2e2b34;
+
+  --ok: #5fae86;
+  --warn: #d9a441;
+  --danger: #e8836f;
+  --ok-bg: #1d2b24;
+  --warn-bg: #2b2517;
+  --danger-bg: #2e1e1c;
+
+  --focus: #db7b51;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--app);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Every figure a person compares.
+ *
+ * A column of money whose digits do not line up is the fastest way for a
+ * finance screen to look amateur, and Plex Sans does not default to tabular.
+ */
+.num,
+table,
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--accent-text);
+}
+
+/*
+ * One focus style, visible in both themes, never removed.
+ *
+ * :focus-visible rather than :focus so a mouse click on a button does not
+ * leave a ring behind, while a keyboard or scanner user keeps one. The till is
+ * operated almost entirely from a keyboard — losing focus visibility there is
+ * losing the ability to use it.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+button {
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

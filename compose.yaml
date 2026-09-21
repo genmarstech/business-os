@@ -150,6 +150,67 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # The web application.
+  #
+  # ⚠ API_ORIGIN IS SET TWICE, AND NEITHER IS REDUNDANT.
+  #
+  #   as a BUILD ARG  — next.config.ts resolves its rewrites at build time and
+  #                     bakes them into routes-manifest.json. A runtime value
+  #                     has no effect on them whatsoever.
+  #   at RUNTIME      — frontend/src/lib/api.ts reads it per request, for
+  #                     server-component fetches to Django.
+  #
+  # gen-portal shipped the half of this that looks fine: the variable present
+  # and correct in `docker compose exec web env` the whole time it was doing
+  # nothing, while every proxied call returned ECONNREFUSED.
+  # ───────────────────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_ORIGIN: http://api:8020
+    image: ghcr.io/genmarstech/business-platform-web:latest
+    restart: unless-stopped
+
+    depends_on:
+      api:
+        condition: service_started
+
+    networks:
+      # `edge` only. The web container has no business reaching the database —
+      # everything it knows comes through the API, which is what makes the
+      # tenant scoping in identity/scoping.py the single gate it claims to be.
+      - edge
+
+    environment:
+      API_ORIGIN: http://api:8020
+
+    # ⚠ LOOPBACK ONLY, like the API. Caddy is the single public way in.
+    ports:
+      - "127.0.0.1:3030:3030"
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777,noexec,nosuid,nodev
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   # Split so the database is not on the same network as anything that talks to
   # the outside world. Only `api` is on both, and it is the only thing that
@@ -157,6 +218,7 @@ networks:
   data:
     internal: true
   edge:
+
 
 volumes:
   business-platform-db:
