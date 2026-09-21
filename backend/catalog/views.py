@@ -4,6 +4,7 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from .serializers import CatalogCategoriesSerializers, CatalogCategoryProductSerializer
 from .models import CatalogCategories, CatalogCategoryProduct
+from identity.scoping import TenantScoped
 
 
 # Create your views here.
@@ -13,12 +14,14 @@ def greetings(request):
 
     return Response({'message': message})
 
-class CatalogCategoriesViewSets(viewsets.ModelViewSet):
+class CatalogCategoriesViewSets(TenantScoped, viewsets.ModelViewSet):
 
+    tenant_path = "organization_id"
     queryset = CatalogCategories.objects.all()
     serializer_class = CatalogCategoriesSerializers
 
-class CatalogCategoryProductViewSets(viewsets.ModelViewSet):
+class CatalogCategoryProductViewSets(TenantScoped, viewsets.ModelViewSet):
 
-    queryset = CatalogCategoryProduct.objects.all()
+    tenant_path = "organization_id"
+    queryset = CatalogCategoryProduct.objects.select_related('category').all()
     serializer_class = CatalogCategoryProductSerializer
