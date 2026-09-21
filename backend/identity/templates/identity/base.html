@@ -1,0 +1,139 @@
+{% comment %}
+The shell for the three pages a browser actually reaches: the front door, the
+screen after a successful handoff, and the one after a failed one.
+
+── WHY THE CSS IS INLINE AND WILL STAY THAT WAY FOR NOW ────────────────────
+Nothing serves /static/ on this deployment. There is no whitenoise in the
+requirements and no file_server in deploy/business.caddy, so collectstatic
+writes a directory nobody reads — which is also why /admin/ is unstyled. A
+linked stylesheet here would 404 and these pages would render as bare HTML.
+
+That is a real gap and it is written down in the README rather than patched
+around here. When it is fixed, this <style> block moves to a file and
+business.caddy grows a Content-Security-Policy that does not need
+'unsafe-inline' — which is the other reason not to get attached to it.
+{% endcomment %}<!-- -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Genmars Business Platform{% endblock %}</title>
+
+<style>
+  /* Light is the base; the dark block below only redefines the tokens, so
+     every colour has a value before any media query is consulted. */
+  :root {
+    --ink:        #17191c;
+    --ink-soft:   #5b6169;
+    --bg:         #f7f7f5;
+    --card:       #ffffff;
+    --line:       #e2e3df;
+    --accent:     #1f5f4f;
+    --accent-ink: #ffffff;
+    --note-bg:    #fdf8ec;
+    --note-line:  #e8d9b0;
+    --bad:        #8c2f22;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:        #e8e9e6;
+      --ink-soft:   #969ba1;
+      --bg:         #121416;
+      --card:       #1a1d20;
+      --line:       #2b2f33;
+      --accent:     #4c9a83;
+      --accent-ink: #0e1512;
+      --note-bg:    #1f1c15;
+      --note-line:  #3d3626;
+      --bad:        #d98274;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+
+  main { width: 100%; max-width: 34rem; }
+
+  .mark {
+    font-size: .75rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 1.75rem;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+    line-height: 1.25;
+    text-wrap: balance;
+    margin: 0 0 .75rem;
+  }
+
+  p { margin: 0 0 1rem; }
+  .soft { color: var(--ink-soft); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.75rem 0;
+  }
+
+  a.button {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-ink);
+    text-decoration: none;
+    font-weight: 600;
+    padding: .7rem 1.25rem;
+    border-radius: 7px;
+  }
+
+  a.button:hover { filter: brightness(1.08); }
+  a.button:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+  .note {
+    background: var(--note-bg);
+    border: 1px solid var(--note-line);
+    border-radius: 8px;
+    padding: 1rem 1.15rem;
+    font-size: .925rem;
+  }
+
+  .note strong { display: block; margin-bottom: .25rem; }
+
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .4rem 1.25rem; }
+  dt { color: var(--ink-soft); font-size: .9rem; }
+  dd { margin: 0; }
+
+  .bad { color: var(--bad); }
+
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+    font-size: .875rem;
+    color: var(--ink-soft);
+  }
+
+  footer a { color: inherit; }
+</style>
+
+<main>
+  <p class="mark">Genmars</p>
+  {% block body %}{% endblock %}
+  <footer>
+    <p style="margin:0">
+      A <a href="https://genmars.co.ke">Genmars Tech Limited</a> product.
+    </p>
+  </footer>
+</main>

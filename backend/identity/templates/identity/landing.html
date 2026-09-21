@@ -1,0 +1,37 @@
+{% extends "identity/base.html" %}
+
+{% comment %}
+The front door. Everything on this page has to be true today — Charter 04 §IV
+— which is why it says the dashboard does not exist rather than describing the
+one that is planned. A landing page that promises a product is the easiest
+place in a company to publish something false, because nobody reviews it after
+the first week.
+{% endcomment %}
+
+{% block body %}
+  <h1>Business Platform</h1>
+
+  <p>
+    Branches, catalogue, stock and tills, for a business running more than one
+    of any of them.
+  </p>
+
+  <div class="card">
+    <p>
+      Sign in with the same Genmars account you use for the client portal.
+      There is no separate password here and no sign-up form — if you do not
+      have an account yet, you will be asked to make one on the way through.
+    </p>
+    <p style="margin-bottom:0">
+      <a class="button" href="{% url 'sign-on-start' %}">Sign in with Genmars</a>
+    </p>
+  </div>
+
+  <div class="note">
+    <strong>This is early.</strong>
+    The API is running and the accounts half works. The dashboard is not built
+    yet, so signing in creates your platform account and then has nothing to
+    show you. Cashiers and other till staff do not sign in here at all — their
+    accounts belong to the business that employs them.
+  </div>
+{% endblock %}

@@ -6,9 +6,11 @@ Four of them: two for a subscriber arriving from Genmars, two for a till.
 
 from __future__ import annotations
 
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
+from django.views import View
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +18,24 @@ from . import services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from .models import PlatformAccount
 from .permissions import IsTenantMember, tenant_scope
+
+
+class LandingView(View):
+    """
+    The root of business.genmars.co.ke.
+
+    It exists because the alternative is what was there before: Django's bare
+    404, served to anyone who types the domain — including the subscriber who
+    was told to go there and sign in. There is no frontend to route to yet, so
+    the front door is a page and a button rather than a redirect into
+    /auth/start; a bare redirect means the domain can never be looked at
+    without being pushed into somebody else's login flow.
+
+    A plain Django view, not an APIView. Nothing here is an API.
+    """
+
+    def get(self, request):
+        return render(request, "identity/landing.html")
 
 
 class SignOnStartView(APIView):
@@ -46,10 +66,23 @@ class SignOnCallbackView(APIView):
     used for anything. A callback whose state does not match the session it
     arrives in is somebody else's link being clicked, and the code in it must
     never be spent.
+
+    ── TWO RENDERINGS OF ONE ANSWER ────────────────────────────────────────
+    This is the only endpoint here reached by a browser rather than by code,
+    and it was returning raw JSON to it — the last screen of a sign-in being a
+    wall of braces. The body below is unchanged and remains the contract; a
+    browser is handed the same facts as a page.
+
+    JSONRenderer is listed FIRST on purpose. Content negotiation walks the
+    client's Accept header in quality order, so a browser — which asks for
+    text/html at q=1 — gets the template, while curl and anything else sending
+    `*/*` falls to the first renderer and still gets JSON. Reversing these two
+    would quietly turn every scripted call into an HTML page.
     """
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    renderer_classes = [JSONRenderer, TemplateHTMLRenderer]
 
     def get(self, request):
         try:
@@ -65,6 +98,7 @@ class SignOnCallbackView(APIView):
             return Response(
                 {"detail": getattr(error, "safe_message", signon.SIGN_ON_FAILED)},
                 status=status.HTTP_400_BAD_REQUEST,
+                template_name="identity/sign_on_failed.html",
             )
 
         # New session key on sign-in. Without this, a session id captured before
@@ -104,7 +138,8 @@ class SignOnCallbackView(APIView):
                 # uses it to decide between the dashboard and the "create your
                 # business" screen; the server does not care either way.
                 "needs_a_business": not memberships,
-            }
+            },
+            template_name="identity/signed_in.html",
         )
 
 

@@ -9,12 +9,13 @@ working somewhere it should not, or an error message that reveals who exists.
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest import mock
 
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from identity import services
+from identity import services, signon
 from identity.authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from identity.models import (
     PlatformAccount,
@@ -373,3 +374,138 @@ class HealthCheckTests(TestCase):
         """A public endpoint is not a place to report versions or hostnames."""
         body = self.client.get("/healthz").content.decode()
         self.assertEqual(len(body), len('{"status": "ok"}'))
+
+
+class BrowserFacingPageTests(TestCase):
+    """
+    The two doors a person reaches with a browser rather than with code.
+
+    Both were returning something a person could not use: the root 404'd, and
+    the callback — the LAST screen of a sign-in — answered with raw JSON. The
+    tests that matter here are not about styling; they are that the JSON
+    contract did not move when the page was added, and that the refusal page
+    still says nothing about why it refused.
+    """
+
+    def test_the_root_is_not_a_404(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_root_offers_the_way_in(self):
+        body = self.client.get("/").content.decode()
+        self.assertIn(reverse("sign-on-start"), body)
+
+    def test_the_root_does_not_promise_a_product_that_is_not_built(self):
+        """
+        Charter 04 §IV. A landing page is the easiest place in a company to
+        publish something untrue, because nobody reads it again after the first
+        week. The dashboard does not exist, and the page has to keep saying so
+        until it does.
+        """
+        body = self.client.get("/").content.decode().lower()
+        self.assertIn("not built", body)
+
+    def test_a_browser_gets_a_page_when_sign_in_fails(self):
+        response = self.client.get(
+            reverse("sign-on-callback"),
+            HTTP_ACCEPT="text/html,application/xhtml+xml,*/*;q=0.8",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("text/html", response["Content-Type"])
+
+        # The positive control for the leak test below. Without these, an
+        # empty body would satisfy "says nothing about why it refused".
+        body = response.content.decode()
+        self.assertIn(signon.SIGN_ON_FAILED, body)
+        self.assertIn(reverse("sign-on-start"), body)
+
+    def test_a_script_still_gets_json_when_sign_in_fails(self):
+        """
+        JSONRenderer is first on the view for this reason. If the two were
+        listed the other way round, every scripted caller would start getting
+        an HTML page and the change would look cosmetic in the diff.
+        """
+        response = self.client.get(reverse("sign-on-callback"), HTTP_ACCEPT="*/*")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("application/json", response["Content-Type"])
+        self.assertIn("detail", response.json())
+
+    def test_the_refusal_page_does_not_say_which_check_failed(self):
+        """
+        A missing code and a mismatched state are different bugs to whoever is
+        probing, and the same sentence to everybody else. `reason` is for the
+        logs; `safe_message` is for the browser.
+        """
+        for query in ("", "?code=nonsense", "?state=nonsense", "?code=a&state=b"):
+            body = self.client.get(
+                reverse("sign-on-callback") + query,
+                HTTP_ACCEPT="text/html",
+            ).content.decode().lower()
+            for reason in ("state_mismatch", "no_code", "state", "reason"):
+                self.assertNotIn(reason, body, f"{query} leaked {reason!r}")
+
+    def test_a_browser_gets_a_page_after_a_successful_sign_in(self):
+        """
+        The success path, with the portal's answer stubbed — the point is the
+        rendering, not the round trip, which test_identity covers elsewhere.
+        """
+        state = "a-state-that-matches"
+        session = self.client.session
+        session[signon.STATE_SESSION_KEY] = state
+        session.save()
+
+        payload = {
+            "account": {
+                "id": 4242,
+                "email": "owner@shop.co.ke",
+                "full_name": "Amina Owner",
+                "is_staff": False,
+                "staff_role": "",
+                "email_verified": True,
+            },
+            "organisations": [],
+        }
+        with mock.patch.object(signon, "exchange_code", return_value=payload):
+            response = self.client.get(
+                reverse("sign-on-callback") + f"?code=good&state={state}",
+                HTTP_ACCEPT="text/html,*/*;q=0.8",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+        body = response.content.decode()
+        self.assertIn("owner@shop.co.ke", body)
+        # No membership was made, so the page must say so rather than imply a
+        # working account.
+        self.assertIn("none yet", body)
+
+    def test_the_signed_in_page_does_not_show_the_token_s_organisations(self):
+        """
+        `genmars_organisations` is echoed from the token and confers nothing.
+        Printing it beside the real memberships is how somebody comes to read
+        it as authority — which is the exact confusion SignOnCallbackView's
+        comment warns about.
+        """
+        state = "another-state"
+        session = self.client.session
+        session[signon.STATE_SESSION_KEY] = state
+        session.save()
+
+        payload = {
+            "account": {
+                "id": 99,
+                "email": "owner2@shop.co.ke",
+                "full_name": "",
+                "is_staff": False,
+                "staff_role": "",
+                "email_verified": True,
+            },
+            "organisations": [{"id": 7, "name": "Kilimani Dental"}],
+        }
+        with mock.patch.object(signon, "exchange_code", return_value=payload):
+            body = self.client.get(
+                reverse("sign-on-callback") + f"?code=good&state={state}",
+                HTTP_ACCEPT="text/html",
+            ).content.decode()
+
+        self.assertNotIn("Kilimani Dental", body)

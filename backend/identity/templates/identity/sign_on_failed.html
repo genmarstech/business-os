@@ -1,0 +1,34 @@
+{% extends "identity/base.html" %}
+
+{% comment %}
+The refusal page.
+
+`detail` is the SAFE message — signon.SIGN_ON_FAILED or an AuthError's
+safe_message — and never the `reason`. The reasons distinguish a stale code
+from a wrong one from a mismatched state, and telling the browser which of
+those happened tells whoever engineered it how far they got.
+
+So the page says the same sentence for all of them and offers the only useful
+action, which is to start again. That matches the portal's side: every /token
+refusal there returns an identical message for the same reason.
+{% endcomment %}
+
+{% block title %}Sign-in could not be completed{% endblock %}
+
+{% block body %}
+  <h1>That sign-in did not complete</h1>
+
+  <p class="bad">{{ detail }}</p>
+
+  <p class="soft">
+    Starting again is the fix for almost every cause of this — a sign-in link
+    is good for ninety seconds and can only be used once, so a reloaded page or
+    a back button gets you here.
+  </p>
+
+  <div class="card">
+    <p style="margin-bottom:0">
+      <a class="button" href="{% url 'sign-on-start' %}">Start again</a>
+    </p>
+  </div>
+{% endblock %}

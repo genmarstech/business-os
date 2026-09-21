@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
 
+from identity.views import LandingView
+
 # ── LIVENESS, NOT READINESS ─────────────────────────────────────────────────
 #
 # Answers as long as the process is running and can route a request. It does
@@ -35,6 +37,11 @@ def healthz(_request):
 
 
 urlpatterns = [
+    # Somewhere for a person who types the domain to land. Without this Django
+    # answers the root with a bare 404, which is what a subscriber sent here to
+    # sign in was getting.
+    path('', LandingView.as_view(), name='landing'),
+
     path('healthz', healthz, name='healthz'),
     path('admin/', admin.site.urls),
     path('org/', include('organisations.urls')),
