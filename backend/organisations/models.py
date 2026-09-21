@@ -1,7 +1,10 @@
+import uuid
+
 from django.db import models
 from django.utils import timezone
 import random
 import string
+# from branches.models import Branches
 # from .views import OrgNumberGenerator
 
 # this is the organization model
@@ -75,7 +78,13 @@ def staffNumberGenerator():
 
 class OrganizationStaff(models.Model):
 
-   
+    # External identity from the company/authentication backend
+    external_user_id = models.UUIDField(
+        unique=True,
+        db_index=True,
+        editable=False,
+        default=uuid.uuid4,
+    )
 
     # ── personal details ────────────────────────────────────────────────
     #
@@ -87,42 +96,82 @@ class OrganizationStaff(models.Model):
     # email or ID already existed IN SOMEBODY ELSE'S SHOP. A uniqueness
     # constraint is an oracle, and tenant isolation has to survive it.
     #
-    # Scoped per organisation below, where uniqueness is meaningful at all.
-    # full_name is not unique even then: two people at one shop may share a
-    # name, and the platform is not the place to argue with that.
-    full_name = models.CharField(max_length=50)
+    # Scoped per organisation in Meta below, where uniqueness is meaningful at
+    # all. full_name is not unique even then: two people at one shop may share
+    # a name, and the platform is not the place to argue with that.
+    full_name = models.CharField(
+        max_length=50,
+    )
     email = models.EmailField()
-    phone_number = models.CharField(max_length=20)
-    address = models.CharField('Address', max_length=255)
-    city = models.CharField('City', max_length=100, blank=True, null=True)
+    phone_number = models.CharField(
+        max_length=20,
+    )
+    address = models.CharField(
+        'Address',
+        max_length=255,
+    )
+    city = models.CharField(
+        'City',
+        max_length=100,
+        blank=True,
+        null=True,
+    )
 
     # ⚠ NATIONAL ID AND TAX PIN ARE OTHER PEOPLE'S PERSONAL DATA.
     #
-    # These belong to the CUSTOMER'S employees, which makes Genmars a
-    # processor under the Kenyan Data Protection Act and needs a data
-    # processing agreement with every customer that fills them in. Before
-    # making either of these required, ask what the POS actually needs them
-    # for — a till does not need a national ID to sell bread, and data not
-    # collected is data that cannot leak.
-    kra_pin = models.CharField(max_length=20, blank=True, null=True)
-    id_number = models.IntegerField(null=True, blank=True)
+    # These belong to the CUSTOMER'S employees, which makes Genmars a processor
+    # under the Kenyan Data Protection Act and needs a data processing
+    # agreement with every customer that fills them in. Before making either
+    # required, ask what the POS actually needs them for — a till does not need
+    # a national ID to sell bread, and data not collected cannot leak.
+    kra_pin = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+    )
+    id_number = models.IntegerField(
+        null=True,
+        blank=True,
+    )
 
-    # professional details
-    branch = models.CharField(max_length=20, blank=True, null=True)
-    start_date = models.DateField(null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=timezone.now)
-    staff_number = models.CharField(max_length=20, default=staffNumberGenerator, unique=True)
+    # Professional details
+    branch = models.ForeignKey(
+        'branches.Branches',
+        on_delete=models.PROTECT,
+        related_name='organization_staff',
+        null=True,
+        blank=True,
+    )
+    start_date = models.DateField(
+        null=True,
+        blank=True,
+    )
 
-    # organization
-    # In your models.py, ensure it is a ForeignKey, NOT a CharField
-    organization = models.ForeignKey(BusinessOrganization, on_delete=models.CASCADE)
+    # Timestamps
+    created_at = models.DateTimeField(
+        default=timezone.now,
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
 
+    staff_number = models.CharField(
+        max_length=20,
+        default=staffNumberGenerator,
+        unique=True,
+    )
+
+    # Organization
+    organization = models.ForeignKey(
+        BusinessOrganization,
+        on_delete=models.CASCADE,
+        related_name='staff',
+    )
 
     class Meta:
         ordering = ['-start_date']
         verbose_name = 'Staff Organization'
-        verbose_name_plural = 'Staff Organization'
+        verbose_name_plural = 'Staff Organizations'
         constraints = [
             # Unique WITHIN one organisation. A person may work at two shops;
             # nobody is on the same shop's payroll twice.

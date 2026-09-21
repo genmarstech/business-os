@@ -1,4 +1,3 @@
-
 from rest_framework import serializers
 
 from .models import (
@@ -24,6 +23,10 @@ from organisations.serializers import (
 
 class BranchesSerializer(serializers.ModelSerializer):
 
+    # --------------------------------------------------------
+    # ORGANIZATION
+    # --------------------------------------------------------
+
     # Read
     organization = BusinessOrganizationSerializer(
         read_only=True
@@ -35,6 +38,10 @@ class BranchesSerializer(serializers.ModelSerializer):
         source='organization',
         write_only=True
     )
+
+    # --------------------------------------------------------
+    # META
+    # --------------------------------------------------------
 
     class Meta:
         model = Branches
@@ -48,11 +55,16 @@ class BranchesSerializer(serializers.ModelSerializer):
             'branch_allocation',
             'branch_manager',
             'branch_number',
+            'is_active',
+            'created_at',
+            'updated_at',
         ]
 
         read_only_fields = [
             'id',
             'branch_number',
+            'created_at',
+            'updated_at',
         ]
 
 
@@ -61,6 +73,10 @@ class BranchesSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class RegisterSerializer(serializers.ModelSerializer):
+
+    # --------------------------------------------------------
+    # BRANCH
+    # --------------------------------------------------------
 
     # Read
     branch = BranchesSerializer(
@@ -73,6 +89,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         source='branch',
         write_only=True
     )
+
+    # --------------------------------------------------------
+    # META
+    # --------------------------------------------------------
 
     class Meta:
         model = Register
@@ -89,7 +109,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         read_only_fields = [
             'id',
-            'register_number',
             'created_at',
         ]
 
@@ -100,13 +119,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class RegisterShiftSerializer(serializers.ModelSerializer):
 
+    # --------------------------------------------------------
+    # REGISTER
+    # --------------------------------------------------------
+
     # Read
     register = RegisterSerializer(
-        read_only=True
-    )
-
-    operator_name = serializers.CharField(
-        source='operator.full_name',
         read_only=True
     )
 
@@ -117,9 +135,22 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
         write_only=True
     )
 
+    # --------------------------------------------------------
+    # OPERATOR
+    # --------------------------------------------------------
+
     operator = serializers.PrimaryKeyRelatedField(
         queryset=OrganizationStaff.objects.all()
     )
+
+    operator_name = serializers.CharField(
+        source='operator.full_name',
+        read_only=True
+    )
+
+    # --------------------------------------------------------
+    # META
+    # --------------------------------------------------------
 
     class Meta:
         model = RegisterShift
@@ -179,12 +210,11 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
 class StaffAssignmentSerializer(serializers.ModelSerializer):
 
     # --------------------------------------------------------
-    # STAFF
+    # STAFF MEMBER
     # --------------------------------------------------------
 
     staff_member = serializers.PrimaryKeyRelatedField(
-        queryset=OrganizationStaff.objects.all(),
-        write_only=True
+        queryset=OrganizationStaff.objects.all()
     )
 
     staff_member_name = serializers.CharField(
@@ -207,6 +237,15 @@ class StaffAssignmentSerializer(serializers.ModelSerializer):
     )
 
     # --------------------------------------------------------
+    # ROLE
+    # --------------------------------------------------------
+
+    staff_assignment_display = serializers.CharField(
+        source='get_staff_assignment_display',
+        read_only=True
+    )
+
+    # --------------------------------------------------------
     # META
     # --------------------------------------------------------
 
@@ -220,6 +259,7 @@ class StaffAssignmentSerializer(serializers.ModelSerializer):
             'branch',
             'branch_id',
             'staff_assignment',
+            'staff_assignment_display',
             'is_active',
             'assigned_at',
         ]
@@ -227,5 +267,6 @@ class StaffAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'staff_member_name',
+            'staff_assignment_display',
             'assigned_at',
         ]

@@ -199,6 +199,63 @@ class WriteIsolationTests(TwoShops):
         self.assertTrue(Branches.objects.filter(pk=self.branch_b.pk).exists())
 
 
+class StockEndpointIsolationTests(TwoShops):
+    """
+    The endpoints that arrived with the stock work — new surface, and the kind
+    that matters: these move quantities and money-adjacent records around.
+
+    Each one carried its own `get_queryset` filtering on
+    `organization__staff__external_user_id=user.id`, which could never match a
+    real caller. These assert the replacement actually confines them.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from inventory.models import BranchInventory, StockMovement
+
+        # Stock that belongs to Shop B, which the caller must never see.
+        self.stock_b = BranchInventory.objects.create(
+            branch=self.branch_b, product=self.product_b, quantity=10
+        )
+        StockMovement.objects.create(
+            inventory=self.stock_b,
+            movement_type="PURCHASE",
+            quantity_before=0,
+            quantity_after=10,
+        )
+
+    def test_another_shops_stock_is_invisible(self):
+        for url in (
+            "/invt/inventory/",
+            "/invt/stock-movements/",
+            "/invt/stock-levels/",
+            "/invt/stock-adjustments/",
+            "/invt/stock-transfers/",
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(_rows(response), [], f"{url} leaked")
+
+    def test_cannot_record_a_movement_against_another_shops_stock(self):
+        response = self.client.post(
+            "/invt/stock-movements/",
+            {
+                "inventory": self.stock_b.pk,
+                "movement_type": "ADJUSTMENT",
+                "quantity_before": "10",
+                "quantity_after": "0",
+            },
+            format="json",
+        )
+        self.assertIn(response.status_code, (400, 403), response.content)
+        from inventory.models import StockMovement
+
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type="ADJUSTMENT").count(), 0
+        )
+
+
 class UnauthenticatedTests(TwoShops):
     def test_every_endpoint_refuses_a_stranger(self):
         """
@@ -216,6 +273,10 @@ class UnauthenticatedTests(TwoShops):
             "/ctl/categories/",
             "/ctl/products/",
             "/invt/inventory/",
+            "/invt/stock-movements/",
+            "/invt/stock-transfers/",
+            "/invt/stock-adjustments/",
+            "/invt/stock-levels/",
         ):
             with self.subTest(url=url):
                 self.assertIn(

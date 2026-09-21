@@ -44,11 +44,9 @@ class StaffAssignmentViewSet(TenantScoped, viewsets.ModelViewSet):
     serializer_class = StaffAssignmentSerializer
 
     def perform_create(self, serializer):
-        # The scope check comes FIRST. Without it the deactivation below runs
-        # against a staff member the caller may not be allowed to touch — a
-        # write into somebody else's shop, dressed as a helpful tidy-up.
-        self.refuse_out_of_scope(serializer.validated_data)
-
+        # No scope check needed here: TenantScoped.create() has already run it
+        # before this method is reached, which is the whole reason the guard
+        # lives there rather than in perform_create.
         staff_member = serializer.validated_data['staff_member']
 
         # Somebody moving to a new role stops holding the old one. Filtered by

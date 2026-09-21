@@ -28,7 +28,8 @@ know the difference — the same reason a read returns empty instead of 403.
 
 from __future__ import annotations
 
-from rest_framework import serializers
+from rest_framework import serializers, status
+from rest_framework.response import Response
 
 from .permissions import scoped, tenant_scope
 
@@ -49,6 +50,17 @@ REFERENCE_TO_ORGANISATION = {
     "operator": lambda obj: obj.organization_id,
     "category": lambda obj: obj.organization_id,
     "product": lambda obj: obj.organization_id,
+    # Stock. `inventory` was missing when the stock models merged in, so a
+    # movement or an adjustment naming ANOTHER shop's stock was written
+    # without a check — the guard read the row's other fields, found nothing
+    # it recognised, and let it through. Found by a test, not by review.
+    #
+    # That is the failure mode of a map like this: it fails OPEN on a field it
+    # has never heard of. A new foreign key to anything tenant-owned has to be
+    # added here in the same commit that introduces it.
+    "inventory": lambda obj: obj.branch.organization_id,
+    "from_branch": lambda obj: obj.organization_id,
+    "to_branch": lambda obj: obj.organization_id,
 }
 
 
@@ -93,13 +105,46 @@ class TenantScoped:
     def get_queryset(self):
         return scoped(super().get_queryset(), self.request.user, self.tenant_path)
 
-    def perform_create(self, serializer):
-        self.refuse_out_of_scope(serializer.validated_data)
-        super().perform_create(serializer)
+    # ── THE GUARD RUNS IN create()/update(), NOT IN perform_create() ────────
+    #
+    # It lived in `perform_create` first, which was a mistake found the moment
+    # this mixin met code somebody else had written: the stock viewsets each
+    # defined their own `perform_create(self, serializer): serializer.save()`
+    # — no-ops that did exactly what DRF already does — and every one of them
+    # silently overrode the guard. Four write endpoints were unprotected and
+    # nothing said so.
+    #
+    # A protection a subclass can switch off by defining an ordinary method,
+    # without ever mentioning it, is not a protection. So the check happens in
+    # the action method, before `perform_create` is reached at all. A subclass
+    # may still override `perform_create` for its own reasons — and several
+    # legitimately do — without being able to lose the guard by accident.
+    #
+    # The bodies below are DRF's own, with one line added. Duplicating them is
+    # the cost of making the check unskippable, and it is worth paying.
 
-    def perform_update(self, serializer):
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         self.refuse_out_of_scope(serializer.validated_data)
-        super().perform_update(serializer)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data, status=status.HTTP_201_CREATED, headers=headers
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.refuse_out_of_scope(serializer.validated_data)
+        self.perform_update(serializer)
+
+        if getattr(instance, "_prefetched_objects_cache", None):
+            instance._prefetched_objects_cache = {}
+
+        return Response(serializer.data)
 
     def refuse_out_of_scope(self, validated_data: dict) -> None:
         """
