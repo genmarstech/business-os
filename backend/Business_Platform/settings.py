@@ -170,6 +170,21 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# ── STATIC_ROOT ─────────────────────────────────────────────────────────────
+#
+# Where `collectstatic` writes. Unset by `startproject`, and without it
+# collectstatic raises ImproperlyConfigured — which is how the first build of
+# the production image failed.
+#
+# The only static files here are the Django admin's and DRF's browsable API.
+# There is no frontend in this repository yet; when there is, it will serve its
+# own assets and this stays what it is.
+#
+# Collected at image build time, not at boot: an entrypoint doing it would have
+# every restart racing to write the same files, and the container runs with a
+# read-only root filesystem so it could not write them anyway.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

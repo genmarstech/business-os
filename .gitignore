@@ -1,4 +1,7 @@
 # Python
+# collectstatic output — generated at image build time.
+staticfiles/
+
 __pycache__/
 *.py[cod]
 *.egg-info/

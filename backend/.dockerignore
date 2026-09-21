@@ -3,6 +3,9 @@ virtual/
 .venv/
 venv/
 
+# Rebuilt inside the image; a stale host copy must not be shipped.
+staticfiles/
+
 __pycache__/
 *.py[cod]
 
