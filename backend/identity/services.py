@@ -95,6 +95,56 @@ def tenants_for(account: PlatformAccount):
     )
 
 
+# How many businesses one Genmars account may stand up on its own.
+#
+# There is a real case for more than one — somebody who owns a shop and a
+# restaurant — and no honest case for forty. Self-serve creation with no
+# ceiling is a spam vector that costs nothing to open and something to clean
+# up, and a cap is the cheapest form of the rate limit this would otherwise
+# need. Somebody with a genuine reason to exceed it should be talking to us,
+# which is the point.
+MAX_TENANTS_PER_ACCOUNT = 3
+
+TOO_MANY_TENANTS = (
+    "You have created as many businesses as this account allows. "
+    "Get in touch and we will sort it out."
+)
+
+
+@transaction.atomic
+def create_tenant(*, account: PlatformAccount, organization) -> TenantMembership:
+    """
+    Make the creator the owner of a tenant they have just created.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE MEMBERSHIP IS NOT AN AFTERTHOUGHT. IT IS THE HALF THAT MATTERS.
+
+    Authority in this platform comes from TenantMembership and from nothing
+    else — not from having created a row, not from anything in the sign-on
+    token. So an organisation saved without one is not "a tenant awaiting
+    setup", it is an orphan: invisible to its own creator, invisible to
+    everybody, and reachable only from the admin.
+
+    Hence the transaction. Either both rows exist or neither does; there is no
+    state in between worth having.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+    if account.is_blocked:
+        raise AuthError("account_blocked", _SIGN_ON_FAILED)
+
+    existing = TenantMembership.objects.filter(
+        account=account, role=TenantMembership.Role.OWNER
+    ).count()
+    if existing >= MAX_TENANTS_PER_ACCOUNT:
+        raise AuthError("tenant_cap_reached", TOO_MANY_TENANTS)
+
+    return TenantMembership.objects.create(
+        account=account,
+        organization=organization,
+        role=TenantMembership.Role.OWNER,
+    )
+
+
 # ── operational staff: tenant-local, never Genmars ───────────────────────────
 
 

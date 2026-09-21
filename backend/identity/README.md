@@ -93,9 +93,32 @@ The token's `organisations` array is a Genmars membership list. It is an
 onboarding hint ("you already deal with us as Kilimani Dental — is this that
 business?") and never a grant. Authority comes from `TenantMembership`.
 
+## Standing up a business
+
+`POST /org/organizations/` is the one endpoint reachable with an empty scope,
+because a subscriber arriving from Genmars for the first time has no membership
+anywhere and every other list is empty for them until they have one.
+
+It creates the organisation **and** the creator's `OWNER` membership in one
+transaction. An organisation saved without a membership is not "a tenant
+awaiting setup" — it is an orphan, invisible to its own creator and to
+everybody else, reachable only from the admin. Either both rows exist or
+neither does.
+
+- **Only subscribers.** A till gets 403: a cashier signed in at one shop
+  standing up a second business, which they would then own, is not a feature.
+- **Capped at 3 per account** (`services.MAX_TENANTS_PER_ACCOUNT`). There is a
+  real case for two and no honest case for forty; self-serve creation with no
+  ceiling is a spam vector that costs nothing to open and something to clean up.
+- The sign-on callback returns `needs_a_business` so a client can send a
+  first-time subscriber here, and `genmars_organisations` so the screen can ask
+  "you already deal with us as Kilimani Dental — is this that business?"
+  rather than making somebody retype a name we know. **Answering yes writes
+  `genmars_organisation_id`, which records who we invoice and grants nobody
+  anything.**
+
 ## Still to build
 
-- Creating a tenant, and the first `TenantMembership` for whoever created it
 - Inviting another subscriber
 - A manager issuing and resetting a `StaffCredential`; `must_change_password`
   is written but nothing enforces it yet

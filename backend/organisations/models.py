@@ -44,6 +44,27 @@ class BusinessOrganization(models.Model):
     name = models.CharField(max_length=150)
     staff_size = models.CharField(choices=StaffSize.choices, default=StaffSize.MEDIUM)
     org_number = models.CharField(max_length=18, default=OrgNumberGenerator, unique=True)
+    # ── THE COMMERCIAL RELATIONSHIP, IF THERE IS ONE ────────────────────────
+    #
+    # The id of the Genmars `Organisation` this tenant belongs to, when the
+    # subscriber already deals with us — set during onboarding from the
+    # sign-on token's `organisations` hint, after the person confirms it.
+    #
+    # ⚠ NOT AUTHORITY. Nobody reaches this tenant because of what is in this
+    # field; they reach it because a TenantMembership row exists. It records
+    # who we invoice, which is a different question from who may open a till,
+    # and conflating the two is how a Genmars client's staff end up inside
+    # somebody else's shop.
+    #
+    # Null for self-serve subscribers, who are the majority and who may never
+    # buy a Genmars project at all.
+    genmars_organisation_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="The Genmars client this tenant belongs to, where there is one.",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=timezone.now)
 

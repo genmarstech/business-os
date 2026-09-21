@@ -73,6 +73,8 @@ class SignOnCallbackView(APIView):
         request.session.cycle_key()
         request.session[SUBSCRIBER_SESSION_KEY] = account.pk
 
+        memberships = list(services.tenants_for(account))
+
         return Response(
             {
                 "account": {"email": account.email, "full_name": account.full_name},
@@ -81,8 +83,27 @@ class SignOnCallbackView(APIView):
                 "organisations": [
                     {"id": m.organization_id, "name": m.organization.name,
                      "role": m.role}
-                    for m in services.tenants_for(account)
+                    for m in memberships
                 ],
+                # ── AN ONBOARDING HINT, AND NOTHING MORE ────────────────────
+                #
+                # The businesses this person deals with AT GENMARS. Offered so
+                # a first-run screen can ask "you already deal with us as
+                # Kilimani Dental — is this that business?" instead of making
+                # somebody retype a name we already know.
+                #
+                # ⚠ IT CONFERS NOTHING. It is echoed straight from the token,
+                # is never stored as authority, and no queryset anywhere is
+                # filtered by it. If it is ever used to decide what somebody
+                # may see, the isolation layer has been bypassed entirely.
+                # Answering "yes, that is us" writes
+                # BusinessOrganization.genmars_organisation_id, which records
+                # who we invoice and still grants nobody anything.
+                "genmars_organisations": payload.get("organisations", []),
+                # True for somebody arriving for the first time. The client
+                # uses it to decide between the dashboard and the "create your
+                # business" screen; the server does not care either way.
+                "needs_a_business": not memberships,
             }
         )
 
