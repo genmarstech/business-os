@@ -38,7 +38,11 @@ class Branches(models.Model):
 
 class Register(models.Model):
 
-    branch = models.ForeignKey(Branches, on_delete=models.CASCADE, related_name='registers')
+    branch = models.ForeignKey(
+    'branches.Branches',
+    on_delete=models.PROTECT,
+    related_name='registers'
+)
 
     name = models.CharField(max_length=100, unique=True)
     register_number = models.CharField(max_length=100, unique=True)
@@ -80,7 +84,7 @@ class staffAssignment(models.Model):
 
     staff_member = models.ForeignKey(OrganizationStaff, on_delete=models.CASCADE, related_name='assignments')
 
-    branch = models.ForeignKey(Branches, on_delete=models.CASCADE, related_name='staff')
+    branch = models.ForeignKey('branches.Branches', on_delete=models.PROTECT, related_name='staff_assignments')
 
     is_active = models.BooleanField(default=True)
 
