@@ -72,35 +72,27 @@ export class ApiError extends Error {
 /**
  * Headers that must survive the hop from this server to Django.
  *
- * ── THE HOST HEADER IS NOT OPTIONAL ────────────────────────────────────────
+ * ── THE HOST HEADER IS NOT HERE, AND CANNOT BE ─────────────────────────────
  *
  * Server-side fetches go to API_ORIGIN, which in production is
- * `http://api:8020` — a compose service name. Django therefore sees
- * `Host: api:8020`, which is not in ALLOWED_HOSTS, and answers **400 Bad
- * Request** to everything.
+ * `http://api:8020` — a compose service name — so Django sees `Host: api:8020`
+ * and must accept it. The obvious fix from this side is to forward the host
+ * the browser asked for. It does not work: Node's fetch treats `Host` as a
+ * forbidden header, strips it, and computes the value from the URL. Setting it
+ * is silently ignored, which is worse than an error.
  *
- * It does not show up in development, because ALLOWED_HOSTS contains
- * 127.0.0.1 when DEBUG is on and that is exactly what the dev fetch sends. So
- * the whole app works locally and returns 500 on the server, with a Django log
- * line about DisallowedHost that nothing in the frontend mentions.
+ * So the service name is allowed on the Django side instead — see the banner
+ * on ALLOWED_HOSTS in Business_Platform/settings.py, which explains why that
+ * costs nothing. Do not try to set `host` here again.
  *
- * The fix is to forward the host the BROWSER asked for, not to widen
- * ALLOWED_HOSTS to include an internal service name. Two reasons:
- *
- *   · ALLOWED_HOSTS stays exactly the public name, which is what it is for.
- *   · Any absolute URL Django builds — a redirect, a link in an email — comes
- *     out as business.genmars.co.ke rather than `api:8020`.
- *
- * Forwarding a client-supplied Host is safe here precisely because Django
- * still validates it: Caddy only routes business.genmars.co.ke to this app,
- * and anything else is refused at the other end rather than trusted.
+ * ⚠ THE FAILURE IS INVISIBLE IN DEVELOPMENT. DEBUG puts 127.0.0.1 in
+ *   ALLOWED_HOSTS and that is exactly what the dev fetch sends, so the whole
+ *   application works locally and every server-rendered page is a 500 the
+ *   moment it is containerised.
  */
 async function forwarded(): Promise<Record<string, string>> {
   const incoming = await headers();
   const out: Record<string, string> = {};
-
-  const host = incoming.get("host");
-  if (host) out.host = host;
 
   // Django reads this to know the original request was HTTPS. Without it a
   // CSRF origin check on an unsafe method compares against http:// and fails.

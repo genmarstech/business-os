@@ -50,6 +50,30 @@ ALLOWED_HOSTS = [
 if DEBUG and not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
+# ── THE WEB CONTAINER CALLS US BY OUR SERVICE NAME ──────────────────────────
+#
+# The Next.js frontend renders on the server and fetches this API over the
+# compose network at http://api:8020, so Django sees `Host: api:8020`. Without
+# this entry that is a DisallowedHost and EVERY server-rendered page is a 400 —
+# which surfaces as a 500 in the browser and a log line about a host the
+# frontend never mentions.
+#
+# It cannot be worked around from the frontend. Node's fetch treats `Host` as a
+# forbidden header and strips it, computing the value from the URL; setting it
+# explicitly is silently ignored. That was tried first.
+#
+# ⚠ WHY THIS DOES NOT WEAKEN ALLOWED_HOSTS.
+#   The risk the setting exists to stop is Host-header poisoning from outside.
+#   `api` is a name that only resolves on the internal compose network, and the
+#   public edge is Caddy, whose site block matches on business.genmars.co.ke —
+#   a request bearing any other Host does not reach Django at all. Adding a
+#   name that cannot arrive from the internet costs nothing.
+#
+#   It is added HERE rather than to the ALLOWED_HOSTS environment variable so
+#   the deployment's variable stays exactly the public name, and nobody has to
+#   remember an internal detail when setting it.
+ALLOWED_HOSTS += ["api"]
+
 
 # Application definition
 
