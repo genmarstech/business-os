@@ -238,6 +238,16 @@ class StaffSignInView(APIView):
                 "expires_at": session.expires_at,
                 "must_change_password": credential.must_change_password,
                 "staff": {
+                    # Its own personnel record. A till needs it to open a
+                    # shift and to attribute a sale, and there is no other way
+                    # for it to learn its own id: /org/staff/ is held at
+                    # staff.manage, which no cashier holds. Without this the
+                    # register could sign in and then do nothing.
+                    #
+                    # It confers nothing. Checkout pins the cashier to the
+                    # authenticated principal regardless of what is sent —
+                    # see sales/views.py.
+                    "id": credential.staff_id,
                     "name": credential.staff.full_name,
                     "username": credential.username,
                 },
@@ -306,6 +316,7 @@ class WhoAmIView(APIView):
             return Response(
                 {
                     "kind": "staff",
+                    "staff_id": principal.staff.pk,
                     "name": principal.staff.full_name,
                     "username": principal.credential.username,
                     # The till draws a "choose your own password" screen from

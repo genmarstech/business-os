@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from catalog.models import TaxRule
 from identity import access
+from identity.authentication import StaffPrincipal
 from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
 
@@ -186,6 +187,28 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        # ── A TILL RINGS UP AS ITSELF AND AS NOBODY ELSE ────────────────────
+        #
+        # `cashier` arrives from the client, and the check above only asks
+        # whether that person works for the same shop. Every colleague does.
+        # So a cashier could put their own takings under somebody else's name
+        # — and `Sale.cashier` is precisely the field a drawer is reconciled
+        # against and a disputed transaction traced through. A discrepancy
+        # that can be attributed to whoever is on shift next is not an
+        # attribution at all.
+        #
+        # A SUBSCRIBER may still name anybody in their tenant: an owner
+        # entering a sale on a cashier's behalf is ordinary, and they hold the
+        # organisation-wide authority that makes it their call. The rule is
+        # about the tier that does not.
+        if isinstance(request.user, StaffPrincipal):
+            if data["cashier"].pk != request.user.staff.pk:
+                return Response(
+                    {"cashier": "A till records the sale against whoever is "
+                                "signed in to it."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         # ── AND NOW THE BRANCH-LEVEL QUESTION ───────────────────────────────
         #
         # `permissions` above asked whether this caller may check out AT ALL.
@@ -263,6 +286,18 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                 {"processed_by": "No such record, or it is not available to you."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # The same rule as `checkout`, and it matters more here. Money leaving
+        # the drawer under somebody else's name is the shape a till theft
+        # takes; `Refund.processed_by` is the only record of who authorised
+        # it.
+        if isinstance(request.user, StaffPrincipal):
+            if data["processed_by"].pk != request.user.staff.pk:
+                return Response(
+                    {"processed_by": "A refund is recorded against whoever is "
+                                     "signed in."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         # Refunding at a branch needs the permission AT that branch — see the
         # note in `checkout`. The branch arrives in the request, so this is

@@ -1,0 +1,523 @@
+/*
+ * The till.
+ *
+ * ── BIGGER THAN THE REST OF THE APPLICATION, ON PURPOSE ────────────────────
+ * Everything here is sized for somebody standing up, at arm's length, in a
+ * hurry, often on a touchscreen. Targets are at least 44px, the total is the
+ * largest thing on the screen, and nothing important is smaller than 14px.
+ * The dashboard's density would be wrong here and this density would be wrong
+ * there.
+ */
+
+.boot {
+  padding: 40px;
+  color: var(--ink-muted);
+}
+
+/* ── the gate: sign in, and choosing a till ─────────────────────────────── */
+
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 40px);
+  background: var(--app);
+}
+
+.gateCard {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(22px, 4vw, 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.gateTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.5rem;
+  margin: 0 0 8px;
+}
+
+.gateLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 18px;
+}
+
+.gateNote,
+.gateError {
+  font-size: 13px;
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+
+.gateNote {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.gateError {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.gateLabel {
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.gateInput {
+  font: inherit;
+  font-size: 16px; /* under 16px, iOS zooms the page on focus */
+  padding: 11px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.gateInput:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.gateHint {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+}
+
+.gateButton {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.gateButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gateQuiet {
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 0;
+  color: var(--ink-faint);
+  cursor: pointer;
+  margin-top: 16px;
+  align-self: center;
+}
+
+.registerList {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.registerButton {
+  font: inherit;
+  text-align: left;
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.registerButton:hover:not(:disabled) {
+  border-color: var(--accent-fill);
+}
+
+.registerButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.registerName {
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.registerWhere {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ── the floor ──────────────────────────────────────────────────────────── */
+
+.till {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--app);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px clamp(12px, 2vw, 20px);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.barBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.barShop {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.barWhere {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.barRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.barWho {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.barQuiet {
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  color: var(--accent-text);
+  cursor: pointer;
+  border-bottom: 1px solid currentColor;
+}
+
+.barQuiet:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.floor {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr minmax(20rem, 24rem);
+  gap: 1px;
+  background: var(--line);
+  align-items: stretch;
+}
+
+@media (max-width: 860px) {
+  .floor {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── picking products ───────────────────────────────────────────────────── */
+
+.picker {
+  background: var(--app);
+  padding: clamp(12px, 2vw, 20px);
+}
+
+.search {
+  font: inherit;
+  font-size: 16px;
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 14px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  margin-bottom: 14px;
+}
+
+.search:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 9px;
+}
+
+.tile {
+  font: inherit;
+  text-align: left;
+  min-height: 74px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.tile:hover {
+  border-color: var(--accent-fill);
+}
+
+.tile:active {
+  background: var(--sunken);
+}
+
+.tileName {
+  font-size: 13.5px;
+  line-height: 1.25;
+}
+
+.tilePrice {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+.note {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+/* ── the basket ─────────────────────────────────────────────────────────── */
+
+.basket {
+  background: var(--panel);
+  padding: clamp(14px, 2vw, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 5rem;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.lineName {
+  font-size: 13.5px;
+  line-height: 1.25;
+}
+
+.lineMeta {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.lineTotal {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.qty button {
+  font: inherit;
+  font-size: 17px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.qty span {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+  text-align: center;
+}
+
+.sums {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.sums > div {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+/* The largest thing on the screen, because it is the thing being read out. */
+.grand {
+  font-family: var(--font-brand);
+  font-size: 1.6rem !important;
+  font-weight: 500;
+  color: var(--ink) !important;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  margin-top: 3px;
+}
+
+.error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13px;
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin: 0;
+}
+
+.methods {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.method {
+  font: inherit;
+  font-size: 13.5px;
+  min-height: 44px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.methodOn {
+  border-color: var(--accent-fill);
+  background: var(--sunken);
+  font-weight: 500;
+}
+
+.tender {
+  display: grid;
+  gap: 5px;
+}
+
+.tender label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tender input {
+  font: inherit;
+  font-size: 16px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.change {
+  font-size: 13px;
+  color: var(--ok);
+  min-height: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.take {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  min-height: 54px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.take:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── the receipt ────────────────────────────────────────────────────────── */
+
+.receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.receiptHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.receiptTitle {
+  font-family: var(--font-brand);
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--ok);
+}
+
+.receiptNumber {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}

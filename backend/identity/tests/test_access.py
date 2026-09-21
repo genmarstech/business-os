@@ -21,7 +21,7 @@ from identity.authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from identity.models import PlatformAccount, StaffCredential, TenantMembership
 from inventory.models import BranchInventory
 from organisations.models import BusinessOrganization, OrganizationStaff
-from sales.models import Payment
+from sales.models import Payment, Sale
 
 PASSWORD = "till-password-not-real"
 
@@ -954,3 +954,127 @@ class BrandNewSubscriberTests(TestCase):
             self.assertEqual(
                 client.get(path).status_code, 403, f"{path} was reachable"
             )
+
+
+class AttributionTests(TestCase):
+    """
+    A till records the sale against whoever is signed in to it.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE HOLE THIS CLOSES, AND WHY THE SCOPE CHECK DID NOT.
+
+    `cashier` and `processed_by` arrive from the client, and the tenant check
+    only asks whether that person works for the same shop. Every colleague
+    does. So one cashier could put their own takings — or a refund they gave
+    themselves — under somebody else's name, and `Sale.cashier` is exactly the
+    field a drawer is reconciled against and a disputed transaction traced
+    through. An attribution that can be set to anyone is not one.
+
+    Found while wiring the till, which needed its own staff id to open a shift
+    at all and could therefore just as easily have sent a different one.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop("Shop A")
+
+        self.jane = a_staff(
+            self.org, name="Jane", email="jane@a.co.ke", id_number=2001
+        )
+        self.john = a_staff(
+            self.org, name="John", email="john@a.co.ke", id_number=2002
+        )
+        assign(self.jane, self.branch, staffAssignment.StaffRoles.Cashier)
+        assign(self.john, self.branch, staffAssignment.StaffRoles.Cashier)
+
+        credential = a_till(self.org, self.jane, "jane")
+        _, self.token = services.open_staff_session(credential)
+
+        self.register = Register.objects.create(
+            branch=self.branch, name="Till 1", register_number="T1"
+        )
+        self.shift = RegisterShift.objects.create(
+            register=self.register, operator=self.jane,
+            opening_cash=Decimal("1000.00"),
+        )
+        category = CatalogCategories.objects.create(
+            organization=self.org, name="General"
+        )
+        self.product = CatalogCategoryProduct.objects.create(
+            organization=self.org, category=category, name="Milk", sku="SKU-1",
+            cost_price=Decimal("70.00"), selling_price=Decimal("100.00"),
+        )
+        BranchInventory.objects.create(
+            branch=self.branch, product=self.product, quantity=Decimal("50")
+        )
+
+    def auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def sale(self, cashier_id, **extra):
+        return self.client.post(
+            "/sls/sales/checkout/",
+            {
+                "shift": self.shift.pk,
+                "cashier": cashier_id,
+                "lines": [{"product": self.product.pk, "quantity": "1"}],
+                "payments": [{"method": "cash", "amount": "100.00"}],
+                **extra,
+            },
+            content_type="application/json",
+            **self.auth(),
+        )
+
+    def test_a_till_may_ring_up_as_itself(self):
+        """The control. Without it the refusal below proves only a broken till."""
+        response = self.sale(self.jane.pk)
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_a_till_may_not_ring_up_as_a_colleague(self):
+        response = self.sale(self.john.pk)
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(Sale.objects.count(), 0)
+
+    def test_an_owner_may_still_record_a_sale_for_somebody(self):
+        """
+        The rule is about the tier that does not hold organisation-wide
+        authority. An owner entering a sale on a cashier's behalf is ordinary
+        and remains allowed — otherwise this would have broken every back
+        -office correction.
+        """
+        account = PlatformAccount.objects.create(
+            genmars_account_id=4242, email="owner@a.co.ke"
+        )
+        TenantMembership.objects.create(
+            account=account,
+            organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = account.pk
+        session.save()
+
+        response = self.client.post(
+            "/sls/sales/checkout/",
+            {
+                "shift": self.shift.pk,
+                "cashier": self.john.pk,
+                "lines": [{"product": self.product.pk, "quantity": "1"}],
+                "payments": [{"method": "cash", "amount": "100.00"}],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_a_till_learns_its_own_staff_id_and_only_its_own(self):
+        """
+        It has to: /org/staff/ is held at staff.manage, which no cashier
+        holds, so without this the register could sign in and never open a
+        shift. The id confers nothing — the test above is what makes that
+        true rather than hopeful.
+        """
+        me = self.client.get("/auth/me", **self.auth()).json()
+        self.assertEqual(me["staff_id"], self.jane.pk)
+        self.assertEqual(
+            self.client.get("/org/staff/", **self.auth()).status_code, 403
+        )
