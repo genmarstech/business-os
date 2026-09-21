@@ -549,3 +549,105 @@ class BrowserFacingPageTests(TestCase):
             # Positive control: the stylesheet it uses instead must be linked,
             # or "no inline style" is satisfied by a page with no styling.
             self.assertIn("identity/site.css", body)
+
+
+class TheBrowserCanActuallyWriteTests(TestCase):
+    """
+    The whole subscriber write path, from the cookies a real browser is left
+    holding after signing in.
+
+    ══════════════════════════════════════════════════════════════════════════
+    WHY THIS IS NOT COVERED BY THE CSRF TESTS ABOVE.
+
+    Those prove Django refuses a POST without a valid token — the correct
+    half. They say nothing about whether a token is ever OBTAINABLE, and it
+    was not: every existing test builds its session by writing to
+    `self.client.session` directly, so the client had a CSRF cookie the real
+    flow never issued. Both halves passed while the product could not create a
+    single row.
+
+    So this class signs in the way a browser does and then writes with exactly
+    what that left in the jar. If only one test here survives a refactor, it
+    should be this one.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    PAYLOAD = {
+        "account": {
+            "id": 6161,
+            "email": "writes@shop.co.ke",
+            "full_name": "Amina Owner",
+            "is_staff": False,
+            "staff_role": "",
+            "email_verified": True,
+        },
+        "organisations": [],
+    }
+
+    def sign_in(self, client):
+        """Complete the handoff, returning whatever the browser now holds."""
+        state = "state-for-the-write-test"
+        session = client.session
+        session[signon.STATE_SESSION_KEY] = state
+        session.save()
+
+        with mock.patch.object(signon, "exchange_code", return_value=self.PAYLOAD):
+            response = client.get(
+                reverse("sign-on-callback") + f"?code=good&state={state}",
+                HTTP_ACCEPT="text/html,*/*;q=0.8",
+            )
+        self.assertEqual(response.status_code, 302)
+        return response
+
+    def test_signing_in_leaves_the_browser_holding_a_csrf_token(self):
+        client = self.client
+        self.sign_in(client)
+
+        self.assertIn(
+            "csrftoken",
+            client.cookies,
+            "The callback is the only Django response a browser receives. "
+            "If it does not mint the CSRF cookie, nothing ever does and no "
+            "subscriber can write.",
+        )
+        self.assertTrue(client.cookies["csrftoken"].value)
+
+    def test_a_business_can_be_created_with_those_cookies(self):
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        self.sign_in(client)
+        token = client.cookies["csrftoken"].value
+
+        response = client.post(
+            "/org/organizations/",
+            {"name": "Mwangi Stores", "staff_size": "MD"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+        self.assertEqual(response.status_code, 201, response.content[:400])
+        self.assertEqual(
+            BusinessOrganization.objects.filter(name="Mwangi Stores").count(), 1
+        )
+
+    def test_the_same_write_without_the_token_is_still_refused(self):
+        """
+        The positive control's opposite. Without this, the test above would
+        pass just as happily against a build that had stopped checking CSRF
+        altogether — which is the more expensive bug of the two.
+        """
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        self.sign_in(client)
+        del client.cookies["csrftoken"]
+
+        response = client.post(
+            "/org/organizations/",
+            {"name": "Not Mine", "staff_size": "MD"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(BusinessOrganization.objects.count(), 0)

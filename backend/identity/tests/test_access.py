@@ -872,3 +872,85 @@ class CsrfTests(TestCase):
             "/auth/me", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         self.assertEqual(response.status_code, 200)
+
+
+class BrandNewSubscriberTests(TestCase):
+    """
+    Somebody who has just signed in through Genmars and has no business yet.
+
+    ── THE STATE EVERY OTHER TEST SKIPS ───────────────────────────────────
+    Every test in this file creates a TenantMembership in setUp, because that
+    is what makes the interesting assertions possible. So the one state a real
+    person is guaranteed to pass through — signed in, belonging to nothing —
+    was covered nowhere, and onboarding shipped impossible: /auth/me was gated
+    on membership, so a new subscriber could not learn they had no business,
+    could not obtain the CSRF cookie it issues, and therefore could not create
+    one either.
+    """
+
+    def setUp(self):
+        self.account = PlatformAccount.objects.create(
+            genmars_account_id=51, email="brand.new@owner.co.ke", full_name="New"
+        )
+
+    def client_for(self, **kwargs):
+        from django.test import Client
+
+        client = Client(**kwargs)
+        session = client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.account.pk
+        session.save()
+        return client
+
+    def test_they_can_ask_who_they_are(self):
+        response = self.client_for().get("/auth/me")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        body = response.json()
+        self.assertEqual(body["kind"], "subscriber")
+        self.assertEqual(body["organisations"], [])
+        self.assertEqual(body["permissions"], [])
+        # Not restricted to nothing — they simply have no tenant at all.
+        self.assertIsNone(body["branches"])
+
+    def test_they_can_obtain_a_csrf_token(self):
+        """
+        Being refused /auth/me also meant being refused the cookie it issues,
+        so the deadlock closed both ways: no token, therefore no write, ever.
+        """
+        client = self.client_for(enforce_csrf_checks=True)
+        client.get("/auth/me")
+        self.assertIn("csrftoken", client.cookies)
+
+    def test_they_can_create_their_first_business(self):
+        """The whole point. This is the write that ends the state."""
+        client = self.client_for(enforce_csrf_checks=True)
+        client.get("/auth/me")
+
+        response = client.post(
+            "/org/organizations/",
+            {"name": "Brand New Stores", "staff_size": "MD"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        # And it made them its owner, so the next request is no longer this
+        # state at all.
+        membership = TenantMembership.objects.get(account=self.account)
+        self.assertEqual(membership.role, TenantMembership.Role.OWNER)
+
+        after = client.get("/auth/me").json()
+        self.assertEqual(len(after["organisations"]), 1)
+        self.assertIn(access.SETTINGS_ORGANISATION, after["permissions"])
+
+    def test_they_still_reach_nothing_that_holds_tenant_data(self):
+        """
+        Widening /auth/me must not have widened anything else. They belong to
+        no tenant, so every real endpoint is still shut.
+        """
+        client = self.client_for()
+        for path in ("/brn/branch/", "/ctl/products/", "/sls/sales/", "/org/staff/"):
+            self.assertEqual(
+                client.get(path).status_code, 403, f"{path} was reachable"
+            )

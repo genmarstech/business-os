@@ -1,5 +1,9 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
 import { Mark } from "@/components/Mark";
 import { Shell } from "@/components/Shell";
+import { progress, type Progress } from "@/lib/onboarding";
 import { me as whoAmI, tenantName } from "@/lib/session";
 import styles from "./page.module.css";
 
@@ -23,6 +27,25 @@ export default async function Home() {
 
   if (!me) return <FrontDoor />;
 
+  const state = await progress(me);
+
+  /*
+   * ── A SUBSCRIBER WITH NO BUSINESS IS SENT TO MAKE ONE ────────────────────
+   *
+   * There is nothing for them here and no screen in the application works
+   * without a tenant. It is a redirect rather than a rendered prompt so the
+   * back button and a bookmarked "/" both behave, and so there is one place
+   * that decides this.
+   *
+   * Only for the business step. Somebody who has a business but no branch yet
+   * sees their dashboard, with the remaining steps on it — being nagged into
+   * a wizard you have already started is worse than being shown where you got
+   * to.
+   */
+  if (me.kind === "subscriber" && state.next === "business") {
+    redirect("/welcome");
+  }
+
   const business = tenantName(me);
 
   return (
@@ -40,7 +63,7 @@ export default async function Home() {
             </p>
           </header>
 
-          <Empty />
+          <Empty state={state} />
         </div>
       </div>
     </Shell>
@@ -54,52 +77,81 @@ export default async function Home() {
  * every new subscriber lands on, and an empty dashboard that only reports its
  * own emptiness teaches nobody how to change that.
  *
- * The steps are hard-coded for now. They become live once branches, registers
- * and the catalogue exist — steps 2 and 3 of the build order.
+ * ── THE TICKS ARE REAL ─────────────────────────────────────────────────────
+ * Derived from what exists, not from a stored step — see lib/onboarding.ts.
+ * A checklist that keeps claiming you have no branch after you made one is
+ * worse than no checklist, and that is what a stored step becomes the first
+ * time somebody adds one through the API.
  */
-function Empty() {
+function Empty({ state }: { state: Progress }) {
+  const steps = [
+    {
+      name: "Your business",
+      done: state.business,
+      note: "Done — you are signed in to it.",
+    },
+    {
+      name: "A branch",
+      done: state.branches > 0,
+      note:
+        state.branches > 0
+          ? `${state.branches} added.`
+          : "A physical location. Stock, sales and staff all belong to one.",
+    },
+    {
+      name: "Products, with prices and a tax rule",
+      done: state.products > 0,
+      note:
+        state.products > 0
+          ? `${state.products} in the catalogue.`
+          : "A shelf price is normally VAT-inclusive here. The rule says so, once, and every sale copies it.",
+    },
+    {
+      name: "A register, and somebody to run it",
+      done: state.registers > 0 && state.staff > 0,
+      note:
+        state.registers > 0 && state.staff === 0
+          ? "The till exists. Nobody is set up to work it yet."
+          : state.registers > 0
+            ? `${state.registers} till${state.registers === 1 ? "" : "s"}, ${state.staff} staff.`
+            : "A cashier signs in to the till itself, not through Genmars — their account belongs to your business.",
+    },
+  ];
+
+  const remaining = steps.filter((s) => !s.done).length;
+
   return (
     <section className={styles.empty}>
       <h2 className={styles.emptyTitle}>Nothing has been sold yet</h2>
       <p className={styles.emptyBody}>
         Takings, branch comparison and stock alerts appear here once a till has
-        taken its first sale. Four things have to exist before one can.
+        taken its first sale.{" "}
+        {remaining > 0
+          ? `${remaining} thing${remaining === 1 ? "" : "s"} left before one can.`
+          : "Everything a sale needs is in place."}
       </p>
 
       <ol className={styles.steps}>
-        <li className={`${styles.step} ${styles.stepDone}`}>
-          <div>
-            <div className={styles.stepName}>Your business</div>
-            <div className={styles.stepNote}>Done — you are signed in to it.</div>
-          </div>
-        </li>
-        <li className={styles.step}>
-          <div>
-            <div className={styles.stepName}>A branch</div>
-            <div className={styles.stepNote}>
-              A physical location. Stock, sales and staff all belong to one.
+        {steps.map((step) => (
+          <li
+            key={step.name}
+            className={`${styles.step} ${step.done ? styles.stepDone : ""}`}
+          >
+            <div>
+              <div className={styles.stepName}>{step.name}</div>
+              <div className={styles.stepNote}>{step.note}</div>
             </div>
-          </div>
-        </li>
-        <li className={styles.step}>
-          <div>
-            <div className={styles.stepName}>Products, with prices and a tax rule</div>
-            <div className={styles.stepNote}>
-              A shelf price is normally VAT-inclusive here. The rule says so,
-              once, and every sale copies it.
-            </div>
-          </div>
-        </li>
-        <li className={styles.step}>
-          <div>
-            <div className={styles.stepName}>A register, and somebody to run it</div>
-            <div className={styles.stepNote}>
-              A cashier signs in to the till itself, not through Genmars —
-              their account belongs to your business.
-            </div>
-          </div>
-        </li>
+          </li>
+        ))}
       </ol>
+
+      {remaining > 0 ? (
+        <p style={{ margin: "18px 0 0" }}>
+          <Link className={styles.button} href="/welcome">
+            Continue setting up
+          </Link>
+        </p>
+      ) : null}
     </section>
   );
 }

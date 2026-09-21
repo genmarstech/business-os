@@ -115,8 +115,23 @@
   margin-top: 2px;
 }
 
+.stepDone {
+  border-color: var(--line);
+}
+
 .stepDone .stepName {
   color: var(--ink-muted);
+}
+
+/*
+ * A tick replaces the number on a finished step. Keeping the number there
+ * and adding a tick beside it gives two competing signals for one state.
+ */
+.stepDone::before {
+  content: "✓";
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--panel);
 }
 
 /* ── the anonymous front door ──────────────────────────────────────────── */

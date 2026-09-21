@@ -1,0 +1,172 @@
+/* The onboarding wizard. */
+
+.page {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: clamp(28px, 6vw, 56px) clamp(16px, 4vw, 32px) 80px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 30px;
+}
+
+.brandName {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.brandSub {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.4vw, 2rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 10px;
+  text-wrap: balance;
+}
+
+.lede {
+  color: var(--ink-muted);
+  margin: 0 0 26px;
+  max-width: 58ch;
+}
+
+/*
+ * The progress rail.
+ *
+ * Numbered because it IS a sequence — a branch needs a business, a register
+ * needs a branch. The order carries information the reader needs, which is
+ * the only honest reason to number anything.
+ */
+.rail {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.rung {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  background: var(--panel);
+  padding: 11px 14px;
+  font-size: 13.5px;
+}
+
+.pip {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  text-align: center;
+  line-height: 21px;
+  height: 23px;
+}
+
+.done .pip {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--panel);
+}
+
+.here {
+  background: var(--sunken);
+}
+
+.here .pip {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.here .rungName {
+  font-weight: 600;
+}
+
+.rungName {
+  color: var(--ink);
+}
+
+.done .rungName {
+  color: var(--ink-muted);
+}
+
+.tag {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.done .tag {
+  color: var(--ok);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(20px, 4vw, 30px);
+}
+
+.cardTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.2rem;
+  margin: 0 0 8px;
+}
+
+.cardLede {
+  color: var(--ink-muted);
+  margin: 0 0 22px;
+  max-width: 56ch;
+  font-size: 14px;
+}
+
+.note {
+  border-left: 3px solid var(--accent);
+  background: var(--app);
+  padding: 12px 15px;
+  margin-top: 20px;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.note strong {
+  color: var(--ink);
+}
+
+.doneCard {
+  text-align: left;
+}
+
+.link {
+  display: inline-block;
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  border-radius: var(--r-md);
+  padding: 11px 20px;
+  font-weight: 600;
+  font-size: 14.5px;
+  text-decoration: none;
+  margin-top: 6px;
+}

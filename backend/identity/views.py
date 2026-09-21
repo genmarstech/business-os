@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from . import access, services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from .models import PlatformAccount
-from .permissions import IsTenantMember, tenant_scope
+from .permissions import IsKnownPrincipal, tenant_scope
 
 
 def wants_html(request) -> bool:
@@ -71,6 +71,7 @@ class SignOnStartView(APIView):
             )
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class SignOnCallbackView(APIView):
     """
     Where Genmars sends them back, with a code.
@@ -95,6 +96,25 @@ class SignOnCallbackView(APIView):
 
     ⚠ The redirect target is "/", which Caddy routes to the Next application
       and NOT back here. Sending them to a path Django also serves would loop.
+
+    ══════════════════════════════════════════════════════════════════════════
+    @ensure_csrf_cookie IS WHAT MAKES ANY SUBSCRIBER WRITE POSSIBLE AT ALL.
+
+    This response is the ONLY one in the whole flow that Django hands to the
+    browser. Every other call is made by the Next server on the subscriber's
+    behalf, so every other Set-Cookie we send lands on a `fetch` response that
+    is read for its body and thrown away.
+
+    /auth/me carries the same decorator and looks like it should do this job.
+    It cannot: lib/session.ts calls it server-to-server, so the token it mints
+    never reaches the person who has to echo it back. That was the state of
+    things, and it meant the browser held `sessionid` and nothing else —
+    Django's double-submit check therefore refused EVERY subscriber POST with
+    "CSRF cookie not set". Creating a business, adding a branch, changing a
+    price: none of them could ever have worked.
+
+    Taking this decorator off puts that back. There is no second mechanism.
+    ══════════════════════════════════════════════════════════════════════════
     """
 
     permission_classes = [AllowAny]
@@ -266,7 +286,10 @@ class WhoAmIView(APIView):
     an owner an empty shop.
     """
 
-    permission_classes = [IsTenantMember]
+    # NOT IsTenantMember. See the banner on IsKnownPrincipal: a subscriber
+    # with no business yet must be able to read this, or they can never learn
+    # they have none and can never obtain the CSRF token to create one.
+    permission_classes = [IsKnownPrincipal]
 
     def get(self, request):
         principal = request.user

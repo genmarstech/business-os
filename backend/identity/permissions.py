@@ -48,6 +48,33 @@ class IsTenantMember(BasePermission):
         return bool(tenant_scope(request.user))
 
 
+class IsKnownPrincipal(BasePermission):
+    """
+    Either kind of principal, whether or not they belong to a tenant yet.
+
+    ── THE STATE THIS EXISTS FOR ──────────────────────────────────────────
+    A subscriber who has just completed the Genmars handoff has a session and
+    no TenantMembership, because creating their first business is what gives
+    them one. `IsTenantMember` refuses them, which is correct for every
+    endpoint that touches tenant data and wrong for the two that do not:
+
+      · /auth/me, which is how a client learns it is dealing with somebody
+        who has no business yet — and which issues the CSRF cookie, so being
+        refused it means never being able to write anything either.
+      · creating the first organisation.
+
+    Gating those on membership is a deadlock: you need a business to be
+    allowed to make a business. It shipped that way and made onboarding
+    impossible, which nothing caught because every test created the
+    membership first.
+    """
+
+    message = "Sign in to do that."
+
+    def has_permission(self, request, view) -> bool:
+        return isinstance(request.user, (PlatformAccount, StaffPrincipal))
+
+
 def tenant_scope(principal) -> list[int]:
     """
     The organisation ids this principal may touch. The only answer to that.

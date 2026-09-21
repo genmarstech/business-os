@@ -165,3 +165,131 @@ export async function getOrNull<T>(path: string): Promise<T | null> {
     throw error;
   }
 }
+
+/**
+ * POST `path` as the signed-in caller.
+ *
+ * ── THE CSRF TOKEN IS ECHOED FROM THE COOKIE ───────────────────────────────
+ *
+ * Django's check compares a header against the cookie: holding the cookie is
+ * what proves the request came from a page on this origin rather than from
+ * somebody else's.
+ *
+ * ⚠ THE TOKEN COMES FROM /auth/callback, NOT FROM /auth/me.
+ *
+ * /auth/me carries @ensure_csrf_cookie and looks like the source, and that is
+ * what this comment used to say. It was wrong, and it made every subscriber
+ * write impossible: me() calls /auth/me from THIS server, so the Set-Cookie
+ * comes back on a fetch response that is read for its body and discarded. The
+ * browser never saw it, the jar below was always empty, and Django refused
+ * every POST with "CSRF cookie not set".
+ *
+ * The sign-on callback is the one Django response the browser itself
+ * receives, so that is where the cookie is now minted — see the banner on
+ * SignOnCallbackView. Anything else that wants a subscriber to be able to
+ * write has the same problem to solve and the same answer.
+ *
+ * Read FRESH on every call rather than captured once. Django rotates the
+ * token when a session starts, so one read at page load goes stale the moment
+ * somebody signs in and every subsequent write fails with a refusal that
+ * looks like a permission problem.
+ */
+export async function post<T>(path: string, body: unknown): Promise<T> {
+  const jar = await cookies();
+  const token = jar.get("csrftoken")?.value ?? "";
+
+  /*
+   * Without the token Django answers 403 "CSRF failed: CSRF cookie not set",
+   * which a form would render verbatim at somebody who has done nothing wrong
+   * and can do nothing about it. Say the one thing that fixes it instead.
+   *
+   * The only way to be here is a session that began before the callback
+   * started minting the cookie, or a jar somebody has cleared by hand.
+   * Signing in again mints one.
+   */
+  if (!token) {
+    throw new ApiError(`POST ${path} → no CSRF token`, 403, {
+      detail: "Your sign-in needs refreshing before you can save changes. Sign in again.",
+    });
+  }
+
+  const response = await fetch(`${ORIGIN}${path}`, {
+    method: "POST",
+    headers: {
+      ...(await forwarded()),
+      "content-type": "application/json",
+      "x-csrftoken": token,
+      // Django checks this against CSRF_TRUSTED_ORIGINS on unsafe methods.
+      // Without it a request over HTTPS is refused for a reason that names
+      // neither the header nor the setting.
+      ...(await refererHeader()),
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = undefined;
+    }
+    throw new ApiError(
+      `POST ${path} → ${response.status}`,
+      response.status,
+      parsed,
+    );
+  }
+
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+async function refererHeader(): Promise<Record<string, string>> {
+  const incoming = await headers();
+  const host = incoming.get("host");
+  const proto = incoming.get("x-forwarded-proto") ?? "http";
+  return host ? { referer: `${proto}://${host}/` } : {};
+}
+
+/**
+ * Turn an ApiError into the field errors a form can show.
+ *
+ * DRF answers a failed create with `{"field": ["message"], ...}` and a refused
+ * one with `{"detail": "…"}`. Both are flattened to one shape so a form has a
+ * single thing to render, and anything unrecognised becomes a general message
+ * rather than an empty form that silently did nothing.
+ */
+export type FormErrors = { field: Record<string, string>; general: string[] };
+
+export function asFormErrors(error: unknown): FormErrors {
+  const out: FormErrors = { field: {}, general: [] };
+
+  if (!(error instanceof ApiError)) {
+    out.general.push("Something went wrong. Try again.");
+    return out;
+  }
+
+  const body = error.body;
+  if (body && typeof body === "object") {
+    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+      const text = Array.isArray(value) ? value.join(" ") : String(value);
+      if (key === "detail" || key === "non_field_errors") {
+        out.general.push(text);
+      } else {
+        out.field[key] = text;
+      }
+    }
+  }
+
+  if (!out.general.length && !Object.keys(out.field).length) {
+    out.general.push(
+      error.isForbidden
+        ? "You do not have permission to do that."
+        : "That did not work. Check the details and try again.",
+    );
+  }
+
+  return out;
+}
