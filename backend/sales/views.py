@@ -17,6 +17,8 @@ whole platform's trading history in one request.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import status, viewsets
@@ -27,7 +29,7 @@ from catalog.models import TaxRule
 from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
 
-from . import services
+from . import reports, services
 from .models import Customer, Refund, Sale
 from .serializers import (
     CheckoutSerializer,
@@ -57,6 +59,30 @@ def _refuse(error: DjangoValidationError) -> Response:
         else {"detail": error.messages}
     )
     return Response(detail, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _exact(value):
+    """
+    Render a report's Decimals as strings, all the way down.
+
+    ── DRF RENDERS A BARE Decimal AS A float ───────────────────────────────
+    Its JSON encoder does `float(obj)`, so 1234.55 leaves here as 1234.55 and
+    19.99 leaves as 19.989999999999998. DRF's own DecimalField does not have
+    this problem — it emits a string — but these reports are plain dicts, not
+    serialisers, so they miss that treatment entirely.
+
+    Money that has been through a float is money that no longer adds up, and a
+    dashboard whose total disagrees with the sum of its rows by a cent is a
+    dashboard nobody trusts again. So the conversion is explicit and happens
+    once, here, on the way out.
+    """
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _exact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_exact(item) for item in value]
+    return value
 
 
 class TaxRuleViewSet(TenantScoped, viewsets.ModelViewSet):
@@ -245,3 +271,90 @@ class RefundViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         .all()
     )
     serializer_class = RefundSerializer
+
+
+class ReportViewSet(viewsets.ViewSet):
+    """
+    The dashboard and the reports — blueprint modules 11 and 12.
+
+    A ViewSet with no queryset, because none of these is a list of rows. Each
+    action is an aggregate, and every one of them resolves its own scope
+    through `sales.reports` rather than taking a queryset from here — see the
+    banner in that module on why a report is the easiest place to leak a whole
+    platform at once.
+
+    `branch` narrows any of them; it is NOT trusted as authority. A branch the
+    caller cannot see produces an empty report rather than a refusal, because
+    the aggregate is taken over already-scoped sales and a branch outside the
+    scope simply matches nothing — §8's "never trust branch_id supplied by a
+    client as proof of authorization", arranged so that obeying it needs no
+    extra check.
+    """
+
+    def _branch(self, request):
+        raw = request.query_params.get("branch")
+        try:
+            return int(raw) if raw else None
+        except (TypeError, ValueError):
+            return None
+
+    @action(detail=False, methods=["get"])
+    def overview(self, request):
+        start, end = reports.parse_window(request)
+        return Response(_exact(
+            reports.overview(request.user, start, end, self._branch(request))
+        ))
+
+    @action(detail=False, methods=["get"], url_path="by-branch")
+    def by_branch(self, request):
+        start, end = reports.parse_window(request)
+        return Response(
+            _exact({"branches": reports.by_branch(request.user, start, end)})
+        )
+
+    @action(detail=False, methods=["get"], url_path="by-product")
+    def by_product(self, request):
+        start, end = reports.parse_window(request)
+        return Response(_exact(
+            {
+                "products": reports.by_product(
+                    request.user, start, end, self._branch(request)
+                )
+            }
+        ))
+
+    @action(detail=False, methods=["get"], url_path="by-cashier")
+    def by_cashier(self, request):
+        start, end = reports.parse_window(request)
+        return Response(_exact(
+            {
+                "cashiers": reports.by_cashier(
+                    request.user, start, end, self._branch(request)
+                )
+            }
+        ))
+
+    @action(detail=False, methods=["get"], url_path="by-payment-method")
+    def by_payment_method(self, request):
+        start, end = reports.parse_window(request)
+        return Response(_exact(
+            {
+                "methods": reports.by_payment_method(
+                    request.user, start, end, self._branch(request)
+                )
+            }
+        ))
+
+    @action(detail=False, methods=["get"], url_path="stock-alerts")
+    def stock_alerts(self, request):
+        return Response(
+            _exact({"alerts": reports.stock_alerts(request.user, self._branch(request))})
+        )
+
+    @action(detail=False, methods=["get"], url_path="register-status")
+    def register_status(self, request):
+        return Response(
+            _exact(
+                {"registers": reports.register_status(request.user, self._branch(request))}
+            )
+        )

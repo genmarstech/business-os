@@ -9,10 +9,11 @@ that is wrong by a cent is wrong on every receipt the business ever issues.
 
 from __future__ import annotations
 
+from datetime import datetime, time
 from decimal import Decimal
 
 from django.test import TestCase
-from django.urls import reverse
+from django.utils import timezone
 
 from branches.models import Branches, Register, RegisterShift
 from catalog.models import CatalogCategories, CatalogCategoryProduct, TaxRule
@@ -20,7 +21,7 @@ from identity.models import PlatformAccount, TenantMembership
 from inventory.models import BranchInventory, StockMovement
 from organisations.models import BusinessOrganization, OrganizationStaff
 
-from . import services
+from . import reports, services
 from .models import Customer, Payment, Refund, Sale, SaleItem
 
 
@@ -709,3 +710,239 @@ class SaleApiIsolationTests(TestCase):
         self.assertEqual(response.status_code, 405)
         sale.refresh_from_db()
         self.assertEqual(sale.total, Decimal("100.00"))
+
+
+class ReportTests(TestCase):
+    """
+    A report is the easiest place in a multi-tenant system to leak everything
+    at once — one aggregate over an unscoped table and a shop is reading the
+    platform's turnover. These tests are as much about what the numbers do NOT
+    include as about what they do.
+    """
+
+    def setUp(self):
+        self.a_org, self.a_branch, self.a_staff, _, self.a_shift = a_shop("Shop A")
+        self.b_org, self.b_branch, self.b_staff, _, self.b_shift = a_shop("Shop B")
+
+        rule = TaxRule.objects.create(
+            organization=self.a_org, name="VAT 16%", rate=Decimal("16.00"),
+            is_inclusive=True, is_default=True,
+        )
+        self.product = a_product(
+            self.a_org, name="Milk", price="116.00", cost="50.00", rule=rule
+        )
+        stock(self.a_branch, self.product, "100")
+
+        self.b_product = a_product(self.b_org, name="B Milk", price="100.00")
+        stock(self.b_branch, self.b_product, "100")
+
+        self.account = PlatformAccount.objects.create(
+            genmars_account_id=601, email="owner@a.co.ke", full_name="A Owner"
+        )
+        TenantMembership.objects.create(account=self.account, organization=self.a_org)
+
+    def sell(self, quantity="2"):
+        return services.checkout(
+            shift=self.a_shift,
+            cashier=self.a_staff,
+            lines=[{"product": self.product, "quantity": Decimal(quantity)}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("232.00")}],
+        )
+
+    def window(self):
+        """Today, as whole local days — the same window the API defaults to."""
+        today = timezone.localtime().date()
+        tz = timezone.get_current_timezone()
+        return (
+            timezone.make_aware(datetime.combine(today, time.min), tz),
+            timezone.make_aware(datetime.combine(today, time.max), tz),
+        )
+
+    def test_profit_comes_out_net_of_tax(self):
+        """
+        Two units at 116 inclusive of 16%: revenue 232, tax 32, net 200, cost
+        100, profit 100. A profit figure that counted the VAT would read 132 —
+        wrong in the direction that gets a business into trouble.
+        """
+        self.sell("2")
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end)
+
+        self.assertEqual(figures["revenue"], Decimal("232.00"))
+        self.assertEqual(figures["tax_collected"], Decimal("32.00"))
+        self.assertEqual(figures["cost_of_sales"], Decimal("100.00"))
+        self.assertEqual(figures["gross_profit"], Decimal("100.00"))
+        self.assertEqual(figures["transactions"], 1)
+
+    def test_another_shops_takings_are_not_in_the_figures(self):
+        self.sell("2")
+        services.checkout(
+            shift=self.b_shift,
+            cashier=self.b_staff,
+            lines=[{"product": self.b_product, "quantity": Decimal("5")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("500.00")}],
+        )
+
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end)
+        # Shop B's 500 must be nowhere in it.
+        self.assertEqual(figures["revenue"], Decimal("232.00"))
+        self.assertEqual(figures["transactions"], 1)
+
+        branches = reports.by_branch(self.account, start, end)
+        self.assertEqual([b["branch"] for b in branches], [self.a_branch.pk])
+
+    def test_a_voided_sale_is_not_revenue(self):
+        sale = self.sell("2")
+        services.void_sale(sale, reason="Rung up twice")
+
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end)
+        self.assertEqual(figures["revenue"], Decimal("0.00"))
+        self.assertEqual(figures["transactions"], 0)
+
+    def test_refunds_are_reported_beside_revenue_not_netted_off_it(self):
+        """
+        "We sold 232 and gave back 116" and "we sold 116" are different facts
+        about a business, and the second hides a returns problem.
+        """
+        sale = self.sell("2")
+        services.refund_sale(
+            sale=sale,
+            branch=self.a_branch,
+            processed_by=self.a_staff,
+            lines=[{"sale_item": sale.items.get(), "quantity": Decimal("1")}],
+            reason="Returned",
+        )
+
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end)
+        self.assertEqual(figures["revenue"], Decimal("232.00"))
+        self.assertEqual(figures["refunded"], Decimal("116.00"))
+        self.assertEqual(figures["refunds"], 1)
+
+    def test_an_empty_day_is_an_answer_not_a_division_error(self):
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end)
+        self.assertEqual(figures["transactions"], 0)
+        self.assertEqual(figures["average_basket"], Decimal("0.00"))
+
+    def test_stock_alerts_fire_at_the_reorder_level_not_below_it(self):
+        """
+        A reorder level of ten means "reorder when you reach ten". A strict
+        comparison waits for nine, which is one sale later than asked.
+        """
+        row = BranchInventory.objects.get(branch=self.a_branch, product=self.product)
+        row.quantity = Decimal("10")
+        row.reorder_level = Decimal("10")
+        row.save()
+
+        alerts = reports.stock_alerts(self.account)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["product"], self.product.pk)
+        self.assertFalse(alerts[0]["out_of_stock"])
+
+    def test_stock_alerts_do_not_cross_tenants(self):
+        for row in BranchInventory.objects.all():
+            row.quantity = Decimal("0")
+            row.reorder_level = Decimal("5")
+            row.save()
+
+        alerts = reports.stock_alerts(self.account)
+        self.assertEqual({a["branch"] for a in alerts}, {self.a_branch.pk})
+        self.assertTrue(all(a["out_of_stock"] for a in alerts))
+
+    def test_register_status_shows_what_should_be_in_the_drawer(self):
+        """
+        Opening float plus cash taken minus change given. This is the figure a
+        close is reconciled against, and it could not be computed at all
+        before sales existed.
+        """
+        services.checkout(
+            shift=self.a_shift,
+            cashier=self.a_staff,
+            lines=[{"product": self.product, "quantity": Decimal("1")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("200.00")}],
+        )
+        status_rows = reports.register_status(self.account)
+        self.assertEqual(len(status_rows), 1)
+        row = status_rows[0]
+        self.assertEqual(row["opening_cash"], Decimal("1000.00"))
+        self.assertEqual(row["cash_taken"], Decimal("116.00"))
+        self.assertEqual(row["change_given"], Decimal("84.00"))
+        self.assertEqual(row["expected_cash"], Decimal("1032.00"))
+
+    def test_naming_another_shops_branch_reports_nothing(self):
+        """
+        §8: a branch id from a client is not authority. Narrowing by a branch
+        outside the caller's scope matches nothing, because the aggregate is
+        taken over already-scoped sales.
+        """
+        self.sell("2")
+        services.checkout(
+            shift=self.b_shift,
+            cashier=self.b_staff,
+            lines=[{"product": self.b_product, "quantity": Decimal("5")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("500.00")}],
+        )
+
+        start, end = self.window()
+        figures = reports.overview(self.account, start, end, self.b_branch.pk)
+        self.assertEqual(figures["revenue"], Decimal("0.00"))
+
+
+class ReportApiTests(TestCase):
+    def setUp(self):
+        self.org, self.branch, self.staff, _, self.shift = a_shop("Shop A")
+        self.product = a_product(self.org, price="100.00", cost="60.00")
+        stock(self.branch, self.product, "50")
+        services.checkout(
+            shift=self.shift,
+            cashier=self.staff,
+            lines=[{"product": self.product, "quantity": Decimal("3")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("300.00")}],
+        )
+        self.account = PlatformAccount.objects.create(
+            genmars_account_id=701, email="owner@a.co.ke", full_name="A Owner"
+        )
+        TenantMembership.objects.create(account=self.account, organization=self.org)
+
+    def sign_in(self):
+        from identity.authentication import SUBSCRIBER_SESSION_KEY
+
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.account.pk
+        session.save()
+
+    def test_every_report_refuses_an_anonymous_caller(self):
+        for path in (
+            "overview", "by-branch", "by-product", "by-cashier",
+            "by-payment-method", "stock-alerts", "register-status",
+        ):
+            response = self.client.get(f"/sls/reports/{path}/")
+            self.assertIn(
+                response.status_code, (401, 403), f"/sls/reports/{path}/ was open"
+            )
+
+    def test_the_overview_answers_for_a_signed_in_subscriber(self):
+        self.sign_in()
+        response = self.client.get("/sls/reports/overview/")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["revenue"], "300.00")
+        self.assertEqual(body["gross_profit"], "120.00")
+        self.assertEqual(body["transactions"], 1)
+
+    def test_a_malformed_date_falls_back_rather_than_500ing(self):
+        self.sign_in()
+        response = self.client.get("/sls/reports/overview/?from=not-a-date&to=nonsense")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_product_report_ranks_what_sold(self):
+        self.sign_in()
+        response = self.client.get("/sls/reports/by-product/")
+        self.assertEqual(response.status_code, 200)
+        products = response.json()["products"]
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["quantity"], "3.00")
+        self.assertEqual(products[0]["revenue"], "300.00")
