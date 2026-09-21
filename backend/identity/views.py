@@ -7,7 +7,9 @@ Four of them: two for a subscriber arriving from Genmars, two for a till.
 from __future__ import annotations
 
 from django.shortcuts import redirect, render
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
@@ -230,9 +232,21 @@ class StaffSignOutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class WhoAmIView(APIView):
     """
     What the caller is, what they may touch, and what they may do.
+
+    ── IT ALSO HANDS OUT THE CSRF COOKIE, AND SOMETHING HAS TO ────────────
+    Django writes `csrftoken` only when a request actually asks for a token —
+    a template rendering {% csrf_token %}, or this decorator. Nothing in a
+    JSON API does that by itself, so without this the cookie never exists, a
+    client can never read a token to echo, and EVERY write is refused with
+    "CSRF cookie not set" by the check in authentication.py.
+
+    This endpoint is where it belongs rather than a dedicated /csrf route:
+    every client calls it on boot to find out who it is talking to, so the
+    token arrives with the answer instead of needing its own round trip.
 
     Useful to a client on boot, and useful in review: if this ever reports a
     scope wider than the caller's memberships, the isolation layer is wrong and

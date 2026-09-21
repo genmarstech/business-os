@@ -25,6 +25,7 @@ could ever hold a secret.
 
 from __future__ import annotations
 
+from django.middleware.csrf import CsrfViewMiddleware
 from rest_framework import authentication, exceptions
 
 from . import services
@@ -33,8 +34,36 @@ from .models import PlatformAccount
 SUBSCRIBER_SESSION_KEY = "platform_account_id"
 
 
+class _Csrf(CsrfViewMiddleware):
+    """Django's own check, reachable from outside the middleware chain."""
+
+    def _reject(self, request, reason):
+        return reason
+
+
 class SubscriberSessionAuthentication(authentication.BaseAuthentication):
-    """A subscriber who completed the Genmars sign-on handoff."""
+    """
+    A subscriber who completed the Genmars sign-on handoff.
+
+    ══════════════════════════════════════════════════════════════════════════
+    IT ENFORCES CSRF, AND SUBCLASSING BaseAuthentication IS WHY IT HAS TO.
+
+    DRF enforces CSRF inside `SessionAuthentication` and nowhere else. A
+    cookie-authenticated class that does not inherit from it therefore gets no
+    check at all — which is what this was. Every subscriber write was a
+    cross-site POST away from happening in somebody's logged-in browser: create
+    a branch, change a price, rename the business.
+
+    SESSION_COOKIE_SAMESITE = "Lax" was carrying the whole defence, and Lax is
+    a mitigation rather than a protection. It is SITE-scoped, so it does
+    nothing about another *.genmars.co.ke origin — and this company runs four
+    of them. Defence in depth means both, which is also Django's own advice.
+
+    ⚠ StaffTokenAuthentication below does NOT do this, and must not. A bearer
+      token is not sent automatically by a browser, so there is nothing to
+      forge; enforcing CSRF on it would only break every till.
+    ══════════════════════════════════════════════════════════════════════════
+    """
 
     def authenticate(self, request):
         account_id = request.session.get(SUBSCRIBER_SESSION_KEY)
@@ -60,7 +89,30 @@ class SubscriberSessionAuthentication(authentication.BaseAuthentication):
             request.session.pop(SUBSCRIBER_SESSION_KEY, None)
             return None
 
+        # Only once we know there IS a session to protect. Running it before
+        # would answer "CSRF failed" to an anonymous caller, which is both
+        # wrong and confusing.
+        self.enforce_csrf(request)
+
         return (account, None)
+
+    def enforce_csrf(self, request):
+        """
+        Django's check, run by hand because this is not middleware.
+
+        Safe methods pass untouched — CsrfViewMiddleware exempts GET, HEAD,
+        OPTIONS and TRACE itself, so this costs a read nothing.
+
+        The test client's `enforce_csrf_checks=False` still works: Django sets
+        `_dont_enforce_csrf_checks` on the request and process_view honours it,
+        so the existing suite is unaffected and a test that wants the real
+        behaviour asks for it with Client(enforce_csrf_checks=True).
+        """
+        check = _Csrf(lambda request: None)
+        check.process_request(request)
+        reason = check.process_view(request, None, (), {})
+        if reason:
+            raise exceptions.PermissionDenied(f"CSRF failed: {reason}")
 
 
 class StaffTokenAuthentication(authentication.BaseAuthentication):

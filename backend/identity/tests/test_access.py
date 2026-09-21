@@ -756,3 +756,119 @@ class WhoAmITells(TestCase):
         self.assertIn(access.SALES_REFUND, at_karen)
         # The union still says yes, which is why a screen must not use it.
         self.assertIn(access.SALES_REFUND, body["permissions"])
+
+
+class CsrfTests(TestCase):
+    """
+    A cookie-authenticated write must carry a CSRF token.
+
+    ── WHY THIS IS NOT COVERED BY THE REST OF THE SUITE ───────────────────
+    Django's test client sets `_dont_enforce_csrf_checks`, so every other test
+    here passes whether the check exists or not. These use
+    Client(enforce_csrf_checks=True), which is the only way to see the real
+    behaviour — and the reason the gap survived unnoticed: the authentication
+    class subclasses BaseAuthentication, and DRF enforces CSRF only inside
+    SessionAuthentication.
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop("Shop A")
+        self.account = PlatformAccount.objects.create(
+            genmars_account_id=41, email="owner@a.co.ke", full_name="A Owner"
+        )
+        TenantMembership.objects.create(
+            account=self.account,
+            organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+
+    def strict(self):
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        session = client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.account.pk
+        session.save()
+        return client
+
+    def a_branch(self):
+        return {
+            # `organization_id` — BranchesSerializer nests the organisation for
+            # reading and takes the id for writing.
+            "organization_id": self.org.pk,
+            "branch_name": "Karen",
+            "branch_location": "Nairobi",
+            "branch_allocation": "Ground floor",
+            "branch_manager": "A Manager",
+        }
+
+    def test_a_write_without_a_token_is_refused(self):
+        response = self.strict().post(
+            "/brn/branch/", self.a_branch(), content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("CSRF", response.json()["detail"])
+        self.assertEqual(Branches.objects.filter(branch_name="Karen").count(), 0)
+
+    def test_the_same_write_with_a_token_succeeds(self):
+        """
+        The positive control. Without it the refusal above would pass just as
+        happily if branch creation were simply broken.
+        """
+        client = self.strict()
+
+        # ── THE TOKEN COMES FROM /auth/me ──────────────────────────────
+        # Django writes the cookie only when a request asks for a token, and
+        # nothing in a JSON API does that by itself. WhoAmIView carries
+        # @ensure_csrf_cookie for exactly this reason — without it a client
+        # can never obtain a token and every write is refused.
+        client.get("/auth/me")
+        token = client.cookies["csrftoken"].value
+
+        response = client.post(
+            "/brn/branch/",
+            self.a_branch(),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(Branches.objects.filter(branch_name="Karen").count(), 1)
+
+    def test_auth_me_is_what_issues_the_cookie(self):
+        """
+        Pinned because it is a side effect. Somebody tidying the decorator off
+        WhoAmIView would break every write in the application, and nothing
+        else in the suite would notice.
+        """
+        client = self.strict()
+        self.assertNotIn("csrftoken", client.cookies)
+        client.get("/auth/me")
+        self.assertIn("csrftoken", client.cookies)
+
+    def test_reading_never_needs_a_token(self):
+        """
+        CsrfViewMiddleware exempts the safe methods itself. If a GET ever
+        started demanding a token the whole application would stop loading,
+        so it is worth pinning.
+        """
+        self.assertEqual(self.strict().get("/brn/branch/").status_code, 200)
+
+    def test_a_till_is_not_asked_for_one(self):
+        """
+        ⚠ A bearer token is not sent automatically by a browser, so there is
+        nothing to forge. Enforcing CSRF on the staff class would break every
+        till for no gain — and a till has no cookie to read a token from.
+        """
+        from django.test import Client
+
+        jane = a_staff(
+            self.org, name="Jane Cashier", email="jane@a.co.ke", id_number=1001
+        )
+        assign(jane, self.branch, staffAssignment.StaffRoles.Cashier)
+        credential = a_till(self.org, jane, "jane")
+        _, token = services.open_staff_session(credential)
+
+        response = Client(enforce_csrf_checks=True).get(
+            "/auth/me", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        self.assertEqual(response.status_code, 200)
