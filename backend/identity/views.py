@@ -1,0 +1,221 @@
+"""
+The doors.
+
+Four of them: two for a subscriber arriving from Genmars, two for a till.
+"""
+
+from __future__ import annotations
+
+from django.shortcuts import redirect
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from . import services, signon
+from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
+from .models import PlatformAccount
+from .permissions import IsTenantMember, tenant_scope
+
+
+class SignOnStartView(APIView):
+    """
+    Send the person to Genmars to sign in.
+
+    A redirect rather than JSON: this is reached by a browser following a link,
+    not by code. It sets the `state` in the session on the way past.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        try:
+            return redirect(signon.start_url(request))
+        except signon.SignOnError as error:
+            return Response(
+                {"detail": error.safe_message}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+
+class SignOnCallbackView(APIView):
+    """
+    Where Genmars sends them back, with a code.
+
+    Order matters and is not an accident: **state first**, before the code is
+    used for anything. A callback whose state does not match the session it
+    arrives in is somebody else's link being clicked, and the code in it must
+    never be spent.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        try:
+            signon.check_state(request, request.GET.get("state", ""))
+
+            code = request.GET.get("code", "").strip()
+            if not code:
+                raise signon.SignOnError("no_code")
+
+            payload = signon.exchange_code(code)
+            account = services.accept_genmars_account(payload)
+        except (signon.SignOnError, services.AuthError) as error:
+            return Response(
+                {"detail": getattr(error, "safe_message", signon.SIGN_ON_FAILED)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # New session key on sign-in. Without this, a session id captured before
+        # the handoff is still valid after it — session fixation, and the one
+        # moment in the flow where it is cheap to close.
+        request.session.cycle_key()
+        request.session[SUBSCRIBER_SESSION_KEY] = account.pk
+
+        memberships = list(services.tenants_for(account))
+
+        return Response(
+            {
+                "account": {"email": account.email, "full_name": account.full_name},
+                # The tenants they may actually act in — from our own
+                # membership table, never from the token's `organisations`.
+                "organisations": [
+                    {"id": m.organization_id, "name": m.organization.name,
+                     "role": m.role}
+                    for m in memberships
+                ],
+                # ── AN ONBOARDING HINT, AND NOTHING MORE ────────────────────
+                #
+                # The businesses this person deals with AT GENMARS. Offered so
+                # a first-run screen can ask "you already deal with us as
+                # Kilimani Dental — is this that business?" instead of making
+                # somebody retype a name we already know.
+                #
+                # ⚠ IT CONFERS NOTHING. It is echoed straight from the token,
+                # is never stored as authority, and no queryset anywhere is
+                # filtered by it. If it is ever used to decide what somebody
+                # may see, the isolation layer has been bypassed entirely.
+                # Answering "yes, that is us" writes
+                # BusinessOrganization.genmars_organisation_id, which records
+                # who we invoice and still grants nobody anything.
+                "genmars_organisations": payload.get("organisations", []),
+                # True for somebody arriving for the first time. The client
+                # uses it to decide between the dashboard and the "create your
+                # business" screen; the server does not care either way.
+                "needs_a_business": not memberships,
+            }
+        )
+
+
+class StaffSignInView(APIView):
+    """
+    A till signing in, against ONE named organisation.
+
+    The organisation is part of the credential, not something resolved from the
+    username — so there is no username that works across shops, and no way to
+    reach another tenant's staff by guessing one.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        organization = request.data.get("organization")
+        try:
+            organization_id = int(organization)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": services.GENERIC_SIGN_IN_FAILURE},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = services.authenticate_staff(
+                organization_id=organization_id,
+                username=request.data.get("username", ""),
+                password=request.data.get("password", ""),
+            )
+        except services.AuthError as error:
+            # One status and one message for every cause — unknown username,
+            # wrong password, locked, deactivated. Anything else is a way to
+            # enumerate a shop's staff from outside it.
+            return Response(
+                {"detail": error.safe_message}, status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        session, token = services.open_staff_session(credential)
+
+        return Response(
+            {
+                # Shown once. Nothing stored here can reproduce it.
+                "token": token,
+                "expires_at": session.expires_at,
+                "must_change_password": credential.must_change_password,
+                "staff": {
+                    "name": credential.staff.full_name,
+                    "username": credential.username,
+                },
+                "organisation": {
+                    "id": credential.organization_id,
+                    "name": credential.organization.name,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class StaffSignOutView(APIView):
+    """Close the shift's session. Idempotent — signing out twice is not an error."""
+
+    def post(self, request):
+        if isinstance(request.user, StaffPrincipal):
+            services.close_staff_session(request.user.session)
+        request.session.pop(SUBSCRIBER_SESSION_KEY, None)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WhoAmIView(APIView):
+    """
+    What the caller is, and what they may touch.
+
+    Useful to a client on boot, and useful in review: if this ever reports a
+    scope wider than the caller's memberships, the isolation layer is wrong and
+    this is where it shows.
+    """
+
+    permission_classes = [IsTenantMember]
+
+    def get(self, request):
+        principal = request.user
+
+        if isinstance(principal, StaffPrincipal):
+            return Response(
+                {
+                    "kind": "staff",
+                    "name": principal.staff.full_name,
+                    "username": principal.credential.username,
+                    "organisation": {
+                        "id": principal.organization_id,
+                        "name": principal.organization.name,
+                    },
+                    "scope": tenant_scope(principal),
+                }
+            )
+
+        if isinstance(principal, PlatformAccount):
+            return Response(
+                {
+                    "kind": "subscriber",
+                    "email": principal.email,
+                    "full_name": principal.full_name,
+                    "organisations": [
+                        {"id": m.organization_id, "name": m.organization.name,
+                         "role": m.role}
+                        for m in services.tenants_for(principal)
+                    ],
+                    "scope": tenant_scope(principal),
+                }
+            )
+
+        return Response({"kind": "unknown"}, status=status.HTTP_403_FORBIDDEN)

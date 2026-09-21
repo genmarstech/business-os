@@ -26,8 +26,16 @@ class Branches(models.Model):
     branch_name = models.CharField(max_length=38)
     branch_location = models.CharField(max_length=155)
     branch_allocation = models.CharField(max_length=255)
-    branch_manager = models.CharField(max_length=15, unique=True)
-    branch_number = models.CharField(default=branch_number_generator, max_length=18)
+    # Not globally unique: two shops may both have a manager called John, and
+    # refusing the second would say so. (This is a name in a text field where
+    # a foreign key to OrganizationStaff belongs — worth fixing, separately,
+    # because renaming somebody currently orphans their branch.)
+    branch_manager = models.CharField(max_length=60)
+    # Generated, and the generator already checks the whole table — so this one
+    # is genuinely unique platform-wide and should say so.
+    branch_number = models.CharField(
+        default=branch_number_generator, max_length=18, unique=True
+    )
     is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=timezone.now)
@@ -44,12 +52,24 @@ class Register(models.Model):
     related_name='registers'
 )
 
-    name = models.CharField(max_length=100, unique=True)
-    register_number = models.CharField(max_length=100, unique=True)
+    # Per branch, not per platform. Every shop calls its first till "Till 1".
+    name = models.CharField(max_length=100)
+    register_number = models.CharField(max_length=100)
 
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'name'], name='unique_register_name_per_branch'
+            ),
+            models.UniqueConstraint(
+                fields=['branch', 'register_number'],
+                name='unique_register_number_per_branch',
+            ),
+        ]
 
     def __str__(self):
         return self.name

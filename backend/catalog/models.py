@@ -6,11 +6,22 @@ from organisations.models import BusinessOrganization
 class CatalogCategories(models.Model):
     organization = models.ForeignKey(BusinessOrganization, on_delete=models.CASCADE, related_name='categories')
 
-    name = models.CharField(max_length=100, unique=True)
+    # Per organisation. Globally unique meant one shop naming a category
+    # "Beverages" stopped every other shop from doing the same — and told them
+    # so. CatalogCategoryProduct below already got this right; this did not.
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['organization', 'name'],
+                name='unique_category_name_per_organization',
+            )
+        ]
 
     def __str__(self):
         return f"{self.organization} at {self.name}"

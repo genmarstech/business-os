@@ -1,6 +1,32 @@
+"""
+Inventory.
+
+── SCOPING NOTE, 2026-09-21 ────────────────────────────────────────────────────
+
+Each viewset here used to carry its own `get_queryset` filtering on
+`...organization__staff__external_user_id=user.id`. Those were replaced with
+the shared `TenantScoped` mixin, for three reasons and not because there was
+anything wrong with the intent:
+
+  · `external_user_id` defaults to `uuid.uuid4()`, so it is generated HERE and
+    never equals an id from anywhere else. The filter could not match a real
+    caller, and the join it walked — organisation to staff to a uuid — is not
+    the question being asked anyway.
+  · `request.user` is now a `PlatformAccount` or a `StaffPrincipal`
+    (identity/authentication.py). Neither has an `id` that is a UUID.
+  · Five copies of a filter is five places for the sixth one to be forgotten.
+    `identity/scoping.py` is one file, and it guards writes as well as reads —
+    scoping a queryset does nothing about a create that names another shop's
+    branch.
+
+Their `select_related` choices are kept as written; they were right.
+"""
+
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework import viewsets
+
+from identity.scoping import TenantScoped
 
 from .models import (
     BranchInventory,
@@ -34,104 +60,68 @@ def greetings(request):
 # Branch Inventory
 # ---------------------------------------------------------
 
-class BranchInventoryViewSet(viewsets.ModelViewSet):
+class BranchInventoryViewSet(TenantScoped, viewsets.ModelViewSet):
+
+    tenant_path = "branch__organization_id"
+    queryset = BranchInventory.objects.select_related(
+        'branch', 'product'
+    ).all()
     serializer_class = BranchInventorySerializer
 
-    def get_queryset(self):
-        user = self.request.user
-
-        return BranchInventory.objects.filter(
-            branch__organization__staff__external_user_id=user.id
-        ).select_related(
-            "branch",
-            "product",
-        ).distinct()
 
 
 # ---------------------------------------------------------
 # Stock Movement
 # ---------------------------------------------------------
 
-class StockMovementViewSet(viewsets.ModelViewSet):
+class StockMovementViewSet(TenantScoped, viewsets.ModelViewSet):
+
+    tenant_path = "inventory__branch__organization_id"
+    queryset = StockMovement.objects.select_related(
+        'inventory', 'inventory__branch', 'inventory__product'
+    ).all()
     serializer_class = StockMovementSerializer
 
-    def get_queryset(self):
-        user = self.request.user
-
-        return StockMovement.objects.filter(
-            inventory__branch__organization__staff__external_user_id=user.id
-        ).select_related(
-            "inventory",
-            "inventory__branch",
-            "inventory__product",
-        ).distinct()
-
-    def perform_create(self, serializer):
-        serializer.save()
 
 
 # ---------------------------------------------------------
 # Stock Transfer
 # ---------------------------------------------------------
 
-class StockTransferViewSet(viewsets.ModelViewSet):
+class StockTransferViewSet(TenantScoped, viewsets.ModelViewSet):
+
+    tenant_path = "from_branch__organization_id"
+    queryset = StockTransfer.objects.select_related(
+        'from_branch', 'to_branch', 'product'
+    ).all()
     serializer_class = StockTransferSerializer
 
-    def get_queryset(self):
-        user = self.request.user
-
-        return StockTransfer.objects.filter(
-            from_branch__organization__staff__external_user_id=user.id
-        ).select_related(
-            "from_branch",
-            "to_branch",
-            "product",
-        ).distinct()
-
-    def perform_create(self, serializer):
-        serializer.save()
 
 
 # ---------------------------------------------------------
 # Stock Adjustment
 # ---------------------------------------------------------
 
-class StockAdjustmentViewSet(viewsets.ModelViewSet):
+class StockAdjustmentViewSet(TenantScoped, viewsets.ModelViewSet):
+
+    tenant_path = "inventory__branch__organization_id"
+    queryset = StockAdjustment.objects.select_related(
+        'inventory', 'inventory__branch', 'inventory__product'
+    ).all()
     serializer_class = StockAdjustmentSerializer
 
-    def get_queryset(self):
-        user = self.request.user
-
-        return StockAdjustment.objects.filter(
-            inventory__branch__organization__staff__external_user_id=user.id
-        ).select_related(
-            "inventory",
-            "inventory__branch",
-            "inventory__product",
-        ).distinct()
-
-    def perform_create(self, serializer):
-        serializer.save()
 
 
 # ---------------------------------------------------------
 # Stock Level
 # ---------------------------------------------------------
 
-class StockLevelViewSet(viewsets.ModelViewSet):
+class StockLevelViewSet(TenantScoped, viewsets.ModelViewSet):
+
+    tenant_path = "inventory__branch__organization_id"
+    queryset = StockLevel.objects.select_related(
+        'inventory', 'inventory__branch', 'inventory__product'
+    ).all()
     serializer_class = StockLevelSerializer
 
-    def get_queryset(self):
-        user = self.request.user
-
-        return StockLevel.objects.filter(
-            inventory__branch__organization__staff__external_user_id=user.id
-        ).select_related(
-            "inventory",
-            "inventory__branch",
-            "inventory__product",
-        ).distinct()
-
-    def perform_create(self, serializer):
-        serializer.save()
 

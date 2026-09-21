@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'branches',
     'catalog',
     'inventory',
+    'identity',
 ]
 
 MIDDLEWARE = [
@@ -130,3 +131,66 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IDENTITY AND ACCESS
+# ═══════════════════════════════════════════════════════════════════════════
+
+import os  # noqa: E402 - grouped with the settings it reads
+
+# ── EVERY ENDPOINT IS CLOSED UNLESS IT SAYS OTHERWISE ──────────────────────
+#
+# There was no REST_FRAMEWORK block before this, so DRF's defaults applied:
+# AllowAny, on every viewset, all of which were `Model.objects.all()`. Any
+# caller could read and write every tenant's data.
+#
+# Defaulting to IsAuthenticated inverts that: a new viewset is shut until
+# somebody opens it on purpose. Opening one is then a visible line in a diff,
+# which is the point — the failure that matters here is the endpoint nobody
+# remembered to protect.
+#
+# ⚠ Authentication is NOT closed by being listed here. A view still has to be
+#   scoped: see identity/permissions.py `scoped()`. Knowing who is calling and
+#   knowing what they may see are two different questions.
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "identity.authentication.SubscriberSessionAuthentication",
+        "identity.authentication.StaffTokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}
+
+# Argon2 first, matching gen-portal. This database holds credentials belonging
+# to OTHER COMPANIES' employees, which is a stronger reason to use the better
+# hasher than the portal had. PBKDF2 stays so any hash written before this
+# still verifies and is upgraded on its owner's next sign-in.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+]
+
+# ── THE GENMARS HANDOFF ────────────────────────────────────────────────────
+#
+# THE CLIENT SECRET IS A CREDENTIAL AND DOES NOT BELONG IN THIS FILE. It is
+# read from the environment, it is shown exactly once when issued in ops
+# (Settings -> Engineering -> Sibling sign-in), and it can only be replaced,
+# never recovered.
+#
+# GENMARS_SIGN_ON_REDIRECT_URI must match what is registered there EXACTLY.
+# The portal compares the whole string rather than a prefix, on purpose:
+# prefix matching is how `https://business-os.genmars.co.ke.attacker.com/…`
+# gets accepted. It must also be live https — the portal refuses localhost,
+# IP literals and reserved TLDs, because a redirect address is where somebody
+# holding a code that becomes their identity gets sent.
+GENMARS_PORTAL_ORIGIN = os.environ.get(
+    "GENMARS_PORTAL_ORIGIN", "https://app.genmars.co.ke"
+)
+GENMARS_API_ORIGIN = os.environ.get(
+    "GENMARS_API_ORIGIN", "https://api.genmars.co.ke"
+)
+GENMARS_SIGN_ON_CLIENT_ID = os.environ.get("GENMARS_SIGN_ON_CLIENT_ID", "")
+GENMARS_SIGN_ON_CLIENT_SECRET = os.environ.get("GENMARS_SIGN_ON_CLIENT_SECRET", "")
+GENMARS_SIGN_ON_REDIRECT_URI = os.environ.get("GENMARS_SIGN_ON_REDIRECT_URI", "")
