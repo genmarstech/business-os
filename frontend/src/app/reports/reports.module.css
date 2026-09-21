@@ -1,0 +1,250 @@
+/*
+ * Reports.
+ *
+ * A dashboard is scanned and operated, not read, so the craft here is
+ * information design rather than typography: the summary before the detail,
+ * state encoded in form as well as number, digits that line up.
+ */
+
+.page {
+  max-width: 76rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 66ch;
+}
+
+.ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.range {
+  font-size: 12.5px;
+  text-decoration: none;
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--panel);
+}
+
+.rangeOn {
+  border-color: var(--accent-fill);
+  color: var(--ink);
+  font-weight: 500;
+  background: var(--sunken);
+}
+
+/* ── the figures ────────────────────────────────────────────────────────── */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.kpi {
+  background: var(--panel);
+  padding: 16px 18px;
+}
+
+.kpiLabel {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 7px;
+}
+
+.kpiValue {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* The two figures somebody opens this page for, larger than the rest. */
+.kpiLead .kpiValue {
+  font-size: 1.75rem;
+}
+
+/* ── panels ─────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(16px, 2.6vw, 24px);
+  margin-bottom: 20px;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 20px;
+}
+
+.pair .panel {
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.02rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+  max-width: 64ch;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin: 12px 0 0;
+  max-width: 64ch;
+}
+
+/* ── tables ─────────────────────────────────────────────────────────────── */
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-right: 0 !important;
+}
+
+.table thead th.num {
+  text-align: right;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.strong {
+  font-weight: 500;
+}
+
+.low {
+  color: var(--warn);
+}
+
+/* ── ranked lists ───────────────────────────────────────────────────────── */
+
+.ranked {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.rank {
+  display: grid;
+  gap: 5px;
+}
+
+.rankTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+}
+
+.rankValue {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The bar is a comparison, not a figure — every value is also written above
+ * it, so a bar too short to read costs the reader nothing.
+ */
+.bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent-fill);
+  min-width: 4px;
+}

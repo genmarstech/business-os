@@ -33,7 +33,7 @@ wrong in the direction that gets a business into trouble.
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
@@ -86,9 +86,36 @@ def margin():
     )
 
 
+# The windows a screen offers, resolved HERE rather than by whoever is asking.
+#
+# ── WHY THE CLIENT MUST NOT WORK OUT "TODAY" ITSELF ─────────────────────────
+#
+# It gets it wrong, and silently. A Next server rendering this page computes
+# dates in ITS clock, which is UTC in a container; a shop in Nairobi is three
+# hours ahead, so for three hours every night the frontend asks for yesterday
+# and a dashboard that should read 302.00 reads 0.00. It looks like a day with
+# no trade rather than like a bug, which is the worst way for it to look.
+#
+# So the periods have names, and the one clock that knows what they mean is
+# the one the sales were stamped against.
+RANGES = ("today", "week", "month", "year")
+
+
+def _named_window(name: str, today):
+    if name == "week":
+        return today - timedelta(days=6), today
+    if name == "month":
+        return today.replace(day=1), today
+    if name == "year":
+        return today.replace(month=1, day=1), today
+    return today, today
+
+
 def parse_window(request) -> tuple[datetime, datetime]:
     """
-    The reporting window, defaulting to today in the server's timezone.
+    The reporting window, defaulting to today in the shop's timezone.
+
+    Either `range=today|week|month|year`, or explicit `from`/`to` dates.
 
     Dates are read as whole local days — `from=2026-09-01&to=2026-09-30`
     includes everything that happened on the 30th, not everything up to
@@ -96,8 +123,19 @@ def parse_window(request) -> tuple[datetime, datetime]:
     every month-end report, and month-end is when somebody actually reads one.
     """
     now = timezone.localtime()
+    raw_range = (request.query_params.get("range") or "").strip().lower()
     raw_from = (request.query_params.get("from") or "").strip()
     raw_to = (request.query_params.get("to") or "").strip()
+
+    if raw_range in RANGES:
+        # A named range wins outright. Honouring a stray `from` beside it
+        # would give two answers to one question.
+        start_date, end_date = _named_window(raw_range, now.date())
+        tz = timezone.get_current_timezone()
+        return (
+            timezone.make_aware(datetime.combine(start_date, time.min), tz),
+            timezone.make_aware(datetime.combine(end_date, time.max), tz),
+        )
 
     def as_date(value, fallback):
         if not value:

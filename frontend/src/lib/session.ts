@@ -37,6 +37,15 @@ export type Subscriber = {
 
 export type Staff = {
   kind: "staff";
+  /**
+   * Their own OrganizationStaff row.
+   *
+   * The only way a cashier can learn it — /org/staff/ is held at staff.manage
+   * and no operational role holds that. Needed to open a shift and to name
+   * themselves on a sale or refund, and it confers nothing: the server pins
+   * both to the authenticated principal whatever is sent.
+   */
+  staff_id: number;
   name: string;
   username: string;
   organisation: { id: number; name: string };

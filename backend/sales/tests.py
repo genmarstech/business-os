@@ -10,6 +10,7 @@ that is wrong by a cent is wrong on every receipt the business ever issues.
 from __future__ import annotations
 
 from datetime import datetime, time
+from datetime import timedelta
 from decimal import Decimal
 
 from django.test import TestCase
@@ -946,3 +947,99 @@ class ReportApiTests(TestCase):
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0]["quantity"], "3.00")
         self.assertEqual(products[0]["revenue"], "300.00")
+
+
+class ReportingWindowTests(TestCase):
+    """
+    What "today" means, and who gets to decide.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE BUG THIS PINS SHOWS FOR THREE HOURS A NIGHT AND LOOKS LIKE A QUIET DAY.
+
+    The dashboard used to work its own dates out. The Next server renders in a
+    container on UTC; the shop is in Nairobi, three hours ahead. So between
+    midnight and 03:00 local it asked for yesterday, and a day that had taken
+    302.00 reported 0.00 — which reads as a shop that sold nothing, not as a
+    wrong question.
+
+    So a period is NAMED and resolved against the clock the sales were stamped
+    with. These tests are in shop time because `TIME_ZONE` is Africa/Nairobi
+    and that is the whole point.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def window(self, **params):
+        from django.test import RequestFactory
+
+        from sales.reports import parse_window
+        from rest_framework.request import Request
+
+        request = Request(RequestFactory().get("/", params))
+        start, end = parse_window(request)
+        return (
+            timezone.localtime(start).date().isoformat(),
+            timezone.localtime(end).date().isoformat(),
+        )
+
+    def test_today_is_the_shops_today(self):
+        today = timezone.localtime().date().isoformat()
+        self.assertEqual(self.window(range="today"), (today, today))
+
+    def test_a_week_is_seven_days_including_today(self):
+        today = timezone.localtime().date()
+        start, end = self.window(range="week")
+        self.assertEqual(end, today.isoformat())
+        self.assertEqual(
+            start, (today - timedelta(days=6)).isoformat(), "six back plus today"
+        )
+
+    def test_a_month_starts_on_the_first(self):
+        today = timezone.localtime().date()
+        start, end = self.window(range="month")
+        self.assertEqual(start, today.replace(day=1).isoformat())
+        self.assertEqual(end, today.isoformat())
+
+    def test_explicit_dates_are_still_honoured(self):
+        """The custom window has not been taken away by the named ones."""
+        self.assertEqual(
+            self.window(**{"from": "2026-01-05", "to": "2026-02-09"}),
+            ("2026-01-05", "2026-02-09"),
+        )
+
+    def test_a_name_wins_over_stray_dates(self):
+        """
+        Two answers to one question is worse than either. A named range that
+        quietly took half of a `from` would produce a window nobody asked for.
+        """
+        today = timezone.localtime().date().isoformat()
+        self.assertEqual(
+            self.window(range="today", **{"from": "2020-01-01"}), (today, today)
+        )
+
+    def test_an_unknown_name_falls_back_to_today_rather_than_to_everything(self):
+        """
+        A typo must not widen the window. Falling open here would put a
+        year of another period's figures on a screen somebody reads as today.
+        """
+        today = timezone.localtime().date().isoformat()
+        self.assertEqual(self.window(range="fortnight"), (today, today))
+
+    def test_the_window_covers_the_whole_last_day(self):
+        """
+        `to=the 30th` includes a sale at 23:59 on the 30th. An off-by-one here
+        drops the last day of every month-end report, and month-end is when
+        somebody actually reads one.
+        """
+        from django.test import RequestFactory
+
+        from rest_framework.request import Request
+
+        from sales.reports import parse_window
+
+        request = Request(
+            RequestFactory().get("/", {"from": "2026-09-30", "to": "2026-09-30"})
+        )
+        start, end = parse_window(request)
+        self.assertEqual(timezone.localtime(start).hour, 0)
+        self.assertEqual(timezone.localtime(end).hour, 23)
+        self.assertEqual(timezone.localtime(end).minute, 59)
