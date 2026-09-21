@@ -45,9 +45,18 @@ LABEL org.opencontainers.image.title="business-platform-api" \
       org.opencontainers.image.vendor="Genmars Tech Limited" \
       org.opencontainers.image.source="https://github.com/genmarstech/business-os"
 
+# DJANGO_SETTINGS_MODULE is set HERE rather than left to wsgi.py.
+#
+# gunicorn works either way, because wsgi.py sets it on import. Nothing else
+# does: `docker compose exec api python -c "import django; django.setup()"`
+# — the way anybody inspects this container during an incident — dies with
+# ImproperlyConfigured, and so does every `manage.py` invocation that does not
+# go through the script's own default. An environment that only the web server
+# has is an environment that fails at the moment somebody needs a shell.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    DJANGO_SETTINGS_MODULE=Business_Platform.settings
 
 # libpq5 is the RUNTIME half of libpq-dev — psycopg needs the shared library,
 # not the headers. Installing libpq-dev here would drag the compiler back in.
