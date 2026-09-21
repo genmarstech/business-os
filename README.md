@@ -26,16 +26,11 @@ root `CLAUDE.md` carry the full reasoning.
 
 These are written down rather than left to be rediscovered.
 
-- **Nothing serves `/static/`.** There is no whitenoise in the requirements
-  and no `file_server` in `deploy/business.caddy`, so `collectstatic` writes
-  a directory nobody reads. The visible consequence is that `/admin/` renders
-  unstyled, and it is why the three browser-facing templates in
-  `identity/templates/` carry their CSS inline. Fixing it the way gen-portal
-  does — bind the `staticfiles` directory out and let Caddy serve it — needs
-  no new dependency (Charter 03 §I).
-- **No Content-Security-Policy.** Deliberate: `business.caddy` says why, and
-  it is bound up with the point above, since a CSP worth having will not want
-  `'unsafe-inline'`.
+- **No Content-Security-Policy.** Deliberate: `business.caddy` says why —
+  there was no markup to test one against. There is now, and the three pages
+  in `identity/templates/` carry no inline `<style>` and no `style=""`
+  attribute, so a policy can be written without `'unsafe-inline'`. Ship it
+  `Report-Only` first.
 - **There is no dashboard.** Signing in works and creates a platform account;
   there is then nothing to use it on. The landing page says so, and must keep
   saying so until it is untrue (Charter 04 §IV).
@@ -49,5 +44,5 @@ These are written down rather than left to be rediscovered.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 65 tests
+virtual/bin/python manage.py test          # 66 tests
 ```

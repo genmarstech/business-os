@@ -32,6 +32,30 @@
 business.genmars.co.ke {
 	encode zstd gzip
 
+	# ── Django admin and DRF assets, served straight off disk ───────────────
+	#
+	# Static files have no business travelling through gunicorn, where each one
+	# occupies a worker that should be answering API requests.
+	#
+	# `handle_path`, NOT `handle`. STATIC_URL is /static/ but collectstatic
+	# writes to staticfiles/ — the URL prefix and the directory name differ and
+	# always will. handle_path strips the matched prefix, so
+	# /static/admin/css/base.css resolves to staticfiles/admin/css/base.css.
+	# With plain `handle` and `root * /opt/business-os` this looks right and
+	# serves nothing: Caddy goes looking for /opt/business-os/static/, which
+	# does not exist. gen-portal shipped exactly that bug; the symptom is an
+	# unstyled admin, a 404 in the browser console, and nothing whatsoever in
+	# the Caddy or Django logs to say why.
+	#
+	# ⚠ THE DIRECTORY IS COPIED OUT OF THE IMAGE, NOT BIND-MOUNTED IN.
+	#   See the note in compose.yaml. It is empty until a deploy runs
+	#   `docker compose cp api:/app/staticfiles ./staticfiles`, and an empty
+	#   directory here is an unstyled admin, not an error.
+	handle_path /static/* {
+		root * /opt/business-os/staticfiles
+		file_server
+	}
+
 	# The Django application. Published to loopback only, so this block is the
 	# single public way in.
 	#
@@ -39,13 +63,19 @@ business.genmars.co.ke {
 	# read to tell one caller from another. Without it every request arrives
 	# from the proxy and a per-address limit becomes one shared budget —
 	# exactly the bug gen-portal shipped and had to fix.
-	reverse_proxy 127.0.0.1:8020 {
-		header_up X-Real-IP {remote_host}
+	#
+	# ORDER MATTERS: a `handle` with no matcher swallows everything, so it
+	# comes last. Put it above the static block and /static/* never reaches
+	# the file server.
+	handle {
+		reverse_proxy 127.0.0.1:8020 {
+			header_up X-Real-IP {remote_host}
 
-		# Takes the app out of rotation if it stops answering.
-		health_uri /healthz
-		health_interval 10s
-		health_timeout 3s
+			# Takes the app out of rotation if it stops answering.
+			health_uri /healthz
+			health_interval 10s
+			health_timeout 3s
+		}
 	}
 
 	header {

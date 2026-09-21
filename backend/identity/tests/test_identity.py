@@ -509,3 +509,42 @@ class BrowserFacingPageTests(TestCase):
             ).content.decode()
 
         self.assertNotIn("Kilimani Dental", body)
+
+    def test_the_pages_carry_no_inline_style(self):
+        """
+        Both an inline <style> block and a style="" attribute need
+        'unsafe-inline' in style-src, which would give back the whole reason
+        the stylesheet was moved into a file. These three pages are the only
+        markup there is to write a Content-Security-Policy against, so the
+        property is worth pinning before there is a policy to break.
+        """
+        state = "state-for-the-success-page"
+        session = self.client.session
+        session[signon.STATE_SESSION_KEY] = state
+        session.save()
+        payload = {
+            "account": {
+                "id": 7, "email": "s@shop.co.ke", "full_name": "S",
+                "is_staff": False, "staff_role": "", "email_verified": True,
+            },
+            "organisations": [],
+        }
+        with mock.patch.object(signon, "exchange_code", return_value=payload):
+            pages = [
+                self.client.get("/", HTTP_ACCEPT="text/html"),
+                self.client.get(
+                    reverse("sign-on-callback"), HTTP_ACCEPT="text/html"
+                ),
+                self.client.get(
+                    reverse("sign-on-callback") + f"?code=good&state={state}",
+                    HTTP_ACCEPT="text/html",
+                ),
+            ]
+
+        for page in pages:
+            body = page.content.decode()
+            self.assertNotIn("<style", body)
+            self.assertNotIn('style="', body)
+            # Positive control: the stylesheet it uses instead must be linked,
+            # or "no inline style" is satisfied by a page with no styling.
+            self.assertIn("identity/site.css", body)

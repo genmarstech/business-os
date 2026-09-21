@@ -4,6 +4,12 @@
 #   cd /opt/business-os
 #   docker compose up -d --build
 #   docker compose exec api python manage.py migrate
+#   docker compose cp api:/app/staticfiles ./staticfiles   # ← every deploy
+#
+# That last line is not optional and not a one-off. Caddy serves the admin's
+# CSS off /opt/business-os/staticfiles; the collectstatic output lives inside
+# the image, so a rebuild that is not copied out leaves the previous deploy's
+# assets on disk — or, the first time, none at all and an unstyled admin.
 #
 # ── THE .env SYMLINK IS NOT OPTIONAL ────────────────────────────────────────
 # The environment lives at backend/.env, because that is what `env_file` below
@@ -94,6 +100,23 @@ services:
     # tell one caller from another.
     ports:
       - "127.0.0.1:8020:8020"
+
+    # ── NO STATIC BIND MOUNT. THIS IS THE TRAP, NOT THE FIX ─────────────────
+    #
+    # `- ./staticfiles:/app/staticfiles:ro` looks like the obvious way to let
+    # Caddy serve the admin's CSS. It is wrong. The image ALREADY contains the
+    # collectstatic output, built at image build time; bind mounting the host
+    # directory over that path MASKS it. On a fresh clone the host directory is
+    # empty, so the container serves nothing, Caddy serves nothing, and the
+    # admin renders unstyled — for a reason invisible in every log.
+    #
+    # Static files are copied OUT of the image instead, once per deploy:
+    #
+    #     docker compose cp api:/app/staticfiles ./staticfiles
+    #
+    # Explicit, ordinary to reason about, and it cannot silently hide the thing
+    # it is meant to publish. deploy/business.caddy serves that directory.
+    # gen-portal carries the identical note for the identical reason.
 
     # ── HARDENING ───────────────────────────────────────────────────────────
     #
