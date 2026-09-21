@@ -44,5 +44,5 @@ These are written down rather than left to be rediscovered.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 66 tests
+virtual/bin/python manage.py test          # 108 tests
 ```

@@ -61,6 +61,17 @@ REFERENCE_TO_ORGANISATION = {
     "inventory": lambda obj: obj.branch.organization_id,
     "from_branch": lambda obj: obj.organization_id,
     "to_branch": lambda obj: obj.organization_id,
+    # Sales. Added in the same commit as the sales app, per the warning
+    # above — a foreign key to anything tenant-owned that is not named here
+    # is a write the guard waves through.
+    "customer": lambda obj: obj.organization_id,
+    "cashier": lambda obj: obj.organization_id,
+    "processed_by": lambda obj: obj.organization_id,
+    "shift": lambda obj: obj.register.branch.organization_id,
+    "sale": lambda obj: obj.organization_id,
+    "sale_item": lambda obj: obj.sale.organization_id,
+    "refund": lambda obj: obj.organization_id,
+    "tax_rule": lambda obj: obj.organization_id,
 }
 
 
