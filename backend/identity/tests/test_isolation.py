@@ -99,6 +99,20 @@ class ReadIsolationTests(TwoShops):
         self.assertNotIn("Bee Cashier", body)
 
     def test_a_caller_with_no_tenant_sees_nothing(self):
+        """
+        ── THIS GOT STRICTER WHEN ROLES ARRIVED, ON PURPOSE ────────────────
+        It used to assert an empty list everywhere. Permissions come from a
+        TenantMembership or a staffAssignment, so somebody holding neither now
+        holds nothing at all and most endpoints answer 403 rather than [].
+
+        The organisation list is the exception and stays a list, because it is
+        the screen a brand-new subscriber lands on: they have signed in, they
+        belong to no business yet, and "you have no permission to look at your
+        empty list of businesses" is a dead end rather than an onboarding.
+
+        Either way nothing leaks. 403 and [] are both "you see nothing"; what
+        changed is which one is friendlier at which door.
+        """
         stranger = PlatformAccount.objects.create(
             genmars_account_id=99, email="nobody@example.invalid"
         )
@@ -107,7 +121,7 @@ class ReadIsolationTests(TwoShops):
         session.save()
 
         self.assertEqual(_rows(self.client.get("/org/organizations/")), [])
-        self.assertEqual(_rows(self.client.get("/brn/branch/")), [])
+        self.assertEqual(self.client.get("/brn/branch/").status_code, 403)
 
 
 class WriteIsolationTests(TwoShops):

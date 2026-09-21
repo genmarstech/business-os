@@ -26,6 +26,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework import viewsets
 
+from identity import access
 from identity.scoping import TenantScoped
 
 from .models import (
@@ -63,6 +64,12 @@ def greetings(request):
 class BranchInventoryViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "branch__organization_id"
+    branch_path = "branch_id"
+    default_permission = access.INVENTORY_ADJUST
+    permissions = {
+        "list": access.INVENTORY_VIEW,
+        "retrieve": access.INVENTORY_VIEW,
+    }
     queryset = BranchInventory.objects.select_related(
         'branch', 'product'
     ).all()
@@ -77,6 +84,12 @@ class BranchInventoryViewSet(TenantScoped, viewsets.ModelViewSet):
 class StockMovementViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "inventory__branch__organization_id"
+    branch_path = "inventory__branch_id"
+    default_permission = access.INVENTORY_ADJUST
+    permissions = {
+        "list": access.INVENTORY_VIEW,
+        "retrieve": access.INVENTORY_VIEW,
+    }
     queryset = StockMovement.objects.select_related(
         'inventory', 'inventory__branch', 'inventory__product'
     ).all()
@@ -91,6 +104,12 @@ class StockMovementViewSet(TenantScoped, viewsets.ModelViewSet):
 class StockTransferViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "from_branch__organization_id"
+    branch_path = "from_branch_id"
+    default_permission = access.INVENTORY_TRANSFER
+    permissions = {
+        "list": access.INVENTORY_VIEW,
+        "retrieve": access.INVENTORY_VIEW,
+    }
     queryset = StockTransfer.objects.select_related(
         'from_branch', 'to_branch', 'product'
     ).all()
@@ -105,6 +124,12 @@ class StockTransferViewSet(TenantScoped, viewsets.ModelViewSet):
 class StockAdjustmentViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "inventory__branch__organization_id"
+    branch_path = "inventory__branch_id"
+    default_permission = access.INVENTORY_ADJUST
+    permissions = {
+        "list": access.INVENTORY_VIEW,
+        "retrieve": access.INVENTORY_VIEW,
+    }
     queryset = StockAdjustment.objects.select_related(
         'inventory', 'inventory__branch', 'inventory__product'
     ).all()
@@ -119,6 +144,12 @@ class StockAdjustmentViewSet(TenantScoped, viewsets.ModelViewSet):
 class StockLevelViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "inventory__branch__organization_id"
+    branch_path = "inventory__branch_id"
+    default_permission = access.INVENTORY_ADJUST
+    permissions = {
+        "list": access.INVENTORY_VIEW,
+        "retrieve": access.INVENTORY_VIEW,
+    }
     queryset = StockLevel.objects.select_related(
         'inventory', 'inventory__branch', 'inventory__product'
     ).all()

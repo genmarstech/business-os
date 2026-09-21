@@ -30,7 +30,7 @@ letting somebody discover it.
 
 | §9 domain | Models | State |
 |---|---|---|
-| Organization | Organization, Membership, Role | **done** — Permission and Subscription are not built |
+| Organization | Organization, Membership, Role, Permission | **done** — Subscription is not built |
 | Branches | Branch, Register, RegisterShift, StaffAssignment | **done** |
 | Catalog | Product, Category, TaxRule | **done** — ProductPrice (price lists) is not built |
 | Inventory | StockLevel, StockMovement, StockAdjustment, StockTransfer | **done** |
@@ -53,6 +53,51 @@ e-commerce sync, advanced analytics, automated replenishment. §11 asks for
 idempotency keys and transaction identifiers to be defined *before* production
 rollout, and they are — sales and refunds both take one — so the offline
 queue has something to synchronise against when it is built.
+
+### Roles and permissions
+
+`identity/access.py` holds one catalogue of 20 named permissions and the map
+from roles onto it. Code asks *"may this caller refund a sale"*, never *"is
+this caller a manager"* — the second question has to be re-answered in every
+view the day a shop wants its accountants approving refunds, and one of those
+views will be missed.
+
+Authority arrives two ways and lands on the same catalogue: a subscriber holds
+a `TenantMembership` (organisation-wide, per §2), an operational staff member
+holds `staffAssignment` rows (per branch). No view asks which tier it is
+talking to.
+
+| Role | Holds | Notably does not |
+|---|---|---|
+| Owner | everything | — |
+| Org admin | everything operational | `staff.manage`, `settings.manage` |
+| Accountant | reads the money, reports | voids, refunds, checkout |
+| Branch manager | the branch, end to end | `reports.organisation` |
+| Cashier | checkout, open a shift | **voids, refunds, reports** |
+| Inventory clerk | stock and transfers | anything to do with sales |
+| Finance clerk | sales and branch reports | any write |
+| Branch auditor | reads the branch | every write |
+
+Two things are worth knowing before changing it:
+
+- **Scope is two questions.** `tenant_scope` answers *which organisations*;
+  `branch_scope` answers *which branches* and returns **None** for
+  organisation-wide authority — not `[]`, which means confined to nothing.
+  They are opposites and reading one as the other opens or closes everything.
+- **Permissions are asked per branch where a branch is known.** One person can
+  be a cashier at Westlands and manager at Karen; the union of their roles
+  applied everywhere would make them a manager at Westlands. `checkout` and
+  `refund` pass the branch once the shift or the request identifies it.
+
+A cashier deliberately cannot void or refund. Module 6 lists "manager
+approvals" beside cashier access for exactly this reason: those two are how a
+till is emptied by the person standing at it, and the cheapest second person
+is a permission the first does not hold.
+
+`identity/tests/test_access.py` walks the live URL configuration and fails if a
+routed viewset declares no permission, names one that is not in the catalogue,
+or reaches a branch without scoping to one — because that is how this breaks:
+quietly, next quarter, with every other test still green.
 
 ### The rules the sales code is built on
 
@@ -92,5 +137,5 @@ These are written down rather than left to be rediscovered.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 121 tests
+virtual/bin/python manage.py test          # 148 tests
 ```

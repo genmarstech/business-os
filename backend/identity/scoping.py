@@ -29,8 +29,10 @@ know the difference — the same reason a read returns empty instead of 403.
 from __future__ import annotations
 
 from rest_framework import serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from .access import branch_scope, may, scoped_to_branch
 from .permissions import scoped, tenant_scope
 
 # ── how each kind of reference reaches an organisation ──────────────────────
@@ -113,8 +115,61 @@ class TenantScoped:
 
     tenant_path = "organization_id"
 
+    # ── BRANCH SCOPE — blueprint §8, added with identity/access.py ──────────
+    #
+    # The ORM path from this model to a branch id, or None when the model has
+    # no branch (a product, a tax rule — organisation-level things by §7).
+    #
+    # Set it and an operational principal sees only the branches they are
+    # assigned to; a subscriber is unaffected, because `branch_scope` returns
+    # None for organisation-wide authority. Leaving it None on a model that
+    # DOES belong to a branch is the silent-hole case: a cashier at Westlands
+    # reading Karen's rows, which is what this was added to stop.
+    branch_path: str | None = None
+
+    # ── PERMISSIONS, PER ACTION ─────────────────────────────────────────────
+    #
+    #     permissions = {
+    #         "list": access.SALES_VIEW,
+    #         "create": access.CATALOG_MANAGE,
+    #     }
+    #
+    # `default_permission` covers any action not named. An action with neither
+    # is NOT open — `_permission_for` falls back to the default, and a viewset
+    # that declares nothing at all keeps the old behaviour of tenant scoping
+    # alone, which is what the pre-permission viewsets relied on.
+    permissions: dict[str, str] = {}
+    default_permission: str | None = None
+
     def get_queryset(self):
-        return scoped(super().get_queryset(), self.request.user, self.tenant_path)
+        rows = scoped(super().get_queryset(), self.request.user, self.tenant_path)
+        if self.branch_path:
+            rows = scoped_to_branch(rows, self.request.user, self.branch_path)
+        return rows
+
+    def _permission_for(self, action: str | None) -> str | None:
+        return self.permissions.get(action or "", self.default_permission)
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Check the named permission before the action runs.
+
+        In `initial` rather than in a permission class because the mapping is
+        per action and DRF resolves `permission_classes` once for the view —
+        and because this is the same reasoning as the guard living in
+        `create()` below: a check a subclass can lose by overriding an
+        ordinary method is not a check.
+        """
+        super().initial(request, *args, **kwargs)
+        needed = self._permission_for(getattr(self, "action", None))
+        if needed and not may(request.user, needed):
+            # ── 403 HERE, UNLIKE EVERYWHERE ELSE IN THIS FILE ──────────────
+            # The 404-not-403 rule below is about not confirming that another
+            # tenant's row exists. This refusal says nothing about anybody
+            # else's data — it tells callers about their OWN authority, which
+            # they are entitled to know and cannot learn anything from. A 404
+            # here would just make a cashier think the reports page is broken.
+            raise PermissionDenied("You do not have permission to do that.")
 
     # ── THE GUARD RUNS IN create()/update(), NOT IN perform_create() ────────
     #

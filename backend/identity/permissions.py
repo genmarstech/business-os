@@ -86,3 +86,50 @@ def scoped(queryset, principal, field: str = "organization_id"):
     if not scope:
         return queryset.none()
     return queryset.filter(**{f"{field}__in": scope})
+
+
+# ── explicit permissions — blueprint §8 ─────────────────────────────────────
+#
+# Added with identity/access.py, which holds the catalogue and the role map.
+# What lives HERE is only the DRF plumbing: everything about who may do what
+# is one file away, so the answer to "what can a cashier do" is read in one
+# place rather than assembled from permission classes scattered over an app.
+
+
+class Requires(BasePermission):
+    """
+    Gate a view on a named permission.
+
+        class SaleViewSet(...):
+            permission_classes = [Requires(access.SALES_VIEW)]
+
+    ── IT ANSWERS "AT ALL", NOT "HERE" ─────────────────────────────────────
+    This is the endpoint-level check, and it deliberately asks the
+    branch-agnostic question: may this caller do this ANYWHERE they work. A
+    cashier at one branch reaching a checkout endpoint is fine; whether they
+    may check out at the branch in the request is a different question, asked
+    by the view once it knows which branch that is.
+
+    Doing it the other way — trying to guess the branch here — would mean
+    reading it out of the request body, which is the exact thing §8 forbids.
+    """
+
+    def __init__(self, permission: str, message: str | None = None):
+        from . import access
+
+        if permission not in access.KNOWN:
+            # At import time, where it is a traceback rather than a lockout.
+            raise ValueError(f"unknown permission: {permission!r}")
+        self.permission = permission
+        self.message = message or "You do not have permission to do that."
+
+    def __call__(self):
+        # DRF instantiates whatever is in `permission_classes`. Passing an
+        # already-configured instance is the neat way to parameterise one, and
+        # this makes an instance callable so DRF's `perm()` finds it ready.
+        return self
+
+    def has_permission(self, request, view) -> bool:
+        from . import access
+
+        return access.may(request.user, self.permission)

@@ -10,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from identity import services
 from identity.models import PlatformAccount
+from identity import access
 from identity.scoping import TenantScoped
 
 
@@ -38,6 +39,28 @@ class BusinessOrganizationViewSet(TenantScoped, viewsets.ModelViewSet):
     """
 
     tenant_path = "id"
+
+    # ── NO `default_permission` HERE, AND THAT IS THE POINT ────────────────
+    #
+    # `create` is the BOOTSTRAP. A subscriber who has just signed in through
+    # Genmars holds no TenantMembership, therefore holds no permission at all,
+    # and creating their first business is the act that gives them one.
+    # Gating it on anything would mean nobody could ever start — the account
+    # would need a membership to make the organisation that grants the
+    # membership.
+    #
+    # Reading is left to tenant scoping for a related reason: an accountant
+    # must be able to see the business they account for, and they hold no
+    # settings permission.
+    #
+    # What IS gated is changing an organisation that already exists, which is
+    # a settings act — there is no permission that lets an operational
+    # principal rename the business that employs them.
+    permissions = {
+        "update": access.SETTINGS_MANAGE,
+        "partial_update": access.SETTINGS_MANAGE,
+        "destroy": access.SETTINGS_MANAGE,
+    }
     queryset = BusinessOrganization.objects.all()
     serializer_class = BusinessOrganizationSerializer
 
@@ -74,6 +97,13 @@ class OrganizationsStaffViewSet(TenantScoped, viewsets.ModelViewSet):
     """Employees of the caller's own organisations, and nobody else's."""
 
     tenant_path = "organization_id"
+    # OrganizationStaff carries a concrete `branch` FK, so the list is a
+    # branch's list. Only an owner holds STAFF_MANAGE today and owners are
+    # organisation-wide, so this changes nothing now — it is here for the day
+    # a branch manager is granted it, which is when forgetting would show a
+    # manager every other branch's employees.
+    branch_path = "branch_id"
+    default_permission = access.STAFF_MANAGE
     queryset = OrganizationStaff.objects.all()
     serializer_class = OrganizationStaffSerializer
 

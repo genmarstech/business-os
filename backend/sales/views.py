@@ -26,6 +26,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from catalog.models import TaxRule
+from identity import access
 from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
 
@@ -86,15 +87,32 @@ def _exact(value):
 
 
 class TaxRuleViewSet(TenantScoped, viewsets.ModelViewSet):
+    """
+    Tax configuration is organisation-owned (§7) and changing it changes every
+    receipt the business issues from here on, so writing is held at
+    SETTINGS_MANAGE while anybody who can see a price can see the rule behind
+    it.
+    """
+
     tenant_path = "organization_id"
     queryset = TaxRule.objects.all()
     serializer_class = TaxRuleSerializer
+    default_permission = access.SETTINGS_MANAGE
+    permissions = {
+        "list": access.CATALOG_VIEW,
+        "retrieve": access.CATALOG_VIEW,
+    }
 
 
 class CustomerViewSet(TenantScoped, viewsets.ModelViewSet):
     tenant_path = "organization_id"
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
+    default_permission = access.CUSTOMER_MANAGE
+    permissions = {
+        "list": access.CUSTOMER_VIEW,
+        "retrieve": access.CUSTOMER_VIEW,
+    }
 
 
 class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
@@ -108,6 +126,18 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
     """
 
     tenant_path = "organization_id"
+    # A sale happens AT a branch, so a principal confined to branches sees
+    # only their own. Without this a cashier at Westlands reads Karen's
+    # trading history, which is the hole §8 is about.
+    branch_path = "branch_id"
+    permissions = {
+        "list": access.SALES_VIEW,
+        "retrieve": access.SALES_VIEW,
+        "checkout": access.SALES_CHECKOUT,
+        "void": access.SALES_VOID,
+        "refund": access.SALES_REFUND,
+        "reprint": access.SALES_REPRINT,
+    }
     queryset = (
         Sale.objects.select_related(
             "branch", "register", "shift", "cashier", "customer", "receipt"
@@ -152,6 +182,21 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                     {field: "No such record, or it is not available to you."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+        # ── AND NOW THE BRANCH-LEVEL QUESTION ───────────────────────────────
+        #
+        # `permissions` above asked whether this caller may check out AT ALL.
+        # Here the shift has told us where, so the question becomes whether
+        # they may check out THERE — which is different for anybody holding
+        # two assignments. A cashier at Westlands and manager at Karen must
+        # not be able to take a sale at Karen's till on the strength of the
+        # Westlands one, and the union of their roles would let them.
+        branch_id = shift.register.branch_id
+        if not access.may(request.user, access.SALES_CHECKOUT, branch_id):
+            return Response(
+                {"shift": "You are not assigned to that branch."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             sale = services.checkout(
@@ -216,6 +261,16 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Refunding at a branch needs the permission AT that branch — see the
+        # note in `checkout`. The branch arrives in the request, so this is
+        # also the point §8 is warning about: it narrows what happens, and the
+        # authority to do it comes from the assignment, not from the field.
+        if not access.may(request.user, access.SALES_REFUND, data["branch"].pk):
+            return Response(
+                {"branch": "You are not assigned to that branch."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             refund = services.refund_sale(
                 sale=sale,
@@ -265,6 +320,11 @@ class RefundViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
     """
 
     tenant_path = "organization_id"
+    branch_path = "branch_id"
+    permissions = {
+        "list": access.SALES_VIEW,
+        "retrieve": access.SALES_VIEW,
+    }
     queryset = (
         Refund.objects.select_related("sale", "branch", "processed_by")
         .prefetch_related("items")
@@ -298,8 +358,45 @@ class ReportViewSet(viewsets.ViewSet):
         except (TypeError, ValueError):
             return None
 
+    # ── THE TWO REPORTING PERMISSIONS ───────────────────────────────────────
+    #
+    # §4 and §5 describe two different dashboards: the organisation's command
+    # centre, and a branch's own operational view where a manager "should see
+    # only the data and actions permitted for that branch".
+    #
+    # So a request that names no branch is an organisation-wide question and
+    # needs REPORTS_ORGANISATION; one that names a branch the caller is
+    # assigned to needs only REPORTS_BRANCH. A branch manager therefore reads
+    # their branch and is refused the consolidated view — which is the whole
+    # distinction, and it would be lost under a single "reports" permission.
+    #
+    # An operational principal with no branch named falls back to their own
+    # assignments rather than being refused: `reports` scopes every aggregate
+    # through `branch_scope`, so "all branches" already means "all of mine".
+    def check(self, request, needed: str | None = None):
+        """Returns an error Response, or None when the caller may proceed."""
+        branch_id = self._branch(request)
+
+        if needed is None:
+            confined = access.branch_scope(request.user)
+            needed = (
+                access.REPORTS_ORGANISATION
+                if branch_id is None and confined is None
+                else access.REPORTS_BRANCH
+            )
+
+        if not access.may(request.user, needed, branch_id):
+            return Response(
+                {"detail": "You do not have permission to do that."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
     @action(detail=False, methods=["get"])
     def overview(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
         start, end = reports.parse_window(request)
         return Response(_exact(
             reports.overview(request.user, start, end, self._branch(request))
@@ -307,6 +404,9 @@ class ReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="by-branch")
     def by_branch(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
         start, end = reports.parse_window(request)
         return Response(
             _exact({"branches": reports.by_branch(request.user, start, end)})
@@ -314,6 +414,9 @@ class ReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="by-product")
     def by_product(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
         start, end = reports.parse_window(request)
         return Response(_exact(
             {
@@ -325,6 +428,9 @@ class ReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="by-cashier")
     def by_cashier(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
         start, end = reports.parse_window(request)
         return Response(_exact(
             {
@@ -336,6 +442,9 @@ class ReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="by-payment-method")
     def by_payment_method(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
         start, end = reports.parse_window(request)
         return Response(_exact(
             {
@@ -347,12 +456,26 @@ class ReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="stock-alerts")
     def stock_alerts(self, request):
+        # Not a reporting permission: what is running low is a stockroom
+        # question, and a clerk who may adjust stock plainly may see which
+        # shelves are empty. A cashier holds INVENTORY_VIEW too — they are
+        # the person who notices first.
+        refused = self.check(request, access.INVENTORY_VIEW)
+        if refused is not None:
+            return refused
         return Response(
             _exact({"alerts": reports.stock_alerts(request.user, self._branch(request))})
         )
 
     @action(detail=False, methods=["get"], url_path="register-status")
     def register_status(self, request):
+        # Always the branch permission, even with no branch named: this lists
+        # open tills and what should be in their drawers, which is an
+        # operational view of a branch rather than a consolidated one — and
+        # the aggregate is already confined by `branch_scope`.
+        refused = self.check(request, access.REPORTS_BRANCH)
+        if refused is not None:
+            return refused
         return Response(
             _exact(
                 {"registers": reports.register_status(request.user, self._branch(request))}
