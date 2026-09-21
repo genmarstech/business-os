@@ -19,6 +19,13 @@ import styles from "./Shell.module.css";
  * lib/session.ts.
  */
 
+/*
+ * ── EVERY ITEM HERE HAS TO LEAD SOMEWHERE ──────────────────────────────────
+ * A link in a product's own navigation that 404s reads as a broken product,
+ * not as an unfinished one. Customers were listed and had no screen — credit
+ * accounts are a later piece of work — so the item is gone until there is one
+ * rather than sitting here as a promise.
+ */
 type Item = { href: string; label: string; permission?: string };
 type Group = { title: string; items: Item[] };
 
@@ -29,7 +36,6 @@ const GROUPS: Group[] = [
       { href: "/till", label: "Till", permission: PERM.salesCheckout },
       { href: "/sales", label: "Sales", permission: PERM.salesView },
       { href: "/refunds", label: "Refunds", permission: PERM.salesView },
-      { href: "/customers", label: "Customers", permission: PERM.customerView },
     ],
   },
   {

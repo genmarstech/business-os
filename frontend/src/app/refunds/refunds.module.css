@@ -1,0 +1,132 @@
+/* Refunds. */
+
+.page {
+  max-width: 62rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 12px 14px 12px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-right: 0 !important;
+}
+
+.table thead th.num {
+  text-align: right;
+}
+
+.number {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.reason {
+  max-width: 22ch;
+}
+
+.tight {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tight li + li {
+  margin-top: 3px;
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.quiet {
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin: 14px 0 0;
+  max-width: 64ch;
+}

@@ -22,12 +22,15 @@ anything wrong with the intent:
 Their `select_related` choices are kept as written; they were right.
 """
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from rest_framework import status, viewsets
+from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import viewsets
 
 from identity import access
 from identity.scoping import TenantScoped
+
+from . import services
 
 from .models import (
     BranchInventory,
@@ -74,6 +77,53 @@ class BranchInventoryViewSet(TenantScoped, viewsets.ModelViewSet):
         'branch', 'product'
     ).all()
     serializer_class = BranchInventorySerializer
+
+    @action(detail=True, methods=["post"])
+    def adjust(self, request, pk=None):
+        """
+        Change a quantity, with the reason that explains it.
+
+        ══════════════════════════════════════════════════════════════════════
+        THIS IS THE ONLY WAY A QUANTITY CHANGES OUTSIDE A SALE.
+
+        PATCHing `quantity` on this viewset would move stock with nothing
+        saying why, and stock is the one figure in a shop that cannot be
+        reconstructed from anything else — a shelf count is only ever
+        explained by the movements that produced it.
+
+        ⚠ `POST /invt/stock-adjustments/` CANNOT DO THIS AND NEVER COULD.
+          quantity_before and quantity_after are read-only there, correctly —
+          a client that could state the "before" could state a false one — and
+          nothing computed them, so the create could only fail. A shop could
+          sell its stock down and had no way to book a delivery back in.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        inventory = self.get_object()
+
+        try:
+            delta = services.as_quantity(request.data.get("quantity"))
+            adjustment = services.adjust(
+                inventory=inventory,
+                delta=delta,
+                reason=str(request.data.get("reason", "")).upper(),
+                note=str(request.data.get("note", "")).strip(),
+            )
+        except DjangoValidationError as error:
+            detail = (
+                error.message_dict
+                if hasattr(error, "message_dict")
+                else {"detail": error.messages}
+            )
+            return Response(detail, status=status.HTTP_400_BAD_REQUEST)
+
+        inventory.refresh_from_db()
+        return Response(
+            {
+                "inventory": self.get_serializer(inventory).data,
+                "adjustment": StockAdjustmentSerializer(adjustment).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 

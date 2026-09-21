@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 class BranchInventorySerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(
-        source="branch.name",
+        source="branch.branch_name",
         read_only=True
     )
 

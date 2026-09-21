@@ -1,0 +1,161 @@
+/* Branches and tills. */
+
+.page {
+  max-width: 62rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.saved {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.form {
+  margin-top: 6px;
+}
+
+.cards {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+/* Still in every report it was ever in — just not trading. */
+.closed {
+  opacity: 0.6;
+}
+
+.cardHead {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.tills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.till {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--sunken);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12.5px;
+}
+
+.tillNumber {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Amber: an unfinished setup step, not a fault. */
+.warn {
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
+/*
+ * The one number somebody copies off a screen onto a terminal. Large enough
+ * to read from across a counter, monospaced so 0 and O cannot be confused.
+ */
+.bigNumber {
+  font-family: var(--font-mono);
+  font-size: 2.2rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin: 4px 0 10px;
+}
