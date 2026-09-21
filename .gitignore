@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments. `virtual/` is the one this project uses.
+virtual/
+.venv/
+venv/
+
+# ── THE DEVELOPMENT DATABASE ────────────────────────────────────────────────
+#
+# backend/db.sqlite3 was committed. It is a developer's local database: it
+# drifts from the migrations, it makes every branch conflict on a binary file,
+# and on a product that holds other companies' staff records it is the kind of
+# file that ends up carrying real data into a public repository by accident.
+#
+# This repo is PUBLIC. Migrations are the schema; the database is not.
+*.sqlite3
+db.sqlite3
+
+# Secrets. The sign-on client secret belongs in the environment and is shown
+# exactly once when issued — see backend/identity/README.md.
+.env
+*.env
+!.env.example
+
+# Editors and OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
