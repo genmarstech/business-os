@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Genmars Business Platform — business.genmars.co.ke
+#
+# A DROP-IN for the shared host Caddy, not a standalone config.
+#
+#   sudo cp deploy/business.caddy /etc/caddy/conf.d/business.caddy
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#   systemctl is-active caddy        # NOT optional — see below
+#
+# ⚠ DO NOT copy this over /etc/caddy/Caddyfile. That host also serves
+#   genmars.co.ke, app/api/ops.genmars.co.ke and clipsserenityspa.co.ke — a
+#   LIVE CLIENT SITE. The main Caddyfile does nothing but
+#   `import /etc/caddy/conf.d/*.caddy`; overwriting it takes all of them down.
+#
+# `caddy validate` passing is necessary but NOT sufficient. Some failures
+# happen at load rather than at adapt, so validate passes and only the reload
+# breaks. Check the service afterwards.
+#
+# ⚠ DNS FOR business.genmars.co.ke ALREADY POINTS HERE AND NOTHING SERVES IT.
+#   Until this block exists, a request gets a 308 to https and then fails TLS,
+#   because Caddy has no certificate for a name it has never been asked about.
+#   Installing this is what triggers issuance.
+#
+# ⚠ KEEP THE RECORD DNS-ONLY (GREY CLOUD) IN CLOUDFLARE, like app/api/ops.
+#   Proxied, Cloudflare terminates TLS and every request — including a
+#   cashier's password and a sign-on code that becomes somebody's identity —
+#   is readable at its edge. It also breaks per-IP rate limiting, because
+#   every request would arrive from Cloudflare.
+# ─────────────────────────────────────────────────────────────────────────────
+
+business.genmars.co.ke {
+	encode zstd gzip
+
+	# The Django application. Published to loopback only, so this block is the
+	# single public way in.
+	#
+	# X-Real-IP is what identity/authentication.py and any future rate limit
+	# read to tell one caller from another. Without it every request arrives
+	# from the proxy and a per-address limit becomes one shared budget —
+	# exactly the bug gen-portal shipped and had to fix.
+	reverse_proxy 127.0.0.1:8020 {
+		header_up X-Real-IP {remote_host}
+
+		# Takes the app out of rotation if it stops answering.
+		health_uri /auth/me
+		health_interval 10s
+		health_timeout 3s
+	}
+
+	header {
+		# Do not advertise the server.
+		-Server
+
+		# HSTS belongs at the TLS edge, not in the application — it is
+		# meaningless on the plain-HTTP hop behind this.
+		#
+		# Deliberately WITHOUT includeSubDomains and WITHOUT preload. Both are
+		# hard to reverse: preload is a long manual removal baked into
+		# browsers, and includeSubDomains breaks any subdomain not yet on
+		# HTTPS.
+		Strict-Transport-Security "max-age=31536000"
+
+		# This is somebody's business data — their takings, their stock, their
+		# staff. It has no business in a search index.
+		X-Robots-Tag "noindex, nofollow"
+
+		# ⚠ FRAME PROTECTION IS NOT OPTIONAL HERE.
+		#
+		# ops.genmars.co.ke shipped without it and ran that way for weeks. A
+		# POS dashboard is worse: an invisible iframe over an attacker's page
+		# collects clicks from somebody signed in to a till, and the controls
+		# behind those clicks move stock and cash.
+		X-Frame-Options "DENY"
+
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+	}
+
+	# ── Content-Security-Policy ──────────────────────────────────────────────
+	#
+	# Deliberately absent until there is a frontend to test it against. This is
+	# an API today; a CSP written now would be guesswork about markup that does
+	# not exist, and the failure mode of a wrong CSP is a blank screen nobody
+	# notices until somebody opens the page that uses the blocked thing.
+	#
+	# When the dashboard lands: ship it Report-Only first, walk every screen
+	# with the console open, then rename the header. ops.caddy has the same
+	# note and the same reasoning.
+
+	# ── LOGGING ──────────────────────────────────────────────────────────────
+	# Intentionally absent, like every other site on this host. A
+	# `log { output file … }` block FAILS at reload with permission denied even
+	# after chown — and because it fails at load rather than at adapt time,
+	# `caddy validate` passes and only the reload breaks. Access logs go to the
+	# journal, which also keeps retention in one place: they contain caller IP
+	# addresses, and a retention period has to be one we can state truthfully.
+}

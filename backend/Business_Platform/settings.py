@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,12 +22,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-!^r3p(hw8mpbrzp6kno9bil2%d_6gua-4p*3m#pbx9*9d36zv)'
+# ── SECRET_KEY ──────────────────────────────────────────────────────────────
+#
+# ⚠ THE KEY THAT USED TO BE ON THIS LINE IS IN THIS REPOSITORY'S HISTORY, AND
+#   THIS REPOSITORY IS PUBLIC. It was the one `startproject` generates, it has
+#   never run in production, and it must never be allowed to: anybody can read
+#   it. Deleting it from this file does not unpublish it.
+#
+# Django signs session cookies and password-reset tokens with this. A known key
+# means anybody can mint a session for anybody.
+#
+# The insecure default is kept ONLY so a fresh checkout runs without ceremony,
+# and the guard below refuses to boot on it with DEBUG off.
+DEV_ONLY_SECRET_KEY = "django-insecure-do-not-use-this-anywhere-real"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", DEV_ONLY_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Off unless something says otherwise. A missing environment variable must
+# never be the thing that turns debug mode on in front of customers — DEBUG
+# renders a stack trace, the settings and the SQL to whoever triggered the
+# error.
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()
+]
+if DEBUG and not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 
 # Application definition
@@ -78,12 +101,37 @@ WSGI_APPLICATION = 'Business_Platform.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# ── DATABASE ────────────────────────────────────────────────────────────────
+#
+# Postgres in production, SQLite for a local checkout. Parsed by hand rather
+# than with dj-database-url: one URL, one format, and Charter 03 §I admits a
+# dependency only when what is here cannot do the job.
+#
+# SQLite is a development convenience and nothing more. It has no real
+# concurrency, and a POS is a system where two tills write at the same moment
+# by definition.
+if os.environ.get("DATABASE_URL"):
+    from urllib.parse import unquote, urlparse
+
+    _url = urlparse(os.environ["DATABASE_URL"])
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _url.path.lstrip("/"),
+            "USER": unquote(_url.username or ""),
+            "PASSWORD": unquote(_url.password or ""),
+            "HOST": _url.hostname or "",
+            "PORT": str(_url.port or ""),
+            "CONN_MAX_AGE": 60,
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 
 # Password validation
@@ -126,9 +174,22 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
+# ── EMAIL ───────────────────────────────────────────────────────────────────
+#
+# Django 6.1 replaced EMAIL_BACKEND with MAILERS, and defining both refuses to
+# boot — worth knowing, because every example on the internet still shows the
+# old name.
+#
+# NOTHING IN THIS APPLICATION SENDS MAIL YET, and `check --deploy` reports
+# mail.E001 for the console backend. That report is TRUE and is deliberately
+# NOT silenced: the first feature that needs mail is resetting a cashier's
+# password, and a reset that silently discards its own email is the worst
+# possible way to discover this was never configured.
 MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    "default": {
+        "BACKEND": os.environ.get(
+            "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+        ),
     },
 }
 
@@ -137,7 +198,6 @@ MAILERS = {
 # IDENTITY AND ACCESS
 # ═══════════════════════════════════════════════════════════════════════════
 
-import os  # noqa: E402 - grouped with the settings it reads
 
 # ── EVERY ENDPOINT IS CLOSED UNLESS IT SAYS OTHERWISE ──────────────────────
 #
@@ -194,3 +254,107 @@ GENMARS_API_ORIGIN = os.environ.get(
 GENMARS_SIGN_ON_CLIENT_ID = os.environ.get("GENMARS_SIGN_ON_CLIENT_ID", "")
 GENMARS_SIGN_ON_CLIENT_SECRET = os.environ.get("GENMARS_SIGN_ON_CLIENT_SECRET", "")
 GENMARS_SIGN_ON_REDIRECT_URI = os.environ.get("GENMARS_SIGN_ON_REDIRECT_URI", "")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REFUSING TO BOOT ON A CONFIGURATION THAT WOULD BE UNSAFE
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The same approach gen-portal takes: every failure guarded here is one that is
+# INVISIBLE at runtime. A platform running on the public secret key serves
+# every page correctly; a platform with DEBUG on looks fine until the first
+# exception shows a stranger the settings. Refusing to start is loud, happens
+# at deploy time, and happens to us rather than to a customer.
+
+# ── WHY THE TEST RUNNER IS EXCLUDED, AND WHAT THAT COSTS ────────────────────
+#
+# Django's test runner forces DEBUG = False, so without this every one of the
+# guards below would fire on `manage.py test` and the suite could not run at
+# all.
+#
+# The cost is real and worth naming: the tests therefore do NOT exercise the
+# production configuration. Nothing here proves a deployed process boots. That
+# is what the deploy-time check is for, and it belongs in CI:
+#
+#   DEBUG=False DJANGO_SECRET_KEY=… ALLOWED_HOSTS=… CSRF_TRUSTED_ORIGINS=… \
+#   DATABASE_URL=… python manage.py check --deploy
+#
+# gen-portal runs exactly that as its own step, because guards that are never
+# executed against a real configuration are guards nobody has tested.
+RUNNING_TESTS = "test" in sys.argv
+
+if not DEBUG and not RUNNING_TESTS:
+    from django.core.exceptions import ImproperlyConfigured
+
+    if SECRET_KEY == DEV_ONLY_SECRET_KEY:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY is not set, so this would run on the key that "
+            "is committed to a public repository. Django signs session cookies "
+            "with it — a known key means anybody can mint a session for "
+            "anybody. Generate one and set it."
+        )
+
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            "ALLOWED_HOSTS is empty. Set it to the public hostname, e.g. "
+            "ALLOWED_HOSTS=business.genmars.co.ke"
+        )
+
+    if "sqlite3" in DATABASES["default"]["ENGINE"]:
+        raise ImproperlyConfigured(
+            "DATABASE_URL is not set, so this would run on SQLite. Two tills "
+            "writing at the same moment is the normal case for a POS, and "
+            "SQLite has no answer for it. Point DATABASE_URL at Postgres."
+        )
+
+    # ── BEHIND CADDY ────────────────────────────────────────────────────────
+    #
+    # Caddy terminates TLS and proxies over plain HTTP on the loopback, so
+    # Django cannot see that the browser used https unless it is told. Without
+    # this, `request.is_secure()` is False, secure cookies are never set, and
+    # any redirect Django builds comes back as http.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+    # Caddy already redirects http to https; doing it here as well loops.
+    SECURE_SSL_REDIRECT = False
+
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SAMESITE = "Lax"
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+    X_FRAME_OPTIONS = "DENY"
+
+    # ⚠ NO SESSION_COOKIE_DOMAIN, EVER.
+    #
+    # Leaving it unset scopes the cookie to business.genmars.co.ke alone. Set
+    # it to ".genmars.co.ke" and this platform's session starts riding along to
+    # app., api. and ops. — which is exactly the separation that keeps a
+    # subscriber's session here from being replayable against the portal.
+    # gen-portal carries the same warning in two places.
+
+    # ── CHECKS SILENCED, AND WHY ────────────────────────────────────────────
+    #
+    # W004 (SECURE_HSTS_SECONDS unset) and W008 (SECURE_SSL_REDIRECT not True)
+    # are both about things Caddy does at the TLS edge. Setting either here
+    # would be the wrong layer: HSTS is meaningless on the plain-HTTP hop
+    # behind the proxy, and redirecting twice loops. Same call, same reasons,
+    # as gen-portal.
+    #
+    # ⚠ NOTHING ELSE GOES IN THIS LIST without a line saying why. A silenced
+    # check is a check nobody will ever see again.
+    SILENCED_SYSTEM_CHECKS = ["security.W004", "security.W008"]
+
+    CSRF_TRUSTED_ORIGINS = [
+        o.strip()
+        for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+        if o.strip()
+    ]
+    if not CSRF_TRUSTED_ORIGINS:
+        raise ImproperlyConfigured(
+            "CSRF_TRUSTED_ORIGINS is empty. Without it every authenticated "
+            "POST is rejected while signing in still appears to work, which is "
+            "the most misleading way this can fail."
+        )
