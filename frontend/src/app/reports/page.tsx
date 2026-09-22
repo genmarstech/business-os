@@ -9,6 +9,7 @@ import {
   ksh,
   type Overview,
 } from "@/lib/reports";
+import { CloseTill } from "./CloseTill";
 import styles from "./reports.module.css";
 
 /**
@@ -56,6 +57,12 @@ export default async function ReportsPage({
   });
 
   const canSeeOrganisation = may(me, PERM.reportsOrganisation);
+  /*
+   * Not security — the server refuses either way. This only decides whether
+   * to offer a control that a cashier would be refused, which §6 asks for:
+   * they learn who to ask instead of learning the feature does not exist.
+   */
+  const canClose = may(me, PERM.shiftClose);
 
   return (
     <Shell me={me}>
@@ -100,7 +107,9 @@ export default async function ReportsPage({
             <h2 className={styles.panelTitle}>Tills open now</h2>
             <p className={styles.panelLede}>
               What should be in each drawer: the cash it opened with, plus what
-              it has taken, less change given. Count against this at the close.
+              it has taken, less change given. Counting against it is how a
+              shift ends — a till cannot be closed without a count, and the
+              difference is recorded against the shift.
             </p>
             <div className={styles.scroll}>
               <table className={styles.table}>
@@ -112,6 +121,7 @@ export default async function ReportsPage({
                     <th className={styles.num}>Taken</th>
                     <th className={styles.num}>Change out</th>
                     <th className={styles.num}>Should hold</th>
+                    {canClose ? <th /> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -134,6 +144,15 @@ export default async function ReportsPage({
                       <td className={`${styles.num} ${styles.strong}`}>
                         {ksh(row.expected_cash)}
                       </td>
+                      {canClose ? (
+                        <td className={styles.num}>
+                          <CloseTill
+                            shiftId={row.shift}
+                            registerName={row.register_name}
+                            expected={row.expected_cash}
+                          />
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

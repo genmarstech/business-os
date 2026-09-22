@@ -1,7 +1,9 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import render
-from rest_framework.decorators import api_view
+from rest_framework import status, viewsets
+from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
-from rest_framework import viewsets
+from . import services
 from .serializers import RegisterSerializer, RegisterShiftSerializer, BranchesSerializer, StaffAssignmentSerializer
 from .models import Branches, Register, RegisterShift, staffAssignment
 from identity import access
@@ -57,15 +59,92 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
     # drawer is reconciled, so it sits with the manager (module 7).
     branch_path = "register__branch_id"
     default_permission = access.SHIFT_OPEN
+    # ══════════════════════════════════════════════════════════════════════
+    # EVERY ACTION IS NAMED, INCLUDING THE CUSTOM ONES.
+    #
+    # An @action that is not in this map silently inherits
+    # `default_permission` — and this viewset's default is SHIFT_OPEN, which
+    # every cashier holds. `close` was added without a line here and a cashier
+    # counted their own drawer 300 short, closed it, and got a 200.
+    #
+    # That is the fail-open direction, on the viewset where it costs the most.
+    # A new action needs a line here in the same commit that adds it.
+    # ══════════════════════════════════════════════════════════════════════
     permissions = {
         "list": access.SALES_VIEW,
         "retrieve": access.SALES_VIEW,
         "destroy": access.SHIFT_CLOSE,
         "update": access.SHIFT_CLOSE,
         "partial_update": access.SHIFT_CLOSE,
+        # Seeing what the drawer should hold is not closing against it — the
+        # cashier holding the notes is usually the one counting.
+        "drawer": access.SALES_VIEW,
+        "close": access.SHIFT_CLOSE,
     }
     queryset = RegisterShift.objects.select_related('register__branch').all()
     serializer_class = RegisterShiftSerializer
+
+    @action(detail=True, methods=["get"])
+    def drawer(self, request, pk=None):
+        """
+        What this till should be holding, so somebody can count against it.
+
+        Readable by anyone who may see sales — the cashier standing at the
+        drawer is usually the one counting, and they hold SALES_VIEW but not
+        SHIFT_CLOSE. Seeing the figure is not closing against it.
+        """
+        shift = self.get_object()
+        return Response(_money(services.drawer(shift)))
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        """
+        End the shift against a counted drawer.
+
+        ⚠ THE COUNT IS REQUIRED. An optional one would be left blank on the
+          busy evenings that are exactly when a drawer goes short.
+        """
+        shift = self.get_object()
+
+        if "counted_cash" not in request.data:
+            return Response(
+                {"counted_cash": "Count the drawer and enter what is in it."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            closed = services.close_shift(
+                shift=shift, counted_cash=request.data.get("counted_cash")
+            )
+        except DjangoValidationError as error:
+            detail = (
+                error.message_dict
+                if hasattr(error, "message_dict")
+                else {"detail": error.messages}
+            )
+            return Response(detail, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "shift": self.get_serializer(closed).data,
+                "drawer": _money(services.drawer(closed)),
+            }
+        )
+
+
+def _money(figures: dict) -> dict:
+    """
+    Decimals as strings.
+
+    DRF's JSON encoder does float(obj), so 1234.55 goes out fine and 19.99
+    leaves as 19.989999999999998. A variance is the one figure on this screen
+    somebody will argue about, and it has to be exact — sales/views.py carries
+    the same conversion and the same note.
+    """
+    return {
+        key: (str(value) if value is not None and not isinstance(value, (int, str)) else value)
+        for key, value in figures.items()
+    }
 
 
 class StaffAssignmentViewSet(TenantScoped, viewsets.ModelViewSet):

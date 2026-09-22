@@ -1078,3 +1078,78 @@ class AttributionTests(TestCase):
         self.assertEqual(
             self.client.get("/org/staff/", **self.auth()).status_code, 403
         )
+
+
+class EveryCustomActionIsNamedTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    A CUSTOM @action THAT NOBODY NAMED INHERITS `default_permission`.
+
+    EveryViewsetIsGatedTests above asks whether a viewset gates anything at
+    all. It does not ask whether the thing you just added is covered — and an
+    @action missing from `permissions` does not fail, it quietly takes the
+    default.
+
+    That is fine when the default is the strictest permission on the viewset
+    and catastrophic when it is the loosest. RegisterShiftViewSets defaults to
+    SHIFT_OPEN, which every cashier holds, so `close` arrived wide open: a
+    cashier counted their own drawer 300 short, closed it, and got a 200.
+    Counting your own till and declaring it correct is the shape a till
+    shortage takes.
+
+    So: standard CRUD may fall through to the default. A custom action must be
+    named, in the same commit that adds it.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    CRUD = {"list", "retrieve", "create", "update", "partial_update", "destroy"}
+
+    def viewsets(self):
+        from django.urls import get_resolver
+
+        from identity.scoping import TenantScoped
+
+        found = {}
+
+        def walk(patterns):
+            for entry in patterns:
+                if hasattr(entry, "url_patterns"):
+                    walk(entry.url_patterns)
+                    continue
+                cls = getattr(getattr(entry, "callback", None), "cls", None)
+                if cls is not None and issubclass(cls, TenantScoped):
+                    found[cls.__name__] = cls
+
+        walk(get_resolver().url_patterns)
+        return found
+
+    def test_the_walk_finds_custom_actions(self):
+        """
+        The control. If extra_actions stopped being discoverable this whole
+        class would pass over an empty list and say nothing.
+        """
+        total = sum(
+            len(cls.get_extra_actions()) for cls in self.viewsets().values()
+        )
+        self.assertGreaterEqual(
+            total, 5, "expected the sales, credential, stock and shift actions"
+        )
+
+    def test_every_custom_action_names_its_own_permission(self):
+        unnamed = []
+        for name, cls in self.viewsets().items():
+            declared = set(cls.permissions or {})
+            for action in cls.get_extra_actions():
+                if action.url_name in self.CRUD:
+                    continue
+                if action.__name__ not in declared:
+                    unnamed.append(f"{name}.{action.__name__}")
+
+        self.assertEqual(
+            unnamed,
+            [],
+            "these custom actions inherit `default_permission` because nobody "
+            f"named them: {unnamed}. Add each to the viewset's `permissions` "
+            "map — inheriting the default is how a cashier got to close their "
+            "own till.",
+        )

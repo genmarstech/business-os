@@ -399,6 +399,13 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
     # it. Saying so explicitly rather than leaving `branch_path` to default.
     branch_path = None
     default_permission = access.STAFF_MANAGE
+    # Both match the default. Stated anyway: an action that inherits is an
+    # action nobody decided about, and the day the default loosens it changes
+    # silently underneath. See EveryCustomActionIsNamedTests.
+    permissions = {
+        "reset_password": access.STAFF_MANAGE,
+        "set_active": access.STAFF_MANAGE,
+    }
     queryset = StaffCredential.objects.select_related("staff", "organization")
     serializer_class = StaffCredentialSerializer
     # Deleting is refused rather than absent, so a client that tries is told

@@ -148,18 +148,4 @@ export async function dashboard(window: Window) {
   };
 }
 
-/** A money string, grouped for reading. Never parsed back into a number. */
-export function ksh(value: string | null | undefined): string {
-  if (!value) return "0.00";
-  const negative = value.startsWith("-");
-  const [whole = "0", fraction = "00"] = value.replace("-", "").split(".");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `${negative ? "-" : ""}${grouped}.${fraction.padEnd(2, "0").slice(0, 2)}`;
-}
-
-/** A quantity string, without money's insistence on two decimals. */
-export function amount(value: string | null | undefined): string {
-  if (!value) return "0";
-  const trimmed = value.replace(/\.00$/, "");
-  return trimmed.replace(/\B(?=(\d{3})+(?!\d))(?=[^.]*$)/g, ",");
-}
+export { amount, ksh } from "./money";

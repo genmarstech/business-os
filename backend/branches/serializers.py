@@ -173,7 +173,20 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
             'operator_name',
             'opened_at',
             'closed_at',
+            # ══════════════════════════════════════════════════════════════
+            # `status` AND `closing_cash` ARE NOT WRITABLE FROM A REQUEST.
+            #
+            # A shift ends through POST .../close/, which counts the drawer,
+            # stamps closed_at and makes a variance possible — see
+            # branches/services.py. While these were writable, PATCHing
+            # `status` to CLOSED was the shorter path: no close time, no
+            # count, no variance, and nothing anywhere said so.
+            #
+            # A service that can be bypassed by the same client that should
+            # be calling it is not a service, it is a suggestion.
+            # ══════════════════════════════════════════════════════════════
             'status',
+            'closing_cash',
         ]
 
     # --------------------------------------------------------

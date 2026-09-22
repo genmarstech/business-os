@@ -248,3 +248,103 @@
   background: var(--accent-fill);
   min-width: 4px;
 }
+
+/* ── closing a till ─────────────────────────────────────────────────────── */
+
+.quiet {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  cursor: pointer;
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.quiet:hover {
+  color: var(--ink);
+}
+
+.closeForm {
+  text-align: left;
+  min-width: 17rem;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+}
+
+.closeLede {
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  margin: 0 0 12px;
+  max-width: 46ch;
+}
+
+.closeLede strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.closed {
+  text-align: left;
+  min-width: 15rem;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  padding: 13px 15px;
+}
+
+.closedTitle {
+  font-weight: 500;
+  font-size: 13px;
+  margin-bottom: 9px;
+}
+
+.closedFigures {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.closedFigures > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.closedFigures dt {
+  color: var(--ink-faint);
+}
+
+.closedFigures dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Short is the one that costs money, so it is the one that gets the alarming
+ * colour. Over is a warning too — a drawer with more in it than the sales
+ * account for is a mis-ring, not a windfall.
+ */
+.short {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.over {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+.exact {
+  color: var(--ok);
+}
+
+.closedNote {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  margin: 9px 0 0;
+  max-width: 44ch;
+}

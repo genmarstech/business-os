@@ -72,6 +72,11 @@ class BranchInventoryViewSet(TenantScoped, viewsets.ModelViewSet):
     permissions = {
         "list": access.INVENTORY_VIEW,
         "retrieve": access.INVENTORY_VIEW,
+        # Named rather than inherited. It happens to match the default, which
+        # is exactly the situation that makes an unnamed action look fine
+        # until somebody changes the default — see
+        # EveryCustomActionIsNamedTests.
+        "adjust": access.INVENTORY_ADJUST,
     }
     queryset = BranchInventory.objects.select_related(
         'branch', 'product'
