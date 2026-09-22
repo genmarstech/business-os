@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -63,6 +64,16 @@ export default async function ReportsPage({
    * they learn who to ask instead of learning the feature does not exist.
    */
   const canClose = may(me, PERM.shiftClose);
+
+  /*
+   * ── THE NONCE, FOR THE ONE THING ON THIS PAGE THAT CANNOT USE A CLASS ────
+   *
+   * src/middleware.ts puts it on the request so Next can stamp its own
+   * scripts; this reads it back for the bar widths below, which are per-row
+   * data and so cannot be a static rule. A style="" attribute cannot carry a
+   * nonce at all, which is why it is a <style> block instead.
+   */
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <Shell me={me}>
@@ -200,6 +211,7 @@ export default async function ReportsPage({
           {data.branches.length > 0 ? (
             <Ranked
               title="By branch"
+              nonce={nonce}
               rows={data.branches.map((b) => ({
                 key: b.branch,
                 name: b.branch_name,
@@ -212,6 +224,7 @@ export default async function ReportsPage({
           {data.methods.length > 0 ? (
             <Ranked
               title="How they paid"
+              nonce={nonce}
               rows={data.methods.map((m) => ({
                 key: m.method,
                 name: m.method_label,
@@ -224,6 +237,7 @@ export default async function ReportsPage({
           {data.cashiers.length > 0 ? (
             <Ranked
               title="By cashier"
+              nonce={nonce}
               rows={data.cashiers.map((c) => ({
                 key: c.cashier,
                 name: c.cashier_name,
@@ -321,27 +335,47 @@ function Kpis({ overview }: { overview: Overview }) {
 function Ranked({
   title,
   rows,
+  nonce,
 }: {
   title: string;
   rows: { key: string | number; name: string; note: string; value: string }[];
+  nonce?: string;
 }) {
   const widths = rows.map((row) => Number(row.value) || 0);
   const top = Math.max(...widths, 1);
 
+  /*
+   * ── A NONCE'D <style> BLOCK, NOT A style="" ATTRIBUTE ────────────────────
+   *
+   * The width is per-row data, so it cannot be a class written in advance.
+   * The obvious `style={{ width }}` is a style ATTRIBUTE, and an attribute
+   * cannot carry a nonce — under `style-src 'self' 'nonce-…'` every bar would
+   * silently collapse to nothing while the figures beside them stayed right,
+   * which is the worst kind of broken chart: still readable, quietly wrong.
+   *
+   * So the widths are emitted as real rules, nonced like everything else.
+   * `id` scopes them to this list, because three of these render on one page.
+   */
+  const id = `rank-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const rules = rows
+    .map((row, index) => {
+      const percent = Math.max((widths[index]! / top) * 100, 2);
+      return `#${id} li:nth-child(${index + 1}) .${styles.bar}{width:${percent.toFixed(2)}%}`;
+    })
+    .join("");
+
   return (
     <section className={styles.panel}>
       <h2 className={styles.panelTitle}>{title}</h2>
-      <ul className={styles.ranked}>
-        {rows.map((row, index) => (
+      <style nonce={nonce}>{rules}</style>
+      <ul className={styles.ranked} id={id}>
+        {rows.map((row) => (
           <li key={row.key} className={styles.rank}>
             <div className={styles.rankTop}>
               <span className={styles.name}>{row.name}</span>
               <span className={styles.rankValue}>{ksh(row.value)}</span>
             </div>
-            <div
-              className={styles.bar}
-              style={{ width: `${Math.max((widths[index]! / top) * 100, 2)}%` }}
-            />
+            <div className={styles.bar} />
             <div className={styles.meta}>{row.note}</div>
           </li>
         ))}

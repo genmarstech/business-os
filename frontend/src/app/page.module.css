@@ -205,3 +205,26 @@
 .note strong {
   color: var(--ink);
 }
+
+/*
+ * ── THESE WERE INLINE style="" ATTRIBUTES ──────────────────────────────────
+ *
+ * A style attribute cannot carry a nonce, so `style-src 'self' 'nonce-…'`
+ * blocks it outright. Two of these were on the FRONT DOOR — the signed-out
+ * page every new visitor sees first — and survived a fourteen-screen walk
+ * because every screen in it was signed in.
+ *
+ * Spacing belongs in the stylesheet anyway; the policy just made that
+ * non-negotiable.
+ */
+.continueRow {
+  margin: 18px 0 0;
+}
+
+.doorTitle {
+  font-size: 1.5rem;
+}
+
+.doorAction {
+  margin: 22px 0 0;
+}

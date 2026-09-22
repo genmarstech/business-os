@@ -146,7 +146,7 @@ function Empty({ state }: { state: Progress }) {
       </ol>
 
       {remaining > 0 ? (
-        <p style={{ margin: "18px 0 0" }}>
+        <p className={styles.continueRow}>
           <Link className={styles.button} href="/welcome">
             Continue setting up
           </Link>
@@ -177,7 +177,7 @@ function FrontDoor() {
         </div>
 
         <div className={styles.doorPanel}>
-          <h1 className={styles.title} style={{ fontSize: "1.5rem" }}>
+          <h1 className={`${styles.title} ${styles.doorTitle}`}>
             Branches, stock and tills
           </h1>
           <p className={styles.sub}>
@@ -187,7 +187,7 @@ function FrontDoor() {
             the way through.
           </p>
 
-          <p style={{ margin: "22px 0 0" }}>
+          <p className={styles.doorAction}>
             {/*
               A plain <a>, not next/link: /auth/start is Django's, reached
               through Caddy. Routing it client-side would look for a page that

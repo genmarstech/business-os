@@ -65,7 +65,7 @@ export default async function BusinessPage() {
                 {organisation.staff_size_display ?? ""}
               </div>
             </div>
-            <p className={styles.empty} style={{ marginTop: 14 }}>
+            <p className={`${styles.empty} ${styles.emptyBelow}`}>
               Only an owner changes these. An administrator runs everything
               else.
             </p>

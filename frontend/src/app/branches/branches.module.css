@@ -159,3 +159,8 @@
   letter-spacing: 0.04em;
   margin: 4px 0 10px;
 }
+
+/* Was an inline style="" attribute, which the CSP blocks — see page.module.css. */
+.emptyBelow {
+  margin-top: 14px;
+}
