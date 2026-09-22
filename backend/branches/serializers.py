@@ -166,6 +166,7 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
             'opening_cash',
             'closing_cash',
             'status',
+            'note',
         ]
 
         read_only_fields = [
@@ -187,6 +188,10 @@ class RegisterShiftSerializer(serializers.ModelSerializer):
             # ══════════════════════════════════════════════════════════════
             'status',
             'closing_cash',
+            # Written through .../note/, which refuses once the shift is
+            # closed. Writable here, a PATCH would let somebody explain a
+            # variance after seeing it.
+            'note',
         ]
 
     # --------------------------------------------------------

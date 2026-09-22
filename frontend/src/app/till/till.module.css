@@ -521,3 +521,280 @@
 .mono {
   font-family: var(--font-mono);
 }
+
+/* ── taking cash ────────────────────────────────────────────────────────── */
+
+/*
+ * Denominations first, because that is the order the transaction happens in:
+ * the notes land on the counter before anybody types anything.
+ */
+.notes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.note {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  min-height: 46px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.note:active {
+  background: var(--sunken);
+}
+
+.noteExact {
+  border-color: var(--accent-fill);
+  color: var(--accent-text);
+}
+
+.noteExact:disabled {
+  opacity: 0.45;
+  cursor: default;
+  border-color: var(--line-firm);
+  color: var(--ink-faint);
+}
+
+.tenderRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tenderLabel {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tenderInput {
+  font: inherit;
+  font-size: 16px; /* under 16px, iOS zooms the page on focus */
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tenderClear {
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 0;
+  color: var(--ink-faint);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/*
+ * The change is the number read out loud to a customer, so it is the biggest
+ * thing in this panel after the total. Short-by is a different colour because
+ * handing back money nobody gave you is the mistake this line prevents.
+ */
+.changeLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 2.4rem;
+  padding: 6px 2px 0;
+  border-top: 1px solid var(--line);
+}
+
+.changeIdle {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.changeWord {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.changeValue {
+  font-family: var(--font-brand);
+  font-size: 1.5rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeDue .changeValue {
+  color: var(--ok);
+}
+
+.changeShort .changeValue {
+  color: var(--danger);
+}
+
+/* ── the tools in the bar ───────────────────────────────────────────────── */
+
+/*
+ * Anchored under the bar rather than centred over the floor: the basket has
+ * to stay visible. A cashier splitting a bill is still mid-sale.
+ */
+.tool {
+  position: absolute;
+  top: 58px;
+  right: clamp(12px, 2vw, 20px);
+  z-index: 20;
+  width: min(20rem, calc(100vw - 24px));
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-lg);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
+  padding: 14px 16px;
+}
+
+.toolHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.toolTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.toolClose,
+.toolSave {
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--accent-text);
+}
+
+.toolSave {
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  border-radius: var(--r-md);
+  padding: 9px 16px;
+  font-weight: 500;
+}
+
+.toolSave:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolLede {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 10px;
+}
+
+.toolError {
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12.5px;
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+
+.toolActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.toolHint {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.noteBox {
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  resize: vertical;
+}
+
+/* ── calculator ─────────────────────────────────────────────────────────── */
+
+.calcDisplay {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+}
+
+.calcOp {
+  font-size: 1rem;
+  color: var(--accent-text);
+}
+
+.calcKeys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.calcKey {
+  font: inherit;
+  font-size: 16px;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.calcKey:active {
+  background: var(--sunken);
+}
+
+.calcKeyOp {
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.calcKeyEquals {
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  border-color: var(--accent-fill);
+  font-weight: 500;
+}
+
+.calcKeyClear {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
+}
+
+/* The bar is the positioning context for .tool. */
+.till {
+  position: relative;
+}

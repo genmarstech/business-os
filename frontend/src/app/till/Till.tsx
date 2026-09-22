@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Mark } from "@/components/Mark";
+import { Calculator } from "./Calculator";
+import { ShiftNote } from "./ShiftNote";
 import { SignIn } from "./SignIn";
+import { Tender } from "./Tender";
 import { cents, shillings, total, type Basket } from "./money";
 import { call, forget, load, readError, type TillSession } from "./session";
 import styles from "./till.module.css";
@@ -57,6 +60,7 @@ type Shift = {
   operator: number;
   status: string;
   opened_at: string;
+  note?: string;
 };
 
 type Sale = {
@@ -168,12 +172,7 @@ function Shifted({
 
   if (shift) {
     return (
-      <Selling
-        session={session}
-        shift={shift}
-        onSignOut={onSignOut}
-        onShiftEnded={() => setShift(null)}
-      />
+      <Selling session={session} shift={shift} onSignOut={onSignOut} />
     );
   }
 
@@ -252,12 +251,10 @@ function Selling({
   session,
   shift,
   onSignOut,
-  onShiftEnded,
 }: {
   session: TillSession;
   shift: Shift;
   onSignOut: () => void;
-  onShiftEnded: () => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [rules, setRules] = useState<Map<number, TaxRule>>(new Map());
@@ -266,6 +263,8 @@ function Selling({
   const [method, setMethod] = useState("cash");
   const [tendered, setTendered] = useState("");
   const [sale, setSale] = useState<Sale | null>(null);
+  const [tool, setTool] = useState<"calculator" | "note" | null>(null);
+  const [note, setNote] = useState(shift.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -368,7 +367,6 @@ function Selling({
   }
 
   const sums = total(basket);
-  const change = cents(tendered || "0") - sums.total;
 
   async function checkout() {
     if (basket.length === 0) return;
@@ -413,25 +411,17 @@ function Selling({
     }
   }
 
-  async function closeShift() {
-    setBusy(true);
-    try {
-      await call(`/brn/register-shifts/${shift.id}/`, {
-        method: "PATCH",
-        body: { status: "CLOSED", closing_cash: tendered || "0" },
-      });
-      onShiftEnded();
-    } catch (caught) {
-      setError(
-        readError(
-          caught,
-          "Only a manager can close a till. Ask them to reconcile the drawer.",
-        ),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  /*
+   * ── THERE IS NO "CLOSE TILL" BUTTON, AND THERE SHOULD NOT BE ────────────
+   *
+   * There was one. It PATCHed the shift's status, which the server no longer
+   * accepts from anybody — a shift ends by being counted, and SHIFT_CLOSE is
+   * a manager's permission. So the button offered a cashier something that
+   * would always be refused, and its error message said so after the fact.
+   *
+   * What a cashier needs at the end of a shift is to have written the note
+   * and to fetch their manager. Both are in the bar.
+   */
 
   return (
     <div className={styles.till}>
@@ -448,21 +438,49 @@ function Selling({
         </div>
         <div className={styles.barRight}>
           <span className={styles.barWho}>{session.staff.name}</span>
-          <button className={styles.barQuiet} onClick={() => void refresh()}>
-            Refresh prices
+
+          {/*
+            ── THE TOOLS A COUNTER ALREADY HAS, BROUGHT INSIDE ──────────────
+            A cashier reaching for their phone to split a bill has stopped
+            serving and taken their eyes off the drawer. Both of these sit in
+            the bar rather than the sale flow: they are needed occasionally
+            and must never be in the way of the next customer.
+          */}
+          <button
+            className={styles.barQuiet}
+            onClick={() => setTool(tool === "calculator" ? null : "calculator")}
+            aria-expanded={tool === "calculator"}
+          >
+            Calculator
           </button>
           <button
             className={styles.barQuiet}
-            onClick={() => void closeShift()}
-            disabled={busy}
+            onClick={() => setTool(tool === "note" ? null : "note")}
+            aria-expanded={tool === "note"}
           >
-            Close till
+            {note.trim() ? "Note ✓" : "Note"}
+          </button>
+
+          <button className={styles.barQuiet} onClick={() => void refresh()}>
+            Refresh prices
           </button>
           <button className={styles.barQuiet} onClick={onSignOut}>
             Sign out
           </button>
         </div>
       </header>
+
+      {tool === "calculator" ? (
+        <Calculator onClose={() => setTool(null)} />
+      ) : null}
+      {tool === "note" ? (
+        <ShiftNote
+          shiftId={shift.id}
+          note={note}
+          onSaved={setNote}
+          onClose={() => setTool(null)}
+        />
+      ) : null}
 
       <div className={styles.floor}>
         <section className={styles.picker}>
@@ -592,24 +610,18 @@ function Selling({
                 ))}
               </div>
 
+              {/*
+                Only cash needs a tendered figure. M-Pesa and card arrive for
+                the exact amount, and asking "how much did they give you" for
+                a card payment is a question with no meaning that somebody
+                would eventually answer wrongly.
+              */}
               {method === "cash" ? (
-                <div className={styles.tender}>
-                  <label htmlFor="tendered">Cash given</label>
-                  <input
-                    id="tendered"
-                    className={styles.mono}
-                    inputMode="decimal"
-                    value={tendered}
-                    onChange={(e) => setTendered(e.target.value)}
-                  />
-                  <div className={styles.change}>
-                    {tendered && change >= 0
-                      ? `Change ${shillings(change)}`
-                      : tendered
-                        ? `Short by ${shillings(-change)}`
-                        : ""}
-                  </div>
-                </div>
+                <Tender
+                  totalCents={sums.total}
+                  tendered={tendered}
+                  onChange={setTendered}
+                />
               ) : null}
 
               <button

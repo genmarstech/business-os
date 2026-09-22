@@ -80,6 +80,10 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
         # cashier holding the notes is usually the one counting.
         "drawer": access.SALES_VIEW,
         "close": access.SHIFT_CLOSE,
+        # The person ON the till writes this, and they hold SHIFT_OPEN rather
+        # than SHIFT_CLOSE — a note only a manager could write would be a note
+        # about the shift rather than from it.
+        "note": access.SHIFT_OPEN,
     }
     queryset = RegisterShift.objects.select_related('register__branch').all()
     serializer_class = RegisterShiftSerializer
@@ -95,6 +99,39 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
         """
         shift = self.get_object()
         return Response(_money(services.drawer(shift)))
+
+    @action(detail=True, methods=["post"])
+    def note(self, request, pk=None):
+        """
+        What the person on the till wants the manager to know.
+
+        ══════════════════════════════════════════════════════════════════════
+        IT IS WRITTEN BEFORE ANYBODY COUNTS, AND FROZEN WHEN THEY DO.
+
+        A drawer twenty short with "took 20 for a customer who had no change,
+        put a chit in" is an ordinary evening. The same drawer twenty short in
+        silence is a conversation. The note is only worth that much if it was
+        written before its author knew the number — so once the shift is
+        closed and the variance exists, this refuses.
+
+        That is also why it is not part of `close`: the manager counting is not
+        the person with something to explain.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        shift = self.get_object()
+
+        if shift.status == "CLOSED":
+            return Response(
+                {
+                    "detail": "That till is closed. Its note is what was "
+                              "written before it was counted."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shift.note = str(request.data.get("note", "")).strip()[:2000]
+        shift.save(update_fields=["note"])
+        return Response(self.get_serializer(shift).data)
 
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):

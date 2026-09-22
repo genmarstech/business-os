@@ -306,3 +306,118 @@ class WhoMayCloseTests(TestCase):
             **self.till(),
         )
         self.assertEqual(response.status_code, 200, response.content)
+
+
+class ShiftNoteTests(TestCase):
+    """
+    The note is only worth anything if it was written before its author knew
+    the number. A cashier who can explain a shortage after seeing it is not
+    explaining, they are accounting for it.
+    """
+
+    def setUp(self):
+        self.org = BusinessOrganization.objects.create(name="Shop A")
+        self.branch = Branches.objects.create(
+            organization=self.org, branch_name="Westlands",
+            branch_location="Nairobi", branch_allocation="Ground floor",
+            branch_manager="A Manager", is_active=True,
+        )
+        self.jane = OrganizationStaff.objects.create(
+            organization=self.org, full_name="Jane", email="j@a.co.ke",
+            phone_number="+254700000009", address="Nairobi", id_number=8009,
+        )
+        staffAssignment.objects.create(
+            staff_member=self.jane, branch=self.branch, staff_assignment="CA"
+        )
+        credential = identity_services.issue_credential(
+            staff=self.jane, username="jane", password="not-a-real-password"
+        )
+        _, self.token = identity_services.open_staff_session(credential)
+        self.register = Register.objects.create(
+            branch=self.branch, name="Till 1", register_number="T1"
+        )
+        self.shift = RegisterShift.objects.create(
+            register=self.register, operator=self.jane,
+            opening_cash=Decimal("1000.00"),
+        )
+
+        self.owner = PlatformAccount.objects.create(
+            genmars_account_id=8300, email="owner@a.co.ke"
+        )
+        TenantMembership.objects.create(
+            account=self.owner, organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+
+    def till(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def as_owner(self):
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.owner.pk
+        session.save()
+
+    def test_the_cashier_writes_it(self):
+        """SHIFT_OPEN, not SHIFT_CLOSE — it is a note FROM the shift."""
+        response = self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/note/",
+            {"note": "Took 20 for a customer with no change, chit in drawer."},
+            content_type="application/json",
+            **self.till(),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.shift.refresh_from_db()
+        self.assertIn("chit in drawer", self.shift.note)
+
+    def test_it_freezes_when_the_till_is_closed(self):
+        self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/note/",
+            {"note": "before"}, content_type="application/json", **self.till(),
+        )
+        self.as_owner()
+        self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/close/",
+            {"counted_cash": "980.00"}, content_type="application/json",
+        )
+
+        after = self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/note/",
+            {"note": "I know why it is 20 short now"},
+            content_type="application/json",
+            **self.till(),
+        )
+        self.assertEqual(after.status_code, 400, after.content)
+
+        self.shift.refresh_from_db()
+        self.assertEqual(self.shift.note, "before", "what was said beforehand")
+
+    def test_a_patch_cannot_write_it_either(self):
+        """
+        Writable on the serialiser, a PATCH would route straight around the
+        closed-shift rule above.
+        """
+        self.as_owner()
+        self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/close/",
+            {"counted_cash": "980.00"}, content_type="application/json",
+        )
+        self.client.patch(
+            f"/brn/register-shifts/{self.shift.pk}/",
+            {"note": "added after the count"},
+            content_type="application/json",
+        )
+        self.shift.refresh_from_db()
+        self.assertEqual(self.shift.note, "")
+
+    def test_the_manager_sees_it_on_the_shift(self):
+        self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/note/",
+            {"note": "Till jammed at 3pm"},
+            content_type="application/json",
+            **self.till(),
+        )
+        self.as_owner()
+        body = self.client.get(
+            f"/brn/register-shifts/{self.shift.pk}/"
+        ).json()
+        self.assertEqual(body["note"], "Till jammed at 3pm")

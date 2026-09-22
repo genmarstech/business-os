@@ -87,6 +87,16 @@ class RegisterShift(models.Model):
 
     status = models.CharField(max_length=20, choices=[('OPEN', 'open'), ('CLOSED', 'closed')], default='OPEN')
 
+    note = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "What the person on the till wants the manager to know: a float "
+            "taken for change, a jam, a customer coming back. Written during "
+            "the shift and frozen when it closes."
+        ),
+    )
+
     def __str__(self):
         return f"{self.register} and {self.operator}"
 
