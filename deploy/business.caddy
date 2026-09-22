@@ -166,7 +166,18 @@ business.genmars.co.ke {
 	#
 	#   Both flip together: REPORT_ONLY in middleware.ts, and the header name
 	#   here.
-	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /static/*
+	# ⚠ THIS LIST IS @api's PLUS /static/*, AND THE DIFFERENCE IS DELIBERATE.
+	#
+	# @api is what gets PROXIED to Django. /static/* is absent from it because
+	# handle_path serves those off disk further up and they never reach the
+	# proxy — but they are still Django's assets and still want the policy.
+	#
+	# /healthz was missing from here on the first pass, which left one path on
+	# the host with no CSP at all. It carries no markup so nothing was at risk,
+	# but a policy with a hole in it invites the next reader to wonder which
+	# other paths were forgotten. Keep the two lists diffable: this one is that
+	# one, plus /static/*.
+	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /healthz /static/*
 	header @django Content-Security-Policy-Report-Only "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
 
 	# ── LOGGING ──────────────────────────────────────────────────────────────
