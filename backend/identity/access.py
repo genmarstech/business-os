@@ -99,6 +99,18 @@ STAFF_MANAGE = "staff.manage"
 # Neither is retroactive: TaxRule.rate is copied onto every SaleItem at the
 # moment of sale, so changing a rate cannot rewrite what was already charged.
 # That is what makes granting the first one safe.
+# ── WHO ELSE MAY ADMINISTER THE BUSINESS ────────────────────────────────────
+#
+# Inviting a subscriber hands somebody organisation-wide authority over another
+# company's money. It is deliberately NOT folded into STAFF_MANAGE, which is
+# about who may work a till, nor into SETTINGS_ORGANISATION, which is about the
+# organisation's own registered identity. Those are different questions and a
+# role can reasonably hold one without the other.
+#
+# Owner only, for the reason _ADMIN already gives: the permission that grants
+# every other permission is the narrow one.
+MEMBERS_MANAGE = "members.manage"
+
 SETTINGS_TAX = "settings.tax"
 SETTINGS_ORGANISATION = "settings.organisation"
 
@@ -110,7 +122,7 @@ KNOWN = frozenset(
         CATALOG_VIEW, CATALOG_MANAGE,
         CUSTOMER_VIEW, CUSTOMER_MANAGE,
         REPORTS_BRANCH, REPORTS_ORGANISATION,
-        BRANCH_MANAGE, REGISTER_MANAGE, STAFF_MANAGE,
+        BRANCH_MANAGE, REGISTER_MANAGE, STAFF_MANAGE, MEMBERS_MANAGE,
         SETTINGS_TAX, SETTINGS_ORGANISATION,
     }
 )
@@ -129,6 +141,7 @@ _ADMIN = KNOWN - {
     # instinct as gen-portal reserving `can_manage_access` to a founder — the
     # permission that grants every other permission is the narrow one.
     STAFF_MANAGE,
+    MEMBERS_MANAGE,
     SETTINGS_ORGANISATION,
 }
 

@@ -52,6 +52,14 @@ LOCKOUT_DURATION = timedelta(minutes=15)
 # door in the morning.
 STAFF_SESSION_LIFETIME = timedelta(hours=14)
 
+# ── HOW LONG AN UNCLAIMED INVITATION STAYS CLAIMABLE ────────────────────────
+#
+# Long enough that somebody on leave still finds it, short enough that one
+# sent to a departing bookkeeper and forgotten does not admit them months
+# later. Two weeks is the same instinct as a short session: the window is the
+# protection, and there is no revocation feed to fall back on.
+INVITATION_LIFETIME = timedelta(days=14)
+
 # Shown for every failed staff sign-in, whatever actually went wrong. A message
 # that distinguishes "no such user" from "wrong password" tells somebody
 # standing at a till which usernames exist in this shop.
@@ -161,6 +169,102 @@ class TenantMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.account.email} — {self.organization.name} ({self.role})"
+
+
+class TenantInvitation(models.Model):
+    """
+    An offer of authority in somebody else's business, waiting to be claimed.
+
+    ══════════════════════════════════════════════════════════════════════════
+    IT IS BOUND TO AN ADDRESS GENMARS HAS VERIFIED, NOT TO A LINK.
+
+    The obvious design is a link with a token in it. That makes the invitation
+    a bearer credential: whoever holds the URL becomes an administrator of a
+    shop, and a forwarded email or a shared screen is enough. This is instead
+    matched on the email address in the SIGN-ON TOKEN, which gen-portal only
+    issues for a verified address — services.accept_genmars_account refuses an
+    unverified one outright.
+
+    So the invitation cannot be redeemed by anyone except the person who can
+    read that mailbox AND holds the Genmars password for it. There is nothing
+    to leak, and nothing to send but the news that it is waiting.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── IT EXPIRES, BECAUSE AN OFFER NOBODY TOOK IS A DOOR NOBODY WATCHES ─────
+
+    An invitation sent to a departing bookkeeper and forgotten would otherwise
+    sit open for ever, and be claimed the day that person next signs in to
+    anything. Claiming is also single-use: `accepted_at` closes it.
+    """
+
+    organization = models.ForeignKey(
+        BusinessOrganization, on_delete=models.CASCADE, related_name="invitations"
+    )
+    email = models.EmailField(
+        help_text="Matched against the verified address on a sign-on token."
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=TenantMembership.Role.choices,
+        default=TenantMembership.Role.ADMIN,
+    )
+
+    invited_by = models.ForeignKey(
+        PlatformAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invitations_written",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        PlatformAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invitations_accepted",
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # One LIVE invitation per address per business. Without the
+            # condition this would also block re-inviting somebody whose
+            # earlier invitation was revoked or has already been accepted and
+            # then withdrawn, which is an ordinary thing to want.
+            models.UniqueConstraint(
+                fields=["organization", "email"],
+                condition=models.Q(accepted_at__isnull=True, revoked_at__isnull=True),
+                name="one_open_invitation_per_email_per_organisation",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} → {self.organization.name} ({self.role})"
+
+    @property
+    def is_open(self) -> bool:
+        """Still claimable: not taken, not withdrawn, not stale."""
+        return (
+            self.accepted_at is None
+            and self.revoked_at is None
+            and self.expires_at > timezone.now()
+        )
+
+    @property
+    def state(self) -> str:
+        """What a screen should call it. One place, so two screens agree."""
+        if self.accepted_at is not None:
+            return "accepted"
+        if self.revoked_at is not None:
+            return "withdrawn"
+        if self.expires_at <= timezone.now():
+            return "expired"
+        return "waiting"
 
 
 class StaffCredential(models.Model):

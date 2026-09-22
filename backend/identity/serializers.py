@@ -18,7 +18,7 @@ from rest_framework import serializers
 
 from organisations.models import OrganizationStaff
 
-from .models import StaffCredential
+from .models import StaffCredential, TenantInvitation, TenantMembership
 
 
 class StaffCredentialSerializer(serializers.ModelSerializer):
@@ -103,3 +103,78 @@ class ChangeOwnPasswordSerializer(serializers.Serializer):
 
     current_password = serializers.CharField(trim_whitespace=False)
     new_password = serializers.CharField(trim_whitespace=False)
+
+
+class TenantInvitationSerializer(serializers.ModelSerializer):
+    """
+    An offer of authority, as a screen sees it.
+
+    `organization` is absent on write for the same reason it is absent on a
+    credential: blueprint §8. It is taken from the caller's own tenant in the
+    view, never from the request — a caller who could name it could invite
+    themselves into somebody else's business.
+    """
+
+    state = serializers.CharField(read_only=True)
+    role_label = serializers.CharField(source="get_role_display", read_only=True)
+    invited_by_email = serializers.CharField(
+        source="invited_by.email", read_only=True, default=""
+    )
+
+    class Meta:
+        model = TenantInvitation
+        fields = [
+            "id",
+            "email",
+            "role",
+            "role_label",
+            "state",
+            "invited_by_email",
+            "created_at",
+            "expires_at",
+            "accepted_at",
+            "revoked_at",
+        ]
+        read_only_fields = [
+            "id",
+            "role_label",
+            "state",
+            "invited_by_email",
+            "created_at",
+            # Every one of these is the service's to write. An expiry a client
+            # could set is an invitation that never expires.
+            "expires_at",
+            "accepted_at",
+            "revoked_at",
+        ]
+
+
+class TenantMembershipSerializer(serializers.ModelSerializer):
+    """
+    Who is already in the business, and with what authority.
+
+    ⚠ NOTHING HERE IS WRITABLE. A role is changed through the viewset's
+      `set-role` action and a person is removed through `remove`, both of
+      which refuse to leave an organisation without an owner. A PATCH that
+      could set `role` directly would route around that check.
+    """
+
+    email = serializers.CharField(source="account.email", read_only=True)
+    full_name = serializers.CharField(source="account.full_name", read_only=True)
+    role_label = serializers.CharField(source="get_role_display", read_only=True)
+    invited_by_email = serializers.CharField(
+        source="invited_by.email", read_only=True, default=""
+    )
+
+    class Meta:
+        model = TenantMembership
+        fields = [
+            "id",
+            "email",
+            "full_name",
+            "role",
+            "role_label",
+            "invited_by_email",
+            "created_at",
+        ]
+        read_only_fields = fields

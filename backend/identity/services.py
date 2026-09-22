@@ -18,10 +18,12 @@ from django.utils import timezone
 
 from .models import (
     GENERIC_SIGN_IN_FAILURE,
+    INVITATION_LIFETIME,
     STAFF_SESSION_LIFETIME,
     PlatformAccount,
     StaffCredential,
     StaffSession,
+    TenantInvitation,
     TenantMembership,
 )
 
@@ -86,6 +88,132 @@ def accept_genmars_account(payload: dict) -> PlatformAccount:
         raise AuthError("account_blocked", _SIGN_ON_FAILED)
 
     return account
+
+
+# ── inviting a second subscriber ─────────────────────────────────────────────
+#
+# Until this existed, `create_tenant` was the ONLY way a TenantMembership was
+# ever written, and it always granted OWNER. So the admin and accountant roles
+# were defined, reasoned about in identity/access.py, and impossible to give to
+# anybody: every subscriber was the sole owner of an organisation they had made
+# themselves. A shop could not admit its own bookkeeper.
+
+
+class InvitationError(Exception):
+    """
+    A refusal an OWNER is expected to read and act on.
+
+    Not AuthError. AuthError says the same thing whatever went wrong because
+    the reader may be probing; the reader here is somebody administering their
+    own business, and telling them exactly what is wrong with what they typed
+    reveals nothing they do not already know.
+    """
+
+
+@transaction.atomic
+def invite_subscriber(*, organization, email: str, role: str, invited_by=None):
+    """
+    Offer somebody authority in this organisation.
+
+    ⚠ NOTHING IS GRANTED HERE. This writes an offer; the membership appears
+      only when that person signs on with the matching verified address — see
+      `claim_invitations`. An invitation that granted immediately would be a
+      way to attach yourself to somebody's account by typing their email.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        raise InvitationError("Which email address should we invite?")
+
+    if role not in TenantMembership.Role.values:
+        raise InvitationError("That is not a role.")
+
+    already = TenantMembership.objects.filter(
+        organization=organization, account__email__iexact=email
+    ).exists()
+    if already:
+        raise InvitationError(f"{email} is already part of this business.")
+
+    open_invite = TenantInvitation.objects.filter(
+        organization=organization,
+        email__iexact=email,
+        accepted_at__isnull=True,
+        revoked_at__isnull=True,
+    ).first()
+    if open_invite and open_invite.is_open:
+        raise InvitationError(f"{email} has already been invited.")
+    if open_invite:
+        # Expired but still occupying the uniqueness slot. Withdrawing it is
+        # what lets the owner re-invite somebody whose offer went stale, which
+        # is the ordinary case rather than an edge one.
+        open_invite.revoked_at = timezone.now()
+        open_invite.save(update_fields=["revoked_at"])
+
+    return TenantInvitation.objects.create(
+        organization=organization,
+        email=email,
+        role=role,
+        invited_by=invited_by,
+        expires_at=timezone.now() + INVITATION_LIFETIME,
+    )
+
+
+@transaction.atomic
+def revoke_invitation(*, invitation):
+    """Withdraw an offer before it is taken."""
+    if invitation.accepted_at is not None:
+        raise InvitationError(
+            "That invitation was already accepted. Remove the person instead."
+        )
+    if invitation.revoked_at is None:
+        invitation.revoked_at = timezone.now()
+        invitation.save(update_fields=["revoked_at"])
+    return invitation
+
+
+@transaction.atomic
+def claim_invitations(account: PlatformAccount) -> list[TenantMembership]:
+    """
+    Turn every open invitation for this account's address into a membership.
+
+    ══════════════════════════════════════════════════════════════════════════
+    CALLED ON EVERY SIGN-ON, AND THAT IS WHAT MAKES THE INVITE WORK AT ALL.
+
+    There is no link to click. The owner types an address; the next time the
+    person behind that address completes the Genmars handoff, they are in.
+
+    The address comes from `accept_genmars_account`, which has already refused
+    the token if Genmars had not verified it. Matching on an address nobody
+    proved they could read would let anyone join a shop by claiming its
+    bookkeeper's email.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+    if account.is_blocked or not account.email:
+        return []
+
+    open_invitations = TenantInvitation.objects.select_for_update().filter(
+        email__iexact=account.email.strip(),
+        accepted_at__isnull=True,
+        revoked_at__isnull=True,
+        expires_at__gt=timezone.now(),
+    )
+
+    granted = []
+    for invitation in open_invitations:
+        membership, created = TenantMembership.objects.get_or_create(
+            account=account,
+            organization=invitation.organization,
+            defaults={"role": invitation.role, "invited_by": invitation.invited_by},
+        )
+        # Closed either way. An invitation to somebody who already had a
+        # membership must not stay open — it would re-fire on every sign-in
+        # and silently restore a role that was deliberately changed.
+        invitation.accepted_at = timezone.now()
+        invitation.accepted_by = account
+        invitation.save(update_fields=["accepted_at", "accepted_by"])
+        if created:
+            granted.append(membership)
+
+    return granted
 
 
 def tenants_for(account: PlatformAccount):

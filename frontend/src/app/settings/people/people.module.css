@@ -1,0 +1,343 @@
+/*
+ * Staff.
+ *
+ * Every colour here is a semantic token, never a brand constant — see the
+ * theme guard note in globals.css. A brand constant as a background beside
+ * semantic ink is the light-band-with-light-text bug this company has
+ * already shipped once.
+ */
+
+.page {
+  max-width: 62rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 26px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.back {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-firm);
+}
+
+.back:hover {
+  color: var(--accent-text);
+}
+
+.title {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 62ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.panelForm {
+  margin-top: 4px;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 64ch;
+}
+
+.saved {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+/* ── the table ──────────────────────────────────────────────────────────── */
+
+/*
+ * Its own scroll container. A staff list is the widest thing on this screen
+ * and the page body must never scroll sideways.
+ */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  margin-top: 14px;
+  display: block;
+  overflow-x: auto;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 13px 14px 13px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.right {
+  text-align: right;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/*
+ * Amber, not red. "No sign-in yet" is an unfinished setup step, not a fault —
+ * and a screen that shouts at a manager on the day they add somebody teaches
+ * them to ignore it by the day it matters.
+ */
+.warn {
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
+.tight {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tight li + li {
+  margin-top: 3px;
+}
+
+/* ── assignments ────────────────────────────────────────────────────────── */
+
+.cards {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+.roleKey {
+  list-style: none;
+  margin: 2px 0 16px;
+  padding: 12px 14px;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  display: grid;
+  gap: 4px;
+}
+
+.roleKey strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.quiet {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  cursor: pointer;
+}
+
+.quiet:hover {
+  color: var(--ink);
+}
+
+.divide {
+  height: 1px;
+  background: var(--line);
+  margin: 22px 0;
+}
+
+.note {
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  padding: 13px 15px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.note strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tbody tr {
+    border-bottom: 1px solid var(--line);
+    padding: 12px 0;
+  }
+
+  .table tbody td {
+    border-bottom: 0;
+    padding: 2px 0;
+  }
+
+  .right {
+    text-align: left;
+    margin-top: 8px;
+  }
+}
+
+/* ── people-specific ────────────────────────────────────────────────────── */
+
+.scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.form {
+  margin-top: 6px;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.roleSelect {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* Removing somebody from a business is not an ordinary row action. */
+.danger {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--danger);
+  cursor: pointer;
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.danger:hover {
+  color: var(--ink);
+}
+
+.quietLink {
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.you {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--sunken);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}

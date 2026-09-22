@@ -13,6 +13,11 @@ router = DefaultRouter()
 router.register(
     r"staff/credentials", views.StaffCredentialViewSet, basename="staff-credential"
 )
+# Who may administer the business, as opposed to who may work a till. Both
+# live under /auth/ because both are questions about authority rather than
+# about the shop's own records.
+router.register(r"invitations", views.TenantInvitationViewSet, basename="invitation")
+router.register(r"members", views.TenantMembershipViewSet, basename="member")
 
 urlpatterns = [
     # Subscriber — the Genmars handoff. `callback` must match the redirect_uri

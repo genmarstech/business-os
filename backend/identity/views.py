@@ -20,13 +20,15 @@ from rest_framework.views import APIView
 
 from . import access, services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
-from .models import PlatformAccount, StaffCredential
+from .models import PlatformAccount, StaffCredential, TenantInvitation, TenantMembership
 from .permissions import IsKnownPrincipal, tenant_scope
 from .scoping import TenantScoped
 from .serializers import (
     ChangeOwnPasswordSerializer,
     PasswordSerializer,
     StaffCredentialSerializer,
+    TenantInvitationSerializer,
+    TenantMembershipSerializer,
 )
 
 
@@ -139,6 +141,19 @@ class SignOnCallbackView(APIView):
 
             payload = signon.exchange_code(code)
             account = services.accept_genmars_account(payload)
+
+            # ── AN INVITATION BECOMES A MEMBERSHIP HERE, AND ONLY HERE ─────
+            #
+            # There is no link to click: an owner types an address, and the
+            # next time that person completes the handoff they are admitted.
+            # This is the moment their address has just been proved — the
+            # token carried it and accept_genmars_account refused it unless
+            # Genmars had verified it.
+            #
+            # Before this call existed, `create_tenant` was the only writer of
+            # a TenantMembership and it always granted OWNER, so the admin and
+            # accountant roles could not be given to anybody at all.
+            services.claim_invitations(account)
         except (signon.SignOnError, services.AuthError) as error:
             return Response(
                 {"detail": getattr(error, "safe_message", signon.SIGN_ON_FAILED)},
@@ -533,3 +548,179 @@ class ChangeOwnPasswordView(APIView):
             )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TenantInvitationViewSet(TenantScoped, viewsets.ModelViewSet):
+    """
+    Offering somebody authority in this business.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE ORGANISATION IS NEVER TAKEN FROM THE REQUEST.
+
+    Blueprint §8. A caller who could name it could invite themselves into
+    somebody else's shop as its owner — the single worst write this API could
+    accept. It comes from the caller's own membership, below, and the
+    serialiser does not carry the field at all.
+    ══════════════════════════════════════════════════════════════════════════
+
+    Owner only. MEMBERS_MANAGE is held by nobody else, for the reason _ADMIN
+    already gives: the permission that grants every other permission is the
+    narrow one.
+    """
+
+    tenant_path = "organization_id"
+    branch_path = None
+    default_permission = access.MEMBERS_MANAGE
+    permissions = {"revoke": access.MEMBERS_MANAGE}
+    queryset = TenantInvitation.objects.select_related("organization", "invited_by")
+    serializer_class = TenantInvitationSerializer
+    # No destroy: an invitation that was accepted is a record of how somebody
+    # got in. Withdrawing one is `revoke`, which leaves the row.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        organisation = _sole_tenant(request)
+        if organisation is None:
+            return Response(
+                {"detail": "Only a business you own can invite anybody."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            invitation = services.invite_subscriber(
+                organization=organisation,
+                email=serializer.validated_data["email"],
+                role=serializer.validated_data.get(
+                    "role", TenantMembership.Role.ADMIN
+                ),
+                invited_by=request.user if isinstance(request.user, PlatformAccount) else None,
+            )
+        except services.InvitationError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            self.get_serializer(invitation).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"])
+    def revoke(self, request, pk=None):
+        """Withdraw an offer before somebody takes it."""
+        invitation = self.get_object()
+        try:
+            services.revoke_invitation(invitation=invitation)
+        except services.InvitationError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(invitation).data)
+
+
+class TenantMembershipViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
+    """
+    Who is in this business already.
+
+    ══════════════════════════════════════════════════════════════════════════
+    AN ORGANISATION MUST NEVER BE LEFT WITHOUT AN OWNER.
+
+    Both writes here refuse the last one. An organisation whose only owner has
+    been demoted or removed is not "an organisation with no owner" — it is a
+    business nobody can administer, invite into, or recover, reachable only
+    from the Django admin. There is no support desk that can undo it because
+    the authority to undo it is the thing that was removed.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    tenant_path = "organization_id"
+    branch_path = None
+    default_permission = access.MEMBERS_MANAGE
+    permissions = {
+        # Anybody in the business may see who else is in it. Hiding that from
+        # an accountant would mean they cannot tell who to ask about anything.
+        "list": access.REPORTS_ORGANISATION,
+        "retrieve": access.REPORTS_ORGANISATION,
+        "set_role": access.MEMBERS_MANAGE,
+        "remove": access.MEMBERS_MANAGE,
+    }
+    queryset = TenantMembership.objects.select_related(
+        "account", "organization", "invited_by"
+    )
+    serializer_class = TenantMembershipSerializer
+
+    def _would_orphan(self, membership) -> bool:
+        """Is this the last owner standing?"""
+        if membership.role != TenantMembership.Role.OWNER:
+            return False
+        others = (
+            TenantMembership.objects.filter(
+                organization_id=membership.organization_id,
+                role=TenantMembership.Role.OWNER,
+            )
+            .exclude(pk=membership.pk)
+            .exists()
+        )
+        return not others
+
+    @action(detail=True, methods=["post"], url_path="set-role")
+    def set_role(self, request, pk=None):
+        membership = self.get_object()
+        role = str(request.data.get("role", "")).strip()
+
+        if role not in TenantMembership.Role.values:
+            return Response(
+                {"role": "That is not a role."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if role != TenantMembership.Role.OWNER and self._would_orphan(membership):
+            return Response(
+                {
+                    "detail": "That is the only owner. Make somebody else an "
+                              "owner first, or the business would be left with "
+                              "nobody who can administer it."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership.role = role
+        membership.save(update_fields=["role"])
+        return Response(self.get_serializer(membership).data)
+
+    @action(detail=True, methods=["post"])
+    def remove(self, request, pk=None):
+        """
+        Take somebody out of the business.
+
+        Their Genmars account is untouched — it is not ours to disable, and
+        they may well administer another shop with it.
+        """
+        membership = self.get_object()
+
+        if self._would_orphan(membership):
+            return Response(
+                {
+                    "detail": "That is the only owner. A business cannot be "
+                              "left with nobody who can administer it."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _sole_tenant(request):
+    """
+    The organisation the caller is acting in.
+
+    A subscriber may own more than one, and this application has no tenant
+    switcher yet — every other screen takes `organisations[0]` the same way.
+    When a switcher lands, this is the one place that has to learn about it.
+    """
+    from .permissions import tenant_scope
+
+    scope = tenant_scope(request.user)
+    if len(scope) != 1:
+        return None
+    from organisations.models import BusinessOrganization
+
+    return BusinessOrganization.objects.filter(pk=list(scope)[0]).first()

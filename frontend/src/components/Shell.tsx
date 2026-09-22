@@ -55,6 +55,14 @@ const GROUPS: Group[] = [
       },
       { href: "/branches", label: "Branches", permission: PERM.branchManage },
       { href: "/staff", label: "Staff", permission: PERM.staffManage },
+      /*
+        Two different lists of people, deliberately two items. "Staff" is who
+        works a till; "People" is who administers the business. They are
+        separate credential stores that never cross — CLAUDE.md, the two-tier
+        rule — and one combined item would imply a cashier could be promoted
+        into an administrator.
+      */
+      { href: "/settings/people", label: "People", permission: PERM.reportsOrganisation },
       { href: "/settings/tax", label: "Tax", permission: PERM.settingsTax },
       {
         href: "/settings/business",

@@ -136,6 +136,7 @@ export const PERM = {
   branchManage: "branch.manage",
   registerManage: "register.manage",
   staffManage: "staff.manage",
+  membersManage: "members.manage",
   settingsTax: "settings.tax",
   settingsOrganisation: "settings.organisation",
 } as const;
