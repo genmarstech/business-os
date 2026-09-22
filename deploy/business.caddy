@@ -142,14 +142,32 @@ business.genmars.co.ke {
 
 	# ── Content-Security-Policy ──────────────────────────────────────────────
 	#
-	# Deliberately absent until there is a frontend to test it against. This is
-	# an API today; a CSP written now would be guesswork about markup that does
-	# not exist, and the failure mode of a wrong CSP is a blank screen nobody
-	# notices until somebody opens the page that uses the blocked thing.
+	# This used to say "deliberately absent until there is a frontend to test
+	# it against". There is one now, and the policy is in TWO PLACES because
+	# this host serves two applications with genuinely different markup.
 	#
-	# When the dashboard lands: ship it Report-Only first, walk every screen
-	# with the console open, then rename the header. ops.caddy has the same
-	# note and the same reasoning.
+	#   Django  (/auth /org /brn /ctl /invt /sls /admin /static)  → below
+	#   Next    (everything else)                                 → the app
+	#
+	# Next renders its flight data into inline <script> blocks whose contents
+	# change on every render, so no hash can pin them. That needs a per-request
+	# nonce, and only the thing rendering the HTML can mint one — hence
+	# frontend/src/middleware.ts. Caddy cannot do it and must not pretend to.
+	#
+	# Django's side needs no nonce at all. Its three templates carry no inline
+	# script and no inline style — identity/tests pins that, and the note in
+	# base.html explains that the stylesheet is a file precisely so this policy
+	# could exist. So this half is stricter than the application's.
+	#
+	# ⚠ REPORT-ONLY WHILE THE APPLICATION'S HALF IS. Shipping one enforcing and
+	#   one reporting would mean a violation on /admin is fatal while the same
+	#   violation three paths away is a console line — and whoever reads the
+	#   console would have no way to tell which regime they were in.
+	#
+	#   Both flip together: REPORT_ONLY in middleware.ts, and the header name
+	#   here.
+	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /static/*
+	header @django Content-Security-Policy-Report-Only "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
 
 	# ── LOGGING ──────────────────────────────────────────────────────────────
 	# Intentionally absent, like every other site on this host. A

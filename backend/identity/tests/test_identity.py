@@ -546,6 +546,18 @@ class BrowserFacingPageTests(TestCase):
             body = page.content.decode()
             self.assertNotIn("<style", body)
             self.assertNotIn('style="', body)
+
+            # ── AND NO INLINE SCRIPT, FOR THE SAME REASON ──────────────────
+            #
+            # deploy/business.caddy now ships a Content-Security-Policy for
+            # these paths with neither 'unsafe-inline' nor a nonce, because
+            # this markup needs neither. The Next application next door pays
+            # for a per-request nonce precisely because ITS markup does.
+            #
+            # One inline <script> here and that policy stops being satisfiable
+            # without weakening it — so the property is pinned rather than
+            # assumed, on the only three pages Django renders.
+            self.assertNotIn("<script", body)
             # Positive control: the stylesheet it uses instead must be linked,
             # or "no inline style" is satisfied by a page with no styling.
             self.assertIn("identity/site.css", body)

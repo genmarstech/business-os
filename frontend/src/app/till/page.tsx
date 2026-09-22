@@ -18,7 +18,22 @@ import { Till } from "./Till";
  * ══════════════════════════════════════════════════════════════════════════
  */
 
-export const dynamic = "force-static";
+/*
+ * ── DYNAMIC SO IT CAN CARRY A CSP NONCE ────────────────────────────────────
+ *
+ * This was `force-static`: the till holds its own session and fetches
+ * everything client-side, so there was nothing per-request to render and
+ * prerendering it once was free.
+ *
+ * A prerendered page is built once and served to everybody, which means it
+ * cannot carry a per-request nonce — and Next's inline bootstrap scripts
+ * would then be blocked by the policy in src/middleware.ts. The alternative
+ * was 'unsafe-inline' for the whole application to spare one page a render.
+ *
+ * The cost is one server render per load of a page somebody opens at the
+ * start of a shift.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Till" };
 
