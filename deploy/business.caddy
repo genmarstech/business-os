@@ -159,13 +159,14 @@ business.genmars.co.ke {
 	# base.html explains that the stylesheet is a file precisely so this policy
 	# could exist. So this half is stricter than the application's.
 	#
-	# ⚠ REPORT-ONLY WHILE THE APPLICATION'S HALF IS. Shipping one enforcing and
-	#   one reporting would mean a violation on /admin is fatal while the same
-	#   violation three paths away is a console line — and whoever reads the
-	#   console would have no way to tell which regime they were in.
+	# ⚠ ENFORCING, AND IT MOVES WITH THE APPLICATION'S HALF. One enforcing
+	#   beside one reporting would mean a violation on /admin is fatal while
+	#   the same violation three paths away is a console line, with no way for
+	#   whoever reads the console to tell which regime they are in.
 	#
 	#   Both flip together: REPORT_ONLY in middleware.ts, and the header name
-	#   here.
+	#   here. Promoted after walking every screen in a real browser — twelve
+	#   of them, all rendered and hydrated, no violations reported.
 	# ⚠ THIS LIST IS @api's PLUS /static/*, AND THE DIFFERENCE IS DELIBERATE.
 	#
 	# @api is what gets PROXIED to Django. /static/* is absent from it because
@@ -178,7 +179,7 @@ business.genmars.co.ke {
 	# other paths were forgotten. Keep the two lists diffable: this one is that
 	# one, plus /static/*.
 	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /healthz /static/*
-	header @django Content-Security-Policy-Report-Only "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+	header @django Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
 
 	# ── LOGGING ──────────────────────────────────────────────────────────────
 	# Intentionally absent, like every other site on this host. A

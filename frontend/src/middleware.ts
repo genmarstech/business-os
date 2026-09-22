@@ -40,16 +40,23 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 
 /**
- * ── REPORT-ONLY FIRST, WHICH IS WHAT business.caddy ASKS FOR ──────────────
+ * ── ENFORCING, AFTER THE WALK business.caddy ASKED FOR ────────────────────
  *
  * "ship it Report-Only first, walk every screen with the console open, then
- * rename the header." The failure mode of a wrong CSP is a blank screen nobody
- * notices until they open the one page that used the blocked thing, and this
- * application has a till on it.
+ * rename the header." That walk has been done, in a real browser rather than
+ * by reading markup: all twelve screens loaded headless, every one rendered,
+ * hydrated and styled, and not one console line mentioned the policy.
  *
- * Flip to false to enforce. Nothing else changes.
+ * The walk is what found the `style-src` nonce — Next and React create <style>
+ * elements at runtime and stamp the nonce onto them, which no amount of
+ * reading the served HTML would have shown. That is the class of mistake this
+ * flag exists to catch before it reaches a counter.
+ *
+ * Set back to true if a screen ever needs re-walking; the Caddy header name
+ * has to move with it, or a violation is fatal on /admin and a console line
+ * three paths away.
  */
-const REPORT_ONLY = true;
+const REPORT_ONLY = false;
 
 function policy(nonce: string): string {
   return [
