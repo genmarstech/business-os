@@ -133,12 +133,16 @@ that enforces it.
 
 These are written down rather than left to be rediscovered.
 
-- **Mail is not configured.** `MAILERS` falls back to the console backend and
-  `check --deploy` reports `mail.E001` for it — truthfully, and deliberately
-  unsilenced, because the first feature that needs mail is resetting a
-  cashier's password and a reset that discards its own email is the worst way
-  to find this out. CI sets `EMAIL_BACKEND` so the rest of the deploy check
-  can run; that is not a fix and the workflow says so.
+- **Nothing sends mail yet, but it now can.** `Business_Platform/mail_backends.py`
+  talks to Resend over HTTPS — not SMTP, because Hetzner blocks outbound SMTP
+  on this host and the failure is a slow timeout that reads as "provider
+  unreachable". Setting `RESEND_API_KEY` is the whole switch: present, and
+  `MAILERS` points at the backend; absent, and it stays on the console, where
+  `check --deploy` reports `mail.E001` truthfully. There is deliberately no
+  second variable to forget, because a key set with the backend still on the
+  console is a configuration that looks complete and drops every message.
+  What is still missing is a feature that calls it — the cashier password
+  *reset* to pair with the change screen in the till.
 - **The tests run on SQLite; production is Postgres.** `RUNNING_TESTS` exempts
   the test runner from the refusal that otherwise stops this application
   booting on SQLite — which settings.py justifies with "two tills writing at
