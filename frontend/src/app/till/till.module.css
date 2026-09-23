@@ -17,10 +17,29 @@
 /* ── the gate: sign in, and choosing a till ─────────────────────────────── */
 
 .gate {
+  /* dvh second: on a phone `vh` is the tallest the viewport ever gets, so a
+     card sized against it can sit under the address bar. */
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
+
+  /* ── `safe center`, AND THE PLAIN `center` ABOVE IT AS A FALLBACK ────────
+     A flex item taller than the container does not merely overflow when it is
+     centred — it overflows EQUALLY IN BOTH DIRECTIONS, putting its top above
+     the scroll origin where nothing can reach it. On a 1024x600 till screen
+     that is the title and the first field, gone, with a scrollbar that only
+     goes the wrong way.
+
+     The plain `center` stays for browsers that drop the `safe` keyword, and
+     `overflow-y` gives the card somewhere to go in either case. This mattered
+     the moment the password change put three fields in this card; the sign-in
+     and register cards happened to fit, which is not the same as being
+     correct. */
   align-items: center;
+  align-items: safe center;
   justify-content: center;
+  overflow-y: auto;
+
   padding: clamp(16px, 4vw, 40px);
   background: var(--app);
 }

@@ -131,19 +131,32 @@ that enforces it.
 
 These are written down rather than left to be rediscovered.
 
-- **No Content-Security-Policy.** Deliberate: `business.caddy` says why —
-  there was no markup to test one against. There is now, and the three pages
-  in `identity/templates/` carry no inline `<style>` and no `style=""`
-  attribute, so a policy can be written without `'unsafe-inline'`. Ship it
-  `Report-Only` first.
-- **There is no dashboard.** Signing in works and creates a platform account;
-  there is then nothing to use it on. The landing page says so, and must keep
-  saying so until it is untrue (Charter 04 §IV).
 - **`OrganizationStaff.external_user_id`** is an orphan. It defaults to a
   fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
   that once joined through it has been replaced by `identity/scoping.py`. The
   field and its comment are still there and still misleading.
-- **`StaffCredential.must_change_password`** is written but never enforced.
+- **`StaffCredential.must_change_password` is asked, not required.** The till
+  puts the change in front of a cashier at sign-in, before a register is
+  chosen, because that is the one moment they are not mid-queue — but "Do this
+  later" is there. A POS that will not open because somebody cannot think of a
+  password at seven in the morning is a shop that cannot sell, and refusing to
+  trade is the worse failure. Deferring lasts until sign-out, so the next
+  shift asks again. Making it mandatory is one early return in `Till.tsx`, and
+  it is the business owner's call rather than ours.
+
+### Closed since this list was written
+
+Left here briefly because a gap list nobody trusts is worse than no gap list.
+
+- ~~No Content-Security-Policy~~ — shipped `Report-Only`, then promoted to
+  enforcing, in the two halves the split host needs.
+- ~~There is no dashboard~~ — branches, catalogue, stock, till, sales,
+  refunds, reports, staff and settings all exist, and the landing page no
+  longer claims otherwise.
+- ~~`must_change_password` is written but never enforced~~ — the backend was
+  always complete; nothing in the frontend called it. A cashier was told to
+  "ask your manager to show you how", and there was no how: a manager can only
+  RESET a password, which sets the flag again, so the loop had no exit.
 
 ## The frontend
 
@@ -183,5 +196,5 @@ Mahogany at 6.02:1. On dark, Ignition reaches 5.78:1 and the tokens flip.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 154 tests
+virtual/bin/python manage.py test          # 246 tests
 ```
