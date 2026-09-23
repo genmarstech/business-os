@@ -68,22 +68,21 @@ jobs:
       # it does not open the database. Without one, settings.py refuses to boot
       # at all and the check never runs — which would look like a pass.
       #
-      # ⚠ EMAIL_BACKEND IS SET HERE AND THAT IS NOT A WORKAROUND TO DELETE.
+      # ⚠ RESEND_API_KEY IS SET HERE AND THAT IS NOT A WORKAROUND TO DELETE.
       #
-      # settings.py leaves the console backend as the default and says, at
-      # length, that the resulting mail.E001 is TRUE and deliberately not
-      # silenced — nothing sends mail yet, and the first thing that will is
-      # resetting a cashier's password, which must not discard its own email.
+      # settings.py uses the key itself as the switch: present, and MAILERS
+      # points at the Resend backend; absent, and it stays on the console
+      # backend, for which `check --deploy` reports mail.E001. That report is
+      # TRUE and deliberately not silenced — with no key nothing can send.
       #
-      # That report is a signal for a developer running this locally. It
-      # cannot also be this job's verdict: the check would fail on every
-      # commit until mail is configured, and a pipeline that is always red is
-      # one everybody learns to ignore — worse than no pipeline.
+      # It cannot also be this job's verdict. The check would fail on every
+      # commit made from a machine without a key, and a pipeline that is
+      # always red is one everybody learns to ignore — worse than none.
       #
-      # So CI sets what a real production environment would have to set, and
-      # the check then exercises every OTHER deploy setting. Mail being
-      # unconfigured stays in the README's known gaps, where it is somebody's
-      # to close rather than a wall of red nobody reads.
+      # A dummy key rather than an EMAIL_BACKEND override, deliberately: it
+      # exercises the SAME selection path production takes, so the day that
+      # logic breaks CI notices. Nothing is sent; no message is constructed in
+      # this job at all.
       - name: A production configuration boots
         env:
           DEBUG: "False"
@@ -91,7 +90,7 @@ jobs:
           ALLOWED_HOSTS: business.genmars.co.ke
           CSRF_TRUSTED_ORIGINS: https://business.genmars.co.ke
           DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
-          EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+          RESEND_API_KEY: ci-not-a-real-key-nothing-is-sent
         run: python manage.py check --deploy --fail-level WARNING
 
       # A model changed and nobody made the migration. Caught here rather than
@@ -112,7 +111,7 @@ jobs:
           ALLOWED_HOSTS: business.genmars.co.ke
           CSRF_TRUSTED_ORIGINS: https://business.genmars.co.ke
           DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
-          EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+          RESEND_API_KEY: ci-not-a-real-key-nothing-is-sent
         run: python manage.py makemigrations --check --dry-run
 
   frontend:

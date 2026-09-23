@@ -220,16 +220,50 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # boot — worth knowing, because every example on the internet still shows the
 # old name.
 #
-# NOTHING IN THIS APPLICATION SENDS MAIL YET, and `check --deploy` reports
-# mail.E001 for the console backend. That report is TRUE and is deliberately
-# NOT silenced: the first feature that needs mail is resetting a cashier's
-# password, and a reset that silently discards its own email is the worst
-# possible way to discover this was never configured.
+# ── THE KEY IS THE SWITCH ───────────────────────────────────────────────────
+#
+# Setting RESEND_API_KEY turns mail on. There is deliberately no second
+# variable to remember: a key present with the backend still pointing at the
+# console is a configuration that looks complete and drops every message, and
+# it is the exact shape of mistake the warning below was written about.
+#
+# EMAIL_BACKEND still overrides, for the locmem backend in tests and for
+# anybody who wants console output while a key happens to be set.
+#
+# `check --deploy` reports mail.E001 for the console backend. That report is
+# TRUE and deliberately NOT silenced: with no key set nothing can send, the
+# first feature that needs mail is resetting a cashier's password, and a reset
+# that silently discards its own email is the worst possible way to discover
+# this was never configured.
+#
+# Django 6.1 replaced EMAIL_BACKEND with MAILERS, and defining both refuses to
+# boot — worth knowing, because every example on the internet still shows the
+# old name.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+
+# Resend refuses a From address on a domain that has not been verified with
+# them, and answers with a readable reason rather than silently dropping it —
+# see mail_backends.py on why that is the point of using the API.
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "info@genmars.co.ke")
+
+# Ten seconds. A person is waiting on a password reset; a mail provider that
+# has not answered by then is not about to.
+#
+# ⚠ NOT `EMAIL_TIMEOUT`. Django 6.1 refuses to boot when a deprecated email
+#   setting is defined alongside MAILERS, and EMAIL_TIMEOUT is one of them —
+#   the same trap this block already warns about for EMAIL_BACKEND, which is
+#   easy to walk into precisely because gen-portal still uses the old name.
+RESEND_TIMEOUT = int(os.environ.get("RESEND_TIMEOUT", "10"))
+
+_DEFAULT_MAILER = (
+    "Business_Platform.mail_backends.ResendBackend"
+    if RESEND_API_KEY
+    else "django.core.mail.backends.console.EmailBackend"
+)
+
 MAILERS = {
     "default": {
-        "BACKEND": os.environ.get(
-            "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
-        ),
+        "BACKEND": os.environ.get("EMAIL_BACKEND", _DEFAULT_MAILER),
     },
 }
 
