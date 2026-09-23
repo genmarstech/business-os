@@ -82,6 +82,19 @@ trap cleanup_plaintext EXIT
 case "$dump_name" in
 *.gpg)
     echo "==> Decrypting (this is the half of the test that proves the key works)"
+
+    # The directory may not exist here. On the server it always does, because
+    # backup.sh made it; on the laptop where this drill is actually run, the
+    # repository is a fresh clone and ./backups is gitignored.
+    #
+    # Without this, gpg failed with "No such file or directory" and the handler
+    # below announced three possible causes, none of which was the real one —
+    # the first two send you to retype a passphrase that was fine, and the
+    # third says every backup is unreadable. Crying wolf in the one message
+    # that must never cry wolf.
+    mkdir -p "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR" 2>/dev/null || true
+
     decrypted="${BACKUP_DIR}/.restore-check-$$.dump"
     # NO --batch. The private key is passphrase-protected, and --batch tells gpg
     # never to prompt — which fails with "No passphrase given" and a message
@@ -101,9 +114,57 @@ case "$dump_name" in
         exit 1
     fi
     chmod 600 "$decrypted"
+
+    # ── gpg EXITING 0 IS NOT PROOF OF A USABLE DUMP ─────────────────────────
+    # It proves bytes came out. A custom-format dump begins with the five
+    # characters PGDMP, so this is the cheapest possible check that what came
+    # out is a dump rather than a truncated file or something encrypted from
+    # the wrong source — and it is the whole of what the laptop drill can prove
+    # without a database.
+    if [ "$(head -c 5 "$decrypted")" != "PGDMP" ]; then
+        echo "FATAL: decrypted, but the result is not a Postgres custom-format" >&2
+        echo "       dump. The key works; the FILE is wrong." >&2
+        exit 1
+    fi
+    echo "    ok       the key opens it, and the result is a real pg_dump"
+
     dump_name="$(basename "$decrypted")"
     ;;
 esac
+
+# ── IS THERE A DATABASE TO RESTORE INTO ─────────────────────────────────────
+#
+# On the server there always is. On the laptop — which is the ONLY machine that
+# can decrypt, and therefore the only place the .gpg drill can happen — there
+# usually is not: compose will not even parse without POSTGRES_PASSWORD.
+#
+# The old script assumed one and failed deep inside pg_restore with a docker
+# error, which reads as "the backup is broken" and is not. So it is checked up
+# front, and a missing database ENDS THE RUN SUCCESSFULLY when the thing being
+# tested was an encrypted copy: the key opening the file is exactly what that
+# drill exists to prove, and the schema and data assertions are already run
+# weekly on the server against the plaintext archive.
+#
+# Reporting that honestly is better than a red failure nobody can act on, and
+# far better than a drill so awkward that it stops being done.
+if ! docker compose ps --format '{{.Service}}' 2>/dev/null | grep -qx "$DB_SERVICE"; then
+    echo
+    if [ -n "$decrypted" ]; then
+        echo "KEY TEST PASSED — ${dump_name} decrypts to a valid dump."
+        echo
+        echo "Not run: the schema and data assertions, which need a database."
+        echo "There is no '${DB_SERVICE}' service up here. That is expected on a"
+        echo "laptop, and those assertions run weekly on the server against the"
+        echo "plaintext archive — see genmars-business-restore-test.timer."
+        echo
+        echo "What this DID prove is the half the server cannot: that the"
+        echo "private key still opens what the server has been encrypting."
+        exit 0
+    fi
+    echo "FATAL: no '${DB_SERVICE}' service is running, so there is nowhere to" >&2
+    echo "       restore into. Start the stack, or run this on the server." >&2
+    exit 1
+fi
 
 psql_scratch() {
     docker compose exec -T "$DB_SERVICE" \
