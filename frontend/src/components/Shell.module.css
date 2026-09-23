@@ -44,7 +44,7 @@
 }
 
 .tenant {
-  font-family: var(--font-brand);
+  font-family: var(--font-display);
   font-weight: 500;
   font-size: 15px;
   line-height: 1.2;
@@ -58,6 +58,8 @@
   text-transform: uppercase;
   color: var(--ink-faint);
   margin-top: 2px;
+  /* Jost — The word under the shop's name in the sidebar. Genmars is the only thing set in it now. */
+  font-family: var(--font-brand);
 }
 
 .nav {

@@ -1,10 +1,27 @@
 /*
  * Genmars Business Platform — design tokens.
  *
- * Brand constants come from 06-brand/README.md, by way of
- * gen-website/src/app/globals.css. They are NOT re-chosen here and must not be
- * edited in this file — if a brand colour changes it changes in the brand
- * document first.
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE PRODUCT HAS ITS OWN COLOURS. GENMARS' PALETTE STAYS ON GENMARS.
+ *
+ * This used to run on the company palette — Ignition, Mahogany, Canvas — and
+ * that was the wrong instinct twice over.
+ *
+ * It made the product look like a page about the company rather than a tool
+ * somebody works in, and it borrowed a warmth chosen for a brochure somebody
+ * reads once and applied it to a screen a cashier stares at for eight hours.
+ * It also left no way to tell, at a glance, whether you were looking at
+ * Genmars or at the thing Genmars sells.
+ *
+ * So the platform is DEEP GREEN on a cool off-white: quieter than the company
+ * mark, better under fluorescent light, and unmistakably its own. The Genmars
+ * mark still sits in the corner, because Genmars built this — a maker's mark
+ * on a product with its own face, which is the honest relationship.
+ *
+ * ⚠ THE COMPANY CONSTANTS ARE STILL BELOW AND STILL FIXED. The mark is drawn
+ *   in them. Do not repaint the mark to match the product; a logo that
+ *   changes colour per surface is not a logo.
+ * ══════════════════════════════════════════════════════════════════════════
  *
  * ── TOKEN ARCHITECTURE ──────────────────────────────────────────────────────
  * Brand constants never change between themes. Semantic tokens do.
@@ -18,123 +35,144 @@
  * as a background while the text uses a semantic token produces a light band
  * with light text in one theme. That shipped once, on the marketing site.
  *
- * ── WHY THIS IS NOT THE MARKETING PALETTE ───────────────────────────────────
- * genmars.co.ke sits on Canvas (#e9e3df) and Surface (#f4efec) — warm,
- * editorial, right for a page somebody reads once. This is looked at for eight
- * hours a day, so the ground is a half-step cooler and panels are plain white.
- * Dense numeric tables read cleanly on it, and the warm accent stays the only
- * warm thing on the screen. Same family, not the brochure.
- *
  * ── CONTRAST, MEASURED ──────────────────────────────────────────────────────
- * Ratios below are computed against the app ground, not estimated. Charter
- * 04 §IV: an accessibility claim is a claim.
- *
- * ⚠ IGNITION IS 2.75:1 ON THE LIGHT GROUND. It fails AA for text there and is
- *   used for rules, bar fills, focus glow and display type above ~28px ONLY.
- *   Accent TEXT on light is Mahogany at 6.02:1. On dark, Ignition reaches
- *   5.78:1, which is why the dark theme flips --accent-text and --accent-fill
- *   to it and the light theme does not.
+ * Every ratio below is computed against the surface it sits on, not estimated.
+ * Charter 04 §IV: an accessibility claim is a claim. The whole set clears AA
+ * for normal text on both grounds, which the old palette did not — Ignition
+ * was 2.75:1 on light and had to be fenced off from text entirely.
  */
 
 :root {
-  /* ---- Genmars brand constants — identical in every theme ---- */
+  /* ---- Genmars company constants — the mark is drawn in these ---- */
+  /* Fixed in every theme, and never used as a product surface. */
   --deep-well: #2e2b34;
   --mahogany: #834f49;
-  --imperial-topaz: #8b5a48;
-  --wild-ginger: #82555b;
   --ignition: #db7b51;
   --canvas: #e9e3df;
 
-  /* ---- surfaces ---- */
-  --app: #f6f4f2;
+  /* ---- the product's own ground ---- */
+  /* Cool off-white rather than the company's warm Canvas: dense numeric
+     tables read cleanly on it, and it does not go grey under fluorescent
+     light the way a warm ground does. */
+  --app: #f6f8f7;
   --panel: #ffffff;
-  --sunken: #eceae7;
-  --line: #e0dcd9;
-  --line-firm: #c9c3c0;
+  --sunken: #eef2f0;
+  --line: #e3e8e5;
+  --line-firm: #c9d3ce;
 
   /* ---- ink ---- */
-  --ink: #2e2b34; /* 12.67:1 */
-  --ink-muted: #5c5663; /* 6.45:1 */
-  --ink-faint: #6f6876; /* 4.89:1 */
+  --ink: #14231d; /* 15.29:1 on app */
+  --ink-muted: #46584f; /* 7.11:1 */
+  --ink-faint: #5c6d64; /* 5.15:1 */
 
-  /* ---- accent ---- */
-  --accent: #db7b51; /* non-text only on light — see the banner */
-  --accent-text: #834f49; /* 6.02:1 */
-  --accent-fill: #834f49;
-  --on-fill: #ffffff; /* 6.60:1 on the fill */
+  /* ---- the accent, which is the product ---- */
+  /* One deep green does the work Ignition and Mahogany used to split between
+     them, because it passes as text AND as a fill: 9.60:1 on the ground, and
+     white on it is 10.24:1. No fencing off, no "large text only" rule. */
+  --accent: #0e4a36;
+  --accent-text: #0e4a36; /* 9.60:1 on app */
+  --accent-fill: #0e4a36;
+  --on-fill: #ffffff; /* 10.24:1 on the fill */
+  --on-accent: #ffffff;
+  /* A light wash of the accent, for chips and selected states. */
+  --accent-wash: #e6efea;
+
+  --focus: #0e4a36;
 
   /* ---- state ---- */
-  --ok: #2f6b4f; /* 5.74:1 */
-  --warn: #8a5a12; /* 5.39:1 */
-  --danger: #9b3324; /* 6.62:1 */
-  --ok-bg: #e8f0ea;
+  --ok: #1f6b4a; /* 6.04:1 */
+  --warn: #8a5a12; /* 5.54:1 */
+  --danger: #9b2f28; /* 6.95:1 */
+  --ok-bg: #e4f0e9;
   --warn-bg: #f6efdf;
-  --danger-bg: #f7e8e5;
+  --danger-bg: #f8e7e5;
 
-  --focus: #8b5a48;
-
+  /* ---- type ---- */
+  /*
+   * ── A SERIF LEADS, WHICH IS THE OTHER HALF OF THE IDENTITY ─────────────
+   *
+   * Genmars sets everything in Jost, a geometric sans. Running the product in
+   * it made the two indistinguishable. A serif display against a grotesque UI
+   * face reads as considered rather than as a default, and it is the one
+   * typographic decision a person notices without being able to name.
+   *
+   * ⚠ DISPLAY ONLY — headings from about 1.2rem up. Source Serif holds at
+   *   that size and gets muddy in a 12px table cell, which is most of this
+   *   application. The sans keeps every figure, label and control.
+   */
+  --font-display: var(--font-source-serif), Georgia, "Times New Roman", serif;
   --font-brand: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
   --font-ui: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system,
-    sans-serif;
+    "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
-
   --r-sm: 4px;
   --r-md: 7px;
   --r-lg: 11px;
-
   --sidebar: 236px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --app: #1b191f;
-    --panel: #232027;
-    --sunken: #141317;
-    --line: #322e38;
-    --line-firm: #46414e;
+    --app: #0b1410;
+    --panel: #111e18;
+    --sunken: #070f0c;
+    --line: #1e2d26;
+    --line-firm: #33473d;
 
-    --ink: #f1eff2; /* 15.24:1 */
-    --ink-muted: #b3aebb; /* 8.04:1 */
-    --ink-faint: #9a94a4; /* 5.93:1 */
+    --ink: #e9f1ec; /* 16.28:1 on app */
+    --ink-muted: #a6b8ae; /* 8.99:1 */
+    --ink-faint: #87998f; /* 6.23:1 */
 
-    --accent-text: #db7b51; /* 5.78:1 — safe as text here */
-    --accent-fill: #db7b51;
-    --on-fill: #2e2b34; /* 4.61:1 on the fill; never white */
+    /* Deep green disappears on a dark ground, so the accent lifts to a sage
+       that carries as text AND as a fill — 8.33:1 as text, and near-black on
+       it is 6.50:1. The light theme's #0e4a36 would be neither. */
+    --accent: #4aa882;
+    --accent-text: #5cbf95; /* 8.33:1 */
+    --accent-fill: #4aa882;
+    --on-fill: #08130e; /* 6.50:1 on the fill; never white */
+    --on-accent: #08130e;
+    --accent-wash: #15271f;
 
-    --ok: #5fae86; /* 6.54:1 */
-    --warn: #d9a441; /* 7.75:1 */
-    --danger: #e8836f; /* 6.56:1 */
-    --ok-bg: #1d2b24;
+    --ok: #5cbf95; /* 8.33:1 */
+    --warn: #d9a441; /* 8.32:1 */
+    --danger: #e8837a; /* 7.09:1 */
+    --ok-bg: #12261c;
     --warn-bg: #2b2517;
-    --danger-bg: #2e1e1c;
+    --danger-bg: #2d1a18;
 
-    --focus: #db7b51;
+    --focus: #5cbf95;
   }
 }
 
 :root[data-theme="dark"] {
-  --app: #1b191f;
-  --panel: #232027;
-  --sunken: #141317;
-  --line: #322e38;
-  --line-firm: #46414e;
+--app: #0b1410;
+  --panel: #111e18;
+  --sunken: #070f0c;
+  --line: #1e2d26;
+  --line-firm: #33473d;
 
-  --ink: #f1eff2;
-  --ink-muted: #b3aebb;
-  --ink-faint: #9a94a4;
+  --ink: #e9f1ec; /* 16.28:1 on app */
+  --ink-muted: #a6b8ae; /* 8.99:1 */
+  --ink-faint: #87998f; /* 6.23:1 */
 
-  --accent-text: #db7b51;
-  --accent-fill: #db7b51;
-  --on-fill: #2e2b34;
+  /* Deep green disappears on a dark ground, so the accent lifts to a sage
+     that carries as text AND as a fill — 8.33:1 as text, and near-black on
+     it is 6.50:1. The light theme's #0e4a36 would be neither. */
+  --accent: #4aa882;
+  --accent-text: #5cbf95; /* 8.33:1 */
+  --accent-fill: #4aa882;
+  --on-fill: #08130e; /* 6.50:1 on the fill; never white */
+  --on-accent: #08130e;
+  --accent-wash: #15271f;
 
-  --ok: #5fae86;
-  --warn: #d9a441;
-  --danger: #e8836f;
-  --ok-bg: #1d2b24;
+  --ok: #5cbf95; /* 8.33:1 */
+  --warn: #d9a441; /* 8.32:1 */
+  --danger: #e8837a; /* 7.09:1 */
+  --ok-bg: #12261c;
   --warn-bg: #2b2517;
-  --danger-bg: #2e1e1c;
+  --danger-bg: #2d1a18;
 
-  --focus: #db7b51;
+  --focus: #5cbf95;
 }
 
 *,

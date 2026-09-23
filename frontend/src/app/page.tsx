@@ -167,44 +167,92 @@ function Empty({ state }: { state: Progress }) {
 function FrontDoor() {
   return (
     <div className={styles.door}>
-      <div className={styles.doorCard}>
+      {/*
+        ── THE GRID IS THE ONLY DECORATION, AND IT IS BEHIND EVERYTHING ──────
+        A faint ruled ground, drawn in CSS rather than shipped as an image:
+        no request, no cache header, nothing to go stale, and it scales to any
+        viewport for free. It reads as graph paper — a ledger, which is what
+        this is — and it is the one ornamental thing on the page.
+      */}
+      <div className={styles.doorGrid} aria-hidden="true" />
+
+      <header className={styles.doorBar}>
         <div className={styles.doorBrand}>
-          <Mark size={34} />
+          <Mark size={26} />
+          <span className={styles.doorMaker}>Genmars</span>
+        </div>
+        <a className={styles.doorSignIn} href="/auth/start">
+          Sign in
+        </a>
+      </header>
+
+      <main className={styles.doorMain}>
+        {/*
+          The claim is what the product IS, in the words a shopkeeper would
+          use, and the second line is the part they are actually buying. Two
+          sentences, one of them coloured — the whole hero.
+        */}
+        <h1 className={styles.doorTitle}>
+          Every branch, every till.
+          <span className={styles.doorTitleAccent}>One set of books.</span>
+        </h1>
+
+        <p className={styles.doorLede}>
+          A point of sale and a back office for a business with more than one
+          counter. Ring up a sale, count a drawer, see what every branch took
+          — and know where the stock went, because nothing here moves without
+          a record of why.
+        </p>
+
+        <div className={styles.doorActions}>
+          {/*
+            A plain <a>, not next/link: /auth/start is Django's, reached
+            through Caddy. Routing it client-side would look for a page that
+            does not exist in this app.
+          */}
+          <a className={styles.doorPrimary} href="/auth/start">
+            Sign in with Genmars
+          </a>
+          <a className={styles.doorSecondary} href="/till">
+            Open a till
+          </a>
+        </div>
+
+        {/*
+          Three facts rather than three adjectives. Each one is something the
+          software does that a reader can go and check, which is the only kind
+          of claim worth putting on a front door — Charter 04 §IV.
+        */}
+        <dl className={styles.doorFacts}>
           <div>
-            <div className={styles.doorName}>Genmars</div>
-            <div className={styles.doorPlatform}>Business Platform</div>
+            <dt>Per branch</dt>
+            <dd>
+              Stock, staff and takings belong to a location, so two shops can
+              be compared instead of merged.
+            </dd>
           </div>
-        </div>
+          <div>
+            <dt>Counted, not assumed</dt>
+            <dd>
+              A till closes by counting the drawer. The difference is recorded
+              against the shift, with the cashier&rsquo;s own note beside it.
+            </dd>
+          </div>
+          <div>
+            <dt>Nothing moves silently</dt>
+            <dd>
+              Every change in stock carries the reason for it — a sale, a
+              delivery, a breakage — and you can read the whole trail back.
+            </dd>
+          </div>
+        </dl>
 
-        <div className={styles.doorPanel}>
-          <h1 className={`${styles.title} ${styles.doorTitle}`}>
-            Branches, stock and tills
-          </h1>
-          <p className={styles.sub}>
-            Sign in with the same Genmars account you use for the client
-            portal. There is no separate password here and no sign-up form — if
-            you do not have an account yet, you will be asked to make one on
-            the way through.
-          </p>
-
-          <p className={styles.doorAction}>
-            {/*
-              A plain <a>, not next/link: /auth/start is Django's, reached
-              through Caddy. Routing it client-side would look for a page that
-              does not exist in this app.
-            */}
-            <a className={styles.button} href="/auth/start">
-              Sign in with Genmars
-            </a>
-          </p>
-        </div>
-
-        <div className={styles.note}>
+        <p className={styles.doorNote}>
           <strong>Cashiers do not sign in here.</strong> Till staff belong to
           the business that employs them and sign in at the register, with
           credentials that never reach Genmars.
-        </div>
-      </div>
+        </p>
+      </main>
     </div>
   );
 }

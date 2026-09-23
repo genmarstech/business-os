@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans, Jost } from "next/font/google";
+import {
+  IBM_Plex_Mono,
+  IBM_Plex_Sans,
+  Jost,
+  Source_Serif_4,
+} from "next/font/google";
 
 import "./globals.css";
 
@@ -8,16 +13,36 @@ import "./globals.css";
  * by next/font — no request to Google at runtime, which is both faster and one
  * fewer third party seeing who uses a shop's till.
  *
- * Jost is the Genmars face and carries the identity. Its geometric figures are
- * handsome and slightly ambiguous, which is fine in a heading and not fine in
- * a column of money — so Plex Sans (genuinely distinct 1 l I, 0 O) takes
- * everything a person reads to make a decision, and Plex Mono takes every
- * amount, SKU, barcode and receipt preview.
+ * ── THREE FACES, AND EACH HAS ONE JOB ─────────────────────────────────────
+ *
+ * Source Serif carries the product's own voice: headings, and the one big
+ * line on the front door. It is what makes this look like a tool rather than
+ * like a page about the company.
+ *
+ * Jost is the GENMARS face and now appears only where Genmars speaks — the
+ * mark in the corner. Running the whole product in it made the company and
+ * the product indistinguishable, which served neither.
+ *
+ * Plex Sans takes everything a person reads to make a decision, because its
+ * 1 l I and 0 O are genuinely distinct and a serif's are not at 12px. Plex
+ * Mono takes every amount, SKU, barcode and receipt preview.
  */
 const jost = Jost({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-jost",
+  display: "swap",
+});
+
+/*
+ * Weights 400 and 600 only. Source Serif is a text face as well as a display
+ * one, so it is tempting to reach for it everywhere; two weights is the fence
+ * that keeps it in headings.
+ */
+const sourceSerif = Source_Serif_4({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  variable: "--font-source-serif",
   display: "swap",
 });
 
@@ -61,7 +86,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${jost.variable} ${plexSans.variable} ${plexMono.variable}`}
+      className={`${sourceSerif.variable} ${jost.variable} ${plexSans.variable} ${plexMono.variable}`}
     >
       <body>{children}</body>
     </html>
