@@ -1,0 +1,40 @@
+# Postgres backup for the Business Platform.
+#
+#   sudo cp deploy/genmars-business-*.service deploy/genmars-business-*.timer \
+#           /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now genmars-business-backup.timer
+#   sudo systemctl enable --now genmars-business-restore-test.timer
+#
+# Verify it is actually scheduled — an enabled timer that never fires is the
+# usual way "we have backups" turns out to be false:
+#   systemctl list-timers genmars-business-backup.timer
+#   journalctl -u genmars-business-backup.service -n 50
+
+[Unit]
+Description=Business Platform — Postgres backup
+Documentation=file:///opt/business-os/README.md
+# Nothing to dump if Docker is not up.
+Requires=docker.service
+After=docker.service
+
+# The same alert handler gen-portal uses. It is installed system-wide at
+# /etc/systemd/system/genmars-alert@.service and mails through Resend with the
+# last 25 journal lines, so the alert says WHAT broke rather than that
+# something did. %N expands to this unit's name, so the mail names the right
+# application without a second copy of the handler.
+OnFailure=genmars-alert@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/business-os
+ExecStart=/opt/business-os/scripts/backup.sh
+
+# compose reads POSTGRES_* from here; the backup script needs the same values
+# to name the database and the role, plus BACKUP_RECIPIENT and GNUPGHOME for
+# the encrypted copy. Without this the job runs, dumps, and silently skips
+# encryption — which looks like a success.
+EnvironmentFile=/opt/business-os/.env
+
+[Install]
+WantedBy=multi-user.target

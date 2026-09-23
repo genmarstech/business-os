@@ -228,11 +228,44 @@ payments and refunds matching what was live when the dump began. That last one
 is the check that catches a partial restore, which every other check waves
 through.
 
-**Not done, and it is the weakest link:** nothing collects from
-`./backups/offsite/` yet. gen-portal has `scripts/pull-backups.sh`, run from
-the laptop holding the private key; it does not know about this repository. So
-every copy is still on the same disk as the database it came from, and one
-failed volume loses both. Do not describe these backups as complete.
+### Schedule
+
+```bash
+sudo cp deploy/genmars-business-*.service deploy/genmars-business-*.timer \
+        /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now genmars-business-backup.timer
+sudo systemctl enable --now genmars-business-restore-test.timer
+
+# An enabled timer that never fires is the usual way "we have backups" turns
+# out to be false. Check that it is actually scheduled:
+systemctl list-timers 'genmars-business-*'
+```
+
+Backup nightly at 02:45, restore test Sunday 04:15 — both offset from
+gen-portal's 02:15 and 03:30, because the two databases share a host and
+dumping them at the same moment only makes each slower. A failure raises
+`genmars-alert@`, the same handler gen-portal uses, which mails with the last
+25 journal lines so the alert says what broke.
+
+### Getting the copies off the box
+
+`gen-portal/scripts/pull-backups.sh` collects from both applications. Run it
+from the laptop that holds the private key — it pulls, and the server never
+pushes, so nothing that compromises the server can reach or delete what has
+already been collected.
+
+Copies land flat in `~/genmars-backups` alongside gen-portal's; the filename
+prefixes keep them apart.
+
+**Still not done:** nothing runs that pull on a schedule, and no restore test
+has ever been performed against an *encrypted* copy on the machine that can
+decrypt it. Until one has, the private key is assumed to work rather than known
+to. Roughly monthly:
+
+```bash
+business-os/scripts/restore-test.sh ~/genmars-backups/business-<stamp>.dump.gpg
+```
 
 Two more gaps worth knowing: `sales_saleitem`, `sales_receipt` and
 `inventory_stocklevel` have no `created_at`, so the completeness comparison

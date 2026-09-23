@@ -1,0 +1,17 @@
+[Unit]
+Description=Business Platform — weekly restore test
+
+[Timer]
+# Sunday 04:15 — after the nightly dump, and after gen-portal's restore test at
+# 03:30. Two restore tests at once means two scratch databases being created
+# and dropped on one host at the same time, which is the kind of avoidable
+# contention that makes a job look flaky.
+#
+# Weekly rather than nightly because it creates and drops a full copy of the
+# database. Cheap now, and worth re-tuning if it grows enough to matter.
+OnCalendar=Sun *-*-* 04:15:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
