@@ -15,6 +15,7 @@ class BusinessOrganizationSerializer(serializers.ModelSerializer):
             'name',
             'staff_size',
             'staff_size_display',
+            'sector',
             'org_number',
             'updated_at'
         ]

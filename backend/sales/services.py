@@ -179,6 +179,8 @@ def checkout(
     customer: Customer | None = None,
     idempotency_key: str = "",
     allow_negative_stock: bool = False,
+    order_type: str = Sale.OrderType.COUNTER,
+    table_name: str = "",
 ) -> Sale:
     """
     Take a sale from cart to completed, or take none of it.
@@ -287,6 +289,7 @@ def checkout(
                 "tax_rate": Decimal(rule.rate) if rule else ZERO,
                 "line_total": line_total,
                 "gross": gross,
+                "note": str(line.get("note", "") or "").strip()[:200],
             }
         )
 
@@ -342,6 +345,12 @@ def checkout(
         total=total,
         idempotency_key=idempotency_key,
         completed_at=timezone.now(),
+        order_type=(
+            order_type
+            if order_type in Sale.OrderType.values
+            else Sale.OrderType.COUNTER
+        ),
+        table_name=(table_name or "").strip()[:40],
     )
 
     for line in priced:
@@ -358,6 +367,9 @@ def checkout(
             tax_rate=line["tax_rate"],
             tax_amount=line["tax"],
             line_total=line["line_total"],
+            # Snapshotted like the price and the tax rate beside it. A note is
+            # part of what was ordered, so a reprint next year has to say it.
+            note=line.get("note", ""),
         )
 
         held = stock.get(product.pk)

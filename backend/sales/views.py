@@ -229,11 +229,14 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                 shift=shift,
                 cashier=data["cashier"],
                 customer=data.get("customer"),
+                order_type=data.get("order_type") or "",
+                table_name=data.get("table_name") or "",
                 lines=[
                     {
                         "product": line["product"],
                         "quantity": line["quantity"],
                         "discount": line.get("discount") or 0,
+                        "note": line.get("note") or "",
                     }
                     for line in data["lines"]
                 ],

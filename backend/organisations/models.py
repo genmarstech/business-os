@@ -41,8 +41,35 @@ class BusinessOrganization(models.Model):
     # second is both wrong and a leak: the error would tell whoever is
     # onboarding that the name is taken by a business they cannot see.
     # `org_number` is the unique identifier, and it is generated.
+    class Sector(models.TextChoices):
+        """
+        What kind of business this is, which decides how the till behaves.
+
+        ══════════════════════════════════════════════════════════════════════
+        IT CHANGES THE SCREEN AND NOTHING ELSE.
+
+        Not the pricing, not the tax, not the stock, not a single figure. A
+        restaurant and a hardware shop sell things, take money and count a
+        drawer identically; what differs is what the person at the counter has
+        to say about each order — a table number, whether it is going out.
+
+        So this is deliberately a presentation choice and not a product line.
+        The moment it starts gating features it becomes a plan somebody has to
+        be upsold out of, which is not what it is for.
+        ══════════════════════════════════════════════════════════════════════
+        """
+
+        RETAIL = "retail", "Shop or retail counter"
+        HOSPITALITY = "hospitality", "Restaurant, bar or café"
+
     name = models.CharField(max_length=150)
     staff_size = models.CharField(choices=StaffSize.choices, default=StaffSize.MEDIUM)
+    sector = models.CharField(
+        max_length=16,
+        choices=Sector.choices,
+        default=Sector.RETAIL,
+        help_text="Decides how the till looks. Changes nothing about the data.",
+    )
     org_number = models.CharField(max_length=18, default=OrgNumberGenerator, unique=True)
     # ── THE COMMERCIAL RELATIONSHIP, IF THERE IS ONE ────────────────────────
     #

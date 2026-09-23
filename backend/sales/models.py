@@ -125,6 +125,20 @@ class Sale(models.Model):
     a `branch` reference in one hop instead of two.
     """
 
+    class OrderType(models.TextChoices):
+        """
+        How this order is being served.
+
+        COUNTER is the retail default and means "handed over here" — what
+        every sale was before this existed, so old rows read as a fact rather
+        than as an absence.
+        """
+
+        COUNTER = "counter", "At the counter"
+        DINE_IN = "dine_in", "Dine in"
+        TAKE_AWAY = "take_away", "Take away"
+        DELIVERY = "delivery", "Delivery"
+
     class Status(models.TextChoices):
         # Blueprint module 1 lists "held sales" — a cart parked while the
         # customer fetches another item, not yet a financial record.
@@ -170,6 +184,28 @@ class Sale(models.Model):
     discount_total = models.DecimalField(**MONEY, default=ZERO)
     tax_total = models.DecimalField(**MONEY, default=ZERO)
     total = models.DecimalField(**MONEY, default=ZERO)
+
+    # ── HOW IT IS BEING SERVED ──────────────────────────────────────────────
+    #
+    # Both are copied onto the sale like the prices are, never joined to. A
+    # table renamed next month must not rewrite what an old receipt said, and
+    # a shop that switches sector must not retroactively turn its counter
+    # sales into dine-ins.
+    order_type = models.CharField(
+        max_length=16,
+        choices=OrderType.choices,
+        default=OrderType.COUNTER,
+    )
+    table_name = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text=(
+            "Whatever the restaurant calls it — Table 4, Terrace 2, Bar. Free "
+            "text rather than a foreign key: a floor plan is a bigger thing "
+            "than this one field."
+        ),
+    )
 
     # ── IDEMPOTENCY — BLUEPRINT §11 ─────────────────────────────────────────
     #
@@ -264,6 +300,16 @@ class SaleItem(models.Model):
     # Copied at the moment of sale.
     product_name = models.CharField(max_length=200)
     sku = models.CharField(max_length=100, blank=True)
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text=(
+            "What the customer asked for on this line — no onions, medium, "
+            "extra hot. Snapshotted like the price, so a receipt reprinted "
+            "next year still says what was ordered."
+        ),
+    )
     unit_price = models.DecimalField(**MONEY)
     unit_cost = models.DecimalField(
         **MONEY,

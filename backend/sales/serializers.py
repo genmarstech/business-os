@@ -46,7 +46,7 @@ class SaleItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleItem
         fields = [
-            "id", "product", "product_name", "sku", "unit_price", "quantity",
+            "id", "product", "product_name", "sku", "note", "unit_price", "quantity",
             "discount_amount", "tax_rate", "tax_amount", "line_total",
         ]
         read_only_fields = fields
@@ -86,7 +86,8 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            "id", "number", "status", "status_label", "organization", "branch",
+            "id", "number", "status", "status_label", "order_type", "table_name",
+            "organization", "branch",
             "register", "shift", "cashier", "customer", "subtotal",
             "discount_total", "tax_total", "total", "amount_refunded",
             "items", "payments", "receipt", "void_reason", "voided_at",
@@ -111,6 +112,9 @@ class CheckoutLineSerializer(serializers.Serializer):
     discount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, default=0
     )
+    note = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=200
+    )
 
 
 class CheckoutPaymentSerializer(serializers.Serializer):
@@ -123,6 +127,12 @@ class CheckoutPaymentSerializer(serializers.Serializer):
 
 class CheckoutSerializer(serializers.Serializer):
     shift = serializers.PrimaryKeyRelatedField(queryset=RegisterShift.objects.all())
+    # How it is being served. Absent means counter, which is what every retail
+    # sale is and what every sale was before hospitality existed.
+    order_type = serializers.CharField(required=False, allow_blank=True, default="")
+    table_name = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=40
+    )
     cashier = serializers.PrimaryKeyRelatedField(
         queryset=OrganizationStaff.objects.all()
     )

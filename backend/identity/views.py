@@ -341,6 +341,9 @@ class WhoAmIView(APIView):
                     "organisation": {
                         "id": principal.organization_id,
                         "name": principal.organization.name,
+                        # Which till to draw. Presentation only — see the
+                        # banner on BusinessOrganization.Sector.
+                        "sector": principal.organization.sector,
                     },
                     "scope": tenant_scope(principal),
                     "branches": access.branch_scope(principal),
