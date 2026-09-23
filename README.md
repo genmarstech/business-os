@@ -44,9 +44,11 @@ dashboard/reports.
 **V2 is not started**: purchasing, suppliers, cash reconciliation at shift
 close, returns workflow beyond the refund itself, advanced permissions,
 notifications and multi-branch reporting beyond the branch comparison.
-`RegisterShift` exists and `GET /sls/reports/register-status` already computes
-the expected drawer figure a close would be reconciled against — closing one
-is the piece that is missing.
+`RegisterShift` exists, `GET /sls/reports/register-status` computes the
+expected drawer figure, and closing a till by counting it is now built — a
+cashier cannot count their own. What is left of V2 here is the rest:
+purchasing, suppliers, the returns workflow beyond the refund itself, advanced
+permissions, notifications and multi-branch reporting.
 
 **V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
 e-commerce sync, advanced analytics, automated replenishment. §11 asks for
@@ -131,6 +133,19 @@ that enforces it.
 
 These are written down rather than left to be rediscovered.
 
+- **Mail is not configured.** `MAILERS` falls back to the console backend and
+  `check --deploy` reports `mail.E001` for it — truthfully, and deliberately
+  unsilenced, because the first feature that needs mail is resetting a
+  cashier's password and a reset that discards its own email is the worst way
+  to find this out. CI sets `EMAIL_BACKEND` so the rest of the deploy check
+  can run; that is not a fix and the workflow says so.
+- **The tests run on SQLite; production is Postgres.** `RUNNING_TESTS` exempts
+  the test runner from the refusal that otherwise stops this application
+  booting on SQLite — which settings.py justifies with "two tills writing at
+  the same moment is the normal case for a POS". So the suite has never
+  exercised the database it ships on. A Postgres service container in CI is
+  the fix, and it is its own change: it can surface real failures that deserve
+  a commit about them.
 - **`OrganizationStaff.external_user_id`** is an orphan. It defaults to a
   fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
   that once joined through it has been replaced by `identity/scoping.py`. The
