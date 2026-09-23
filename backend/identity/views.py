@@ -6,6 +6,8 @@ Four of them: two for a subscriber arriving from Genmars, two for a till.
 
 from __future__ import annotations
 
+import logging
+
 from django.db import IntegrityError
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
@@ -18,9 +20,13 @@ from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import access, services, signon
+from . import access, emails, services, signon
 from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
 from .models import PlatformAccount, StaffCredential, TenantInvitation, TenantMembership
+
+# The only thing logged from this module is a mail failure, and it names the
+# credential id rather than the address or the code. See RequestPasswordResetView.
+log = logging.getLogger(__name__)
 from .permissions import IsKnownPrincipal, tenant_scope
 from .scoping import TenantScoped
 from .serializers import (
@@ -550,6 +556,114 @@ class ChangeOwnPasswordView(APIView):
                 {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RequestPasswordResetView(APIView):
+    """
+    A cashier who has forgotten their till password, asking for a code.
+
+    ══════════════════════════════════════════════════════════════════════════
+    ONE RESPONSE FOR EVERY OUTCOME, INCLUDING THE SUCCESSFUL ONE.
+
+    Unknown username, deactivated credential, no email on file, rate limited,
+    or a code genuinely sent — all answer 202 with the same body. This screen
+    is reachable by anyone who can reach the shop's URL, and an answer that
+    varied would turn it into a way to enumerate which usernames exist in
+    which business.
+
+    Even a mail failure answers the same. It is logged, loudly, because that
+    is a real fault somebody must fix — but telling the caller would say "that
+    username exists" just as clearly as a success does.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    # Said in the future conditional on purpose: "if that username exists".
+    # It promises nothing about whether anything was sent.
+    ACCEPTED = (
+        "If that username exists and has an email address on file, a code is "
+        "on its way. It expires in 15 minutes."
+    )
+
+    def post(self, request):
+        try:
+            organization_id = int(request.data.get("organization"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": self.ACCEPTED}, status=status.HTTP_202_ACCEPTED
+            )
+
+        username = request.data.get("username", "")
+        code = services.request_password_reset(
+            organization_id=organization_id, username=username
+        )
+
+        if code:
+            credential = StaffCredential.objects.select_related(
+                "staff", "organization"
+            ).get(organization_id=organization_id, username__iexact=username.strip())
+            try:
+                emails.send_password_reset(
+                    to=credential.staff.email,
+                    code=code,
+                    organisation=credential.organization.name,
+                    minutes=int(services.RESET_CODE_LIFETIME.total_seconds() // 60),
+                )
+            except Exception:
+                # The recipient and the fact, never the code. exc_info is off
+                # deliberately: a traceback from deep in an HTTP client can
+                # carry the request body, and the request body is the email.
+                log.error(
+                    "password reset email failed for credential id=%s",
+                    credential.pk,
+                )
+
+        return Response({"detail": self.ACCEPTED}, status=status.HTTP_202_ACCEPTED)
+
+
+class CompletePasswordResetView(APIView):
+    """
+    Spending the code and choosing a new password.
+
+    One message for every refusal — wrong code, expired, already used, too many
+    attempts, unknown username. Distinguishing them tells a caller whether a
+    reset is in flight for a username they guessed.
+
+    The password quality message is the exception and is allowed through: it is
+    about what the caller just typed, reveals nothing about anybody else, and
+    withholding it leaves somebody retyping passwords until one sticks.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        try:
+            organization_id = int(request.data.get("organization"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": services.RESET_REFUSED},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            services.complete_password_reset(
+                organization_id=organization_id,
+                username=request.data.get("username", ""),
+                code=request.data.get("code", ""),
+                new_password=request.data.get("new_password", ""),
+            )
+        except services.CredentialError as error:
+            return Response(
+                {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # No session is issued. They sign in with the password they just chose,
+        # which proves it is the one they think it is before they are standing
+        # at a till in front of a customer.
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

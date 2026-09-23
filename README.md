@@ -141,8 +141,7 @@ These are written down rather than left to be rediscovered.
   `check --deploy` reports `mail.E001` truthfully. There is deliberately no
   second variable to forget, because a key set with the backend still on the
   console is a configuration that looks complete and drops every message.
-  What is still missing is a feature that calls it — the cashier password
-  *reset* to pair with the change screen in the till.
+  It is used by the cashier password reset below.
 - **The tests run on SQLite; production is Postgres.** `RUNNING_TESTS` exempts
   the test runner from the refusal that otherwise stops this application
   booting on SQLite — which settings.py justifies with "two tills writing at
@@ -154,6 +153,14 @@ These are written down rather than left to be rediscovered.
   fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
   that once joined through it has been replaced by `identity/scoping.py`. The
   field and its comment are still there and still misleading.
+- **A cashier can reset a forgotten password themselves**, by a six-digit code
+  emailed to the address their manager holds. It leaves `must_change_password`
+  FALSE, unlike the manager reset which sets it True — a code sent to the
+  cashier's own address produces a password nobody else has seen, which is the
+  point rather than a convenience. It also clears a lockout, because proving
+  who you are by email and still being refused at the till is a dead end.
+  **This needs `RESEND_API_KEY` set in production; it is not set yet**, and
+  until it is the request silently succeeds and sends nothing.
 - **`StaffCredential.must_change_password` is asked, not required.** The till
   puts the change in front of a cashier at sign-in, before a register is
   chosen, because that is the one moment they are not mid-queue — but "Do this
