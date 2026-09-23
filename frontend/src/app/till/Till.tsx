@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Mark } from "@/components/Mark";
 import { Calculator } from "./Calculator";
+import { ChangePassword } from "./ChangePassword";
 import { ShiftNote } from "./ShiftNote";
 import { SignIn } from "./SignIn";
 import { Tender } from "./Tender";
 import { cents, shillings, total, type Basket } from "./money";
-import { call, forget, load, readError, type TillSession } from "./session";
+import { call, forget, load, readError, save, type TillSession } from "./session";
 import styles from "./till.module.css";
 
 /**
@@ -82,6 +83,7 @@ function rows<T>(page: Page<T>): T[] {
 export function Till() {
   const [session, setSession] = useState<TillSession | null>(null);
   const [ready, setReady] = useState(false);
+  const [deferred, setDeferred] = useState(false);
 
   // Read storage after mount, never during render: the server has no
   // localStorage, and reading it in render makes the first paint disagree
@@ -93,6 +95,34 @@ export function Till() {
 
   if (!ready) return <div className={styles.boot}>Starting the till…</div>;
   if (!session) return <SignIn onSignedIn={setSession} />;
+
+  /*
+   * Before the till is chosen, and only here.
+   *
+   * This is the one moment a cashier is not mid-queue, which is why the ask
+   * lives at sign-in rather than anywhere further in. Deferring is allowed —
+   * see the banner on ChangePassword — and the gate note below keeps asking.
+   *
+   * `deferred` is component state and not storage on purpose: it lasts until
+   * they sign out, so the next shift asks again. Remembering the refusal
+   * would turn "later" into "never" silently.
+   */
+  if (session.must_change_password && !deferred) {
+    return (
+      <ChangePassword
+        session={session}
+        onDefer={() => setDeferred(true)}
+        onChanged={() => {
+          // The flag has to be cleared in the stored session as well as in
+          // state: it is what the till reads on the next boot, and leaving it
+          // set would ask somebody to change a password they just changed.
+          const updated = { ...session, must_change_password: false };
+          save(updated);
+          setSession(updated);
+        }}
+      />
+    );
+  }
 
   return (
     <Shifted

@@ -44,9 +44,11 @@ dashboard/reports.
 **V2 is not started**: purchasing, suppliers, cash reconciliation at shift
 close, returns workflow beyond the refund itself, advanced permissions,
 notifications and multi-branch reporting beyond the branch comparison.
-`RegisterShift` exists and `GET /sls/reports/register-status` already computes
-the expected drawer figure a close would be reconciled against — closing one
-is the piece that is missing.
+`RegisterShift` exists, `GET /sls/reports/register-status` computes the
+expected drawer figure, and closing a till by counting it is now built — a
+cashier cannot count their own. What is left of V2 here is the rest:
+purchasing, suppliers, the returns workflow beyond the refund itself, advanced
+permissions, notifications and multi-branch reporting.
 
 **V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
 e-commerce sync, advanced analytics, automated replenishment. §11 asks for
@@ -131,19 +133,45 @@ that enforces it.
 
 These are written down rather than left to be rediscovered.
 
-- **No Content-Security-Policy.** Deliberate: `business.caddy` says why —
-  there was no markup to test one against. There is now, and the three pages
-  in `identity/templates/` carry no inline `<style>` and no `style=""`
-  attribute, so a policy can be written without `'unsafe-inline'`. Ship it
-  `Report-Only` first.
-- **There is no dashboard.** Signing in works and creates a platform account;
-  there is then nothing to use it on. The landing page says so, and must keep
-  saying so until it is untrue (Charter 04 §IV).
+- **Mail is not configured.** `MAILERS` falls back to the console backend and
+  `check --deploy` reports `mail.E001` for it — truthfully, and deliberately
+  unsilenced, because the first feature that needs mail is resetting a
+  cashier's password and a reset that discards its own email is the worst way
+  to find this out. CI sets `EMAIL_BACKEND` so the rest of the deploy check
+  can run; that is not a fix and the workflow says so.
+- **The tests run on SQLite; production is Postgres.** `RUNNING_TESTS` exempts
+  the test runner from the refusal that otherwise stops this application
+  booting on SQLite — which settings.py justifies with "two tills writing at
+  the same moment is the normal case for a POS". So the suite has never
+  exercised the database it ships on. A Postgres service container in CI is
+  the fix, and it is its own change: it can surface real failures that deserve
+  a commit about them.
 - **`OrganizationStaff.external_user_id`** is an orphan. It defaults to a
   fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
   that once joined through it has been replaced by `identity/scoping.py`. The
   field and its comment are still there and still misleading.
-- **`StaffCredential.must_change_password`** is written but never enforced.
+- **`StaffCredential.must_change_password` is asked, not required.** The till
+  puts the change in front of a cashier at sign-in, before a register is
+  chosen, because that is the one moment they are not mid-queue — but "Do this
+  later" is there. A POS that will not open because somebody cannot think of a
+  password at seven in the morning is a shop that cannot sell, and refusing to
+  trade is the worse failure. Deferring lasts until sign-out, so the next
+  shift asks again. Making it mandatory is one early return in `Till.tsx`, and
+  it is the business owner's call rather than ours.
+
+### Closed since this list was written
+
+Left here briefly because a gap list nobody trusts is worse than no gap list.
+
+- ~~No Content-Security-Policy~~ — shipped `Report-Only`, then promoted to
+  enforcing, in the two halves the split host needs.
+- ~~There is no dashboard~~ — branches, catalogue, stock, till, sales,
+  refunds, reports, staff and settings all exist, and the landing page no
+  longer claims otherwise.
+- ~~`must_change_password` is written but never enforced~~ — the backend was
+  always complete; nothing in the frontend called it. A cashier was told to
+  "ask your manager to show you how", and there was no how: a manager can only
+  RESET a password, which sets the flag again, so the loop had no exit.
 
 ## The frontend
 
@@ -183,5 +211,5 @@ Mahogany at 6.02:1. On dark, Ignition reaches 5.78:1 and the tokens flip.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 154 tests
+virtual/bin/python manage.py test          # 246 tests
 ```
