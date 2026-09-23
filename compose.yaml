@@ -51,6 +51,16 @@ services:
     volumes:
       - business-platform-db:/var/lib/postgresql/data
 
+      # ── scripts/backup.sh WRITES HERE, AND THAT IS WHY IT IS A MOUNT ──────
+      # pg_dump runs inside this container, so the dump has to land somewhere
+      # the host can keep. Streaming it out through stdout works right up until
+      # a broken pipe leaves a truncated file that looks complete; writing to a
+      # mount and checking the exit status does not have that failure.
+      #
+      # scripts/restore-test.sh reads from the same path, which is why the two
+      # agree on where dumps live without either being told.
+      - ./backups:/backups
+
     healthcheck:
       # The api waits on this. Without it the first boot races the database and
       # fails its own migration for a reason that looks like a code bug.

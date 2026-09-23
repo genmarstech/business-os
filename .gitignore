@@ -33,3 +33,15 @@ db.sqlite3
 *.swp
 .idea/
 .vscode/
+
+# ── DATABASE DUMPS NEVER GO IN GIT ──────────────────────────────────────────
+# scripts/backup.sh writes here, and compose.yaml bind-mounts it into the db
+# container. The contents are every subscriber's sales, refunds, staff and
+# stock — other people's businesses.
+#
+# git does not forget. A dump committed once is in the history of every clone
+# forever, and removing it means rewriting history everybody has already
+# pulled. The ignore is the only cheap moment to get this right.
+backups/
+*.dump
+*.dump.gpg
