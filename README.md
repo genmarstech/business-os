@@ -207,6 +207,38 @@ The one rule most easily lost: **Ignition `#db7b51` is 2.75:1 on the light
 ground** and must never carry small text there — accent text on light is
 Mahogany at 6.02:1. On dark, Ignition reaches 5.78:1 and the tokens flip.
 
+## Backups
+
+```bash
+./scripts/backup.sh            # dump, encrypt a copy, prune
+./scripts/restore-test.sh      # restore the newest dump and check the data
+```
+
+`backup.sh` writes a `pg_dump -Fc` to `./backups/` at mode 600, and — when
+`BACKUP_RECIPIENT` is set — a GPG-encrypted copy to `./backups/offsite/` for
+anything leaving the host. The host holds only the **public** half of the key,
+so it can encrypt a backup and cannot decrypt one: taking the server does not
+hand over the archive of every earlier state of the database.
+
+`restore-test.sh` is the half that matters. A backup nobody has restored is a
+file, not a backup, and Charter 03 §IV Tier 1 asks for a *tested* restore. It
+restores into a throwaway database and asserts the data is there — tables
+present, organisations and migrations non-empty, and row counts for sales,
+payments and refunds matching what was live when the dump began. That last one
+is the check that catches a partial restore, which every other check waves
+through.
+
+**Not done, and it is the weakest link:** nothing collects from
+`./backups/offsite/` yet. gen-portal has `scripts/pull-backups.sh`, run from
+the laptop holding the private key; it does not know about this repository. So
+every copy is still on the same disk as the database it came from, and one
+failed volume loses both. Do not describe these backups as complete.
+
+Two more gaps worth knowing: `sales_saleitem`, `sales_receipt` and
+`inventory_stocklevel` have no `created_at`, so the completeness comparison
+cannot cover them — a sale whose *items* did not restore is a gap this test
+cannot see. And there is no schedule: the script exists, nothing runs it.
+
 ## Running the tests
 
 ```bash
