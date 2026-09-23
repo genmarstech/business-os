@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ForgotPassword } from "./ForgotPassword";
 
 import { call, rememberedOrganisation, readError, save, type TillSession } from "./session";
 import styles from "./till.module.css";
@@ -26,6 +27,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [forgot, setForgot] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -55,6 +57,22 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
     } finally {
       setBusy(false);
     }
+  }
+
+  /*
+   * The organisation and username carry across, so somebody who has already
+   * typed them does not type them again. A till is a touchscreen and the
+   * organisation is a number nobody remembers.
+   */
+  if (forgot) {
+    return (
+      <ForgotPassword
+        organisation={organisation}
+        username={username}
+        onDone={() => setForgot(false)}
+        onCancel={() => setForgot(false)}
+      />
+    );
   }
 
   return (
@@ -116,6 +134,20 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
 
         <button className={styles.gateButton} type="submit" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
+        </button>
+
+        {/*
+          Below the sign-in button, not beside the password field. A cashier
+          reaches for this after a failed attempt, and the alternative — a
+          manager walking over to reset it — is the thing this replaces.
+        */}
+        <button
+          type="button"
+          className={styles.gateQuiet}
+          disabled={busy}
+          onClick={() => setForgot(true)}
+        >
+          Forgotten your password?
         </button>
       </form>
     </div>

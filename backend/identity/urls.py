@@ -32,6 +32,19 @@ urlpatterns = [
         views.ChangeOwnPasswordView.as_view(),
         name="staff-change-password",
     ),
+    # Forgotten, not merely being changed. The change endpoint above needs the
+    # current password; these two are for somebody who does not have it.
+    path(
+        "staff/password/reset",
+        views.RequestPasswordResetView.as_view(),
+        name="staff-reset-request",
+    ),
+    path(
+        "staff/password/reset/confirm",
+        views.CompletePasswordResetView.as_view(),
+        name="staff-reset-confirm",
+    ),
+
     path("me", views.WhoAmIView.as_view(), name="whoami"),
     # Last: the router's list route is `staff/credentials/`, which cannot
     # collide with the explicit paths above, but keeping it here means a future

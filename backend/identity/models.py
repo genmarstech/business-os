@@ -415,3 +415,80 @@ class StaffSession(models.Model):
     def is_live(self) -> bool:
         now = timezone.now()
         return self.revoked_at is None and self.expires_at > now
+
+
+class StaffPasswordReset(models.Model):
+    """
+    A cashier who has forgotten their till password, resetting it themselves.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    WHY THIS EXISTS WHEN A MANAGER CAN ALREADY RESET A PASSWORD.
+
+    They can, and that path stays. But it requires a manager to be present and
+    willing, and it hands them a password they know — which is exactly the
+    state `must_change_password` exists to flag, because until it is changed
+    the cashier's actions are not solely attributable to them.
+
+    A cashier who resets their own password through a code sent to their own
+    address ends up with one nobody else has seen. That is a better outcome
+    than the manager path, not merely a more convenient one.
+
+    ⚠ IT CONFERS NO NEW AUTHORITY, and that is worth stating because the email
+      address this sends to was entered by a manager. A manager who wanted a
+      cashier's account could already reset the password directly. This adds a
+      route for the cashier, not a route for anybody else.
+    ═══════════════════════════════════════════════════════════════════════════
+
+    The code is hashed with the same hasher as a password. A reset code is a
+    credential for as long as it lives, and a table of live plaintext codes is
+    a table that turns one database read into every till in every shop.
+    """
+
+    LIFETIME = timedelta(minutes=15)
+
+    # Enough that guessing six digits inside fifteen minutes is not a strategy,
+    # and few enough that a cashier who fat-fingers it twice on a touchscreen
+    # is not locked out of their own reset.
+    MAX_ATTEMPTS = 5
+
+    # Per credential, per hour. Every request sends an email, so without a
+    # ceiling this is a way to use our sending domain to flood somebody else's
+    # inbox — gen-portal's `auth_code` throttle exists for the same reason.
+    #
+    # Counted in this table rather than in a cache: there is no shared cache
+    # configured here, so a DRF throttle would be per-worker and would multiply
+    # by however many gunicorn processes happen to be running.
+    MAX_PER_HOUR = 3
+
+    credential = models.ForeignKey(
+        "identity.StaffCredential",
+        on_delete=models.CASCADE,
+        related_name="password_resets",
+    )
+
+    code_hashed = models.CharField(max_length=255)
+    expires_at = models.DateTimeField()
+
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    # Set the moment it is spent. A used code is kept rather than deleted: the
+    # row is the evidence that a reset happened and when, which is the sort of
+    # question asked after a till disagrees with its takings.
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["credential", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"reset for {self.credential.username}"
+
+    @property
+    def is_spent(self) -> bool:
+        return (
+            self.used_at is not None
+            or self.attempts >= self.MAX_ATTEMPTS
+            or timezone.now() >= self.expires_at
+        )

@@ -12,8 +12,10 @@ Views call the functions here and do no reasoning of their own.
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .models import (
@@ -22,6 +24,7 @@ from .models import (
     STAFF_SESSION_LIFETIME,
     PlatformAccount,
     StaffCredential,
+    StaffPasswordReset,
     StaffSession,
     TenantInvitation,
     TenantMembership,
@@ -555,6 +558,186 @@ def _check_password_quality(password: str, username: str) -> None:
         )
     if password.strip().lower() == (username or "").strip().lower():
         raise CredentialError("The password cannot be the username.")
+
+
+# ── a cashier resetting their own forgotten password ─────────────────────────
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# EVERY PATH THROUGH request_password_reset LOOKS THE SAME FROM OUTSIDE.
+#
+# Unknown username, deactivated credential, no email on file, too many
+# requests already — all of them return None and the view answers identically.
+# A caller learns nothing about which usernames exist in which shop, which is
+# the same rule authenticate_staff follows and for the same reason: a till
+# sign-in screen is reachable by anyone who can reach the shop's URL.
+#
+# The cost is that a genuine cashier whose record has no email gets silence.
+# That is the right trade here — the alternative tells a stranger that the
+# username they guessed is real — and the manager reset still works for them.
+# ═══════════════════════════════════════════════════════════════════════════
+
+RESET_CODE_LIFETIME = StaffPasswordReset.LIFETIME
+
+# One message for every way a code can be refused: wrong, expired, already
+# used, too many attempts. A caller learning WHICH is learning whether the
+# username exists and whether a reset is in flight for it.
+RESET_REFUSED = "That code is not valid. Ask for a new one."
+
+
+def request_password_reset(*, organization_id: int, username: str) -> str | None:
+    """
+    Mint a reset code, or decide not to. Returns the code, or None.
+
+    Returning the code rather than sending it keeps this function free of
+    email: the caller sends it. That is what lets the tests assert on the code
+    without a mail backend, and what stops a transport failure rolling back a
+    row that was correctly created.
+    """
+    username = (username or "").strip()
+
+    credential = (
+        StaffCredential.objects.select_related("staff")
+        .filter(organization_id=organization_id, username__iexact=username)
+        .first()
+    )
+    if credential is None or not credential.is_active:
+        return None
+
+    # A record with no address cannot be sent to. Silence, not an error — see
+    # the banner.
+    if not (credential.staff and credential.staff.email):
+        return None
+
+    # The ceiling. Counted in the database because there is no shared cache
+    # here, so a per-process throttle would multiply by the worker count.
+    since = timezone.now() - timedelta(hours=1)
+    if (
+        StaffPasswordReset.objects.filter(
+            credential=credential, created_at__gte=since
+        ).count()
+        >= StaffPasswordReset.MAX_PER_HOUR
+    ):
+        return None
+
+    # Six digits, from secrets rather than random: this is a credential for the
+    # next fifteen minutes, and it is typed on a touchscreen by somebody
+    # standing at a counter, which is why it is not a long opaque string.
+    code = f"{secrets.randbelow(1_000_000):06d}"
+
+    # Any earlier live code for this credential stops working. Two valid codes
+    # at once means a code that was emailed, forgotten and left live — and the
+    # person asking for a new one has told us the old one is no use to them.
+    StaffPasswordReset.objects.filter(
+        credential=credential, used_at__isnull=True
+    ).update(used_at=timezone.now())
+
+    StaffPasswordReset.objects.create(
+        credential=credential,
+        code_hashed=_hash(code),
+        expires_at=timezone.now() + StaffPasswordReset.LIFETIME,
+    )
+    return code
+
+
+def complete_password_reset(
+    *, organization_id: int, username: str, code: str, new_password: str
+) -> StaffCredential:
+    """
+    Spend a code and set the password. Raises CredentialError on any refusal.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    ⚠ THIS FUNCTION IS NOT @transaction.atomic, AND IT MUST NOT BECOME SO.
+    ⚠ THE ATTEMPT COUNTER IS THE REASON.
+    ⚠
+    ⚠ It was atomic, and the attempt limit therefore did not exist. Every
+    ⚠ refusal raises, a raise inside an atomic block rolls the block back, and
+    ⚠ the rollback undid the very increment meant to record the failed guess.
+    ⚠ `attempts` was written and discarded five times and stayed at zero, so a
+    ⚠ six-digit code could be guessed without limit for its whole fifteen
+    ⚠ minutes. The test that found it asserts the correct code STOPS working
+    ⚠ after MAX_ATTEMPTS wrong ones.
+    ⚠
+    ⚠ So the counter is committed outside any transaction, before the code is
+    ⚠ checked, and only the final mutation is wrapped.
+    ═══════════════════════════════════════════════════════════════════════════
+
+    ⚠ THE PASSWORD QUALITY CHECK RUNS BEFORE THE CODE IS SPENT. Rejecting a
+      short password after burning the code would send somebody back to their
+      inbox for a second one, having done nothing wrong except pick badly.
+    """
+    username = (username or "").strip()
+
+    credential = (
+        StaffCredential.objects.select_related("staff")
+        .filter(organization_id=organization_id, username__iexact=username)
+        .first()
+    )
+    if credential is None or not credential.is_active:
+        raise CredentialError(RESET_REFUSED)
+
+    reset = (
+        StaffPasswordReset.objects.filter(credential=credential, used_at__isnull=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if reset is None or reset.is_spent:
+        raise CredentialError(RESET_REFUSED)
+
+    # F() rather than read-modify-write: two attempts arriving together would
+    # otherwise each read the same number and write the same number, and the
+    # limit would count one guess instead of two.
+    #
+    # Committed here, outside any transaction, for the reason in the banner.
+    StaffPasswordReset.objects.filter(pk=reset.pk).update(attempts=F("attempts") + 1)
+    reset.refresh_from_db(fields=["attempts"])
+
+    if not _verify(code or "", reset.code_hashed):
+        raise CredentialError(RESET_REFUSED)
+
+    # See the warning above: quality first, then spend.
+    _check_password_quality(new_password, credential.username)
+
+    with transaction.atomic():
+        # Compare-and-set rather than a lock. If two requests race with the
+        # same valid code, exactly one UPDATE matches a row where used_at is
+        # still null; the other gets zero and is refused. This is also what
+        # makes a single code single-use under concurrency.
+        spent = StaffPasswordReset.objects.filter(
+            pk=reset.pk, used_at__isnull=True
+        ).update(used_at=timezone.now())
+        if not spent:
+            raise CredentialError(RESET_REFUSED)
+
+        credential.set_password(new_password)
+
+        # FALSE, unlike the manager reset which sets it True. The distinction
+        # is the whole point: a manager who sets a password knows it, so the
+        # cashier's actions are not yet solely theirs. A code sent to the
+        # cashier's own address produces a password nobody else has seen.
+        credential.must_change_password = False
+
+        # A forgotten password is also how a locked-out cashier gets back to
+        # work. Leaving the lockout would mean proving your identity by email
+        # and still being refused at the till.
+        credential.failed_sign_ins = 0
+        credential.locked_until = None
+        credential.save(
+            update_fields=[
+                "password",
+                "must_change_password",
+                "failed_sign_ins",
+                "locked_until",
+                "updated_at",
+            ]
+        )
+
+        # Every other session ends. Somebody resetting a forgotten password may
+        # be doing it because they think somebody else has been using the
+        # login, and a reset that leaves the other session open answers
+        # nothing.
+        revoke_all_sessions(credential)
+
+    return credential
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
