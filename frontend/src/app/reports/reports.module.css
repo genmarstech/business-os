@@ -187,7 +187,19 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  padding-right: 0 !important;
+  /*
+   * ── LEFT PADDING, NOT ZERO RIGHT PADDING ────────────────────────────────
+   *
+   * This used to zero the right padding so the last column sat flush with the
+   * table edge. It also removed the only gap between a right-aligned number
+   * and whatever column came next, so on the catalogue the Margin and Tax
+   * headers rendered as "MARGINTAX" and the cells as "8.3416.00%" — two
+   * correct figures printed as one wrong one.
+   *
+   * A number column needs space on its LEFT, where the previous column's text
+   * ends. Flush-right is restored below, on the last cell only.
+   */
+  padding-left: 22px;
 }
 
 .table thead th.num {
@@ -347,4 +359,11 @@
   font-size: 11.5px;
   margin: 9px 0 0;
   max-width: 44ch;
+}
+
+
+/* The table's own right edge, where zeroing the padding is safe. */
+.table tbody td:last-child,
+.table thead th:last-child {
+  padding-right: 0;
 }
