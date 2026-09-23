@@ -42,6 +42,12 @@ const GROUPS: Group[] = [
     title: "Inventory",
     items: [
       { href: "/stock", label: "Stock", permission: PERM.inventoryView },
+      /*
+        The count and the account of it are different questions. "48 milk" is
+        on Stock; "it was 50 yesterday, where did two go" is here, and for a
+        long time only the first had a screen.
+      */
+      { href: "/stock/history", label: "Stock history", permission: PERM.inventoryView },
       { href: "/catalogue", label: "Catalogue", permission: PERM.catalogView },
     ],
   },

@@ -253,3 +253,43 @@
   margin: 0 0 12px;
   max-width: 54ch;
 }
+
+/* ── the movement trail ─────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.filter {
+  font-size: 12.5px;
+  text-decoration: none;
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 13px;
+  background: var(--panel);
+}
+
+.filterOn {
+  border-color: var(--accent-fill);
+  color: var(--ink);
+  font-weight: 500;
+  background: var(--sunken);
+}
+
+/*
+ * In and out are the only two things a reader is scanning for, so they are
+ * the only two that get a colour. Green for arriving is not a value
+ * judgement — a delivery is not "good" — it is simply the opposite direction
+ * from a sale, and the eye needs to tell them apart in a long list.
+ */
+.movedIn {
+  color: var(--ok);
+}
+
+.movedOut {
+  color: var(--ink);
+}
