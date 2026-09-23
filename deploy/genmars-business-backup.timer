@@ -1,0 +1,21 @@
+# Nightly backup, and a WEEKLY RESTORE TEST beside it.
+#
+# The restore test is not optional garnish. Charter 03 §IV Tier 1 asks for
+# "automated backup with a tested restore", and an untested backup is a file,
+# not a backup. Running the test on a schedule is what keeps "tested" true
+# rather than true once, months ago.
+
+[Unit]
+Description=Business Platform — nightly Postgres backup
+
+[Timer]
+# 02:45, THIRTY MINUTES AFTER gen-portal's 02:15. Both databases live on this
+# one host; dumping them at the same moment makes each slower and turns a
+# routine job into an I/O spike, for no gain. Off the hour for the same reason
+# gen-portal is — log rotation and certificate renewal cluster at :00.
+OnCalendar=*-*-* 02:45:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

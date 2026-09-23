@@ -1,0 +1,23 @@
+# Prove the newest backup restores. See scripts/restore-test.sh for why this is
+# its own scheduled job rather than a note in a runbook.
+
+[Unit]
+Description=Business Platform — restore test (proves the backups are usable)
+Documentation=file:///opt/business-os/README.md
+Requires=docker.service
+After=docker.service
+
+# A restore test that fails is the most important alert this application can
+# raise: it means the takings of every business on this platform are not
+# recoverable, and it is found on a Sunday morning rather than during an
+# incident.
+OnFailure=genmars-alert@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/business-os
+ExecStart=/opt/business-os/scripts/restore-test.sh
+EnvironmentFile=/opt/business-os/.env
+
+[Install]
+WantedBy=multi-user.target
