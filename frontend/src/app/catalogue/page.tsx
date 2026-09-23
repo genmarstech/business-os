@@ -33,6 +33,7 @@ export default async function CataloguePage({
 
   const { edit } = await searchParams;
   const { products, categories, taxRules } = await catalogue();
+  const branches = await branchChoices();
   const organisationId =
     me.kind === "subscriber" ? me.organisations[0]?.id : me.organisation.id;
 
@@ -126,6 +127,7 @@ export default async function CataloguePage({
                   organisationId={organisationId}
                   categories={categories}
                   taxRules={taxRules}
+                  branches={branches}
                   product={editing}
                 />
               )}
@@ -240,4 +242,14 @@ function Line({
       ) : null}
     </tr>
   );
+}
+
+/** Branches a new product can be stocked at. Scoped by the server. */
+async function branchChoices(): Promise<{ id: number; branch_name: string }[]> {
+  const { getOrNull } = await import("@/lib/api");
+  const page = await getOrNull<
+    { results?: { id: number; branch_name: string }[] } | { id: number; branch_name: string }[]
+  >("/brn/branch/");
+  if (!page) return [];
+  return Array.isArray(page) ? page : (page.results ?? []);
 }

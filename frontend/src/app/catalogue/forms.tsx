@@ -26,11 +26,14 @@ export function ProductForm({
   organisationId,
   categories,
   taxRules,
+  branches,
   product,
 }: {
   organisationId: number;
   categories: Category[];
   taxRules: TaxRule[];
+  /** Somewhere to put the opening count. Only asked when adding. */
+  branches: { id: number; branch_name: string }[];
   product?: Product;
 }) {
   const [state, action] = useActionState(saveProduct, NONE);
@@ -150,6 +153,39 @@ export function ProductForm({
           <option value="false">No — withdrawn</option>
         </Select>
       </Row>
+
+      {/*
+        ── ONLY WHEN ADDING, AND ONLY IF THERE IS A BRANCH ──────────────────
+        A product on no shelf cannot be sold, and the till's refusal names the
+        branch rather than the omission. Editing an existing product leaves
+        its stock alone: that is what /stock is for, and a quantity quietly
+        changed by a price edit is the worst kind of surprise.
+      */}
+      {!editing && branches.length > 0 ? (
+        <Row>
+          <Select
+            name="stock_branch"
+            label="Stock it at"
+            defaultValue={branches[0]?.id}
+            error={state?.field.stock_branch}
+          >
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.branch_name}
+              </option>
+            ))}
+          </Select>
+          <Text
+            name="opening_stock"
+            label="How many do you have?"
+            hint="Booked in as a delivery, so the opening number has a record behind it."
+            inputMode="decimal"
+            mono
+            defaultValue="0"
+            error={state?.field.opening_stock}
+          />
+        </Row>
+      ) : null}
 
       <Submit pending="Saving…">
         {editing ? "Save changes" : "Add to the catalogue"}

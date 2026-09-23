@@ -59,6 +59,51 @@ def as_quantity(value) -> Decimal:
 
 
 @transaction.atomic
+def stock_product(*, product, branch, quantity="0", note=""):
+    """
+    Put a product on a branch's shelf for the first time.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE OPENING COUNT IS A DELIVERY, NOT A STARTING VALUE.
+
+    The tempting shortcut is to create the row with the quantity already in it.
+    That writes a number nothing explains — the one thing this module exists to
+    prevent — and it is the number every later figure is measured against, so
+    an unexplained opening balance quietly undermines the whole trail.
+
+    So the row is created empty and the count booked in through `adjust`, which
+    writes the movement. A stock take six months later can walk every unit back
+    to the day it arrived.
+    ══════════════════════════════════════════════════════════════════════════
+
+    Idempotent on (branch, product): a product already stocked here is returned
+    untouched rather than topped up, because the caller is "make sure this is
+    sellable", not "another delivery arrived".
+    """
+    existing = BranchInventory.objects.filter(
+        branch=branch, product=product
+    ).first()
+    if existing is not None:
+        return existing
+
+    inventory = BranchInventory.objects.create(
+        branch=branch, product=product, quantity=Decimal("0"), is_active=True
+    )
+
+    opening = as_quantity(quantity) if str(quantity).strip() not in ("", "0") else None
+    if opening is not None and opening > 0:
+        adjust(
+            inventory=inventory,
+            delta=opening,
+            reason="DELIVERY",
+            note=note or "Opening stock",
+        )
+        inventory.refresh_from_db()
+
+    return inventory
+
+
+@transaction.atomic
 def adjust(*, inventory: BranchInventory, delta: Decimal, reason: str, note: str = ""):
     """
     Move a quantity by `delta` and write the two rows that explain it.

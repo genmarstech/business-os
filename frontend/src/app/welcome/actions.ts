@@ -138,7 +138,7 @@ export async function createFirstProduct(
       categoryId = category.id;
     }
 
-    await post("/ctl/products/", {
+    const product = await post<{ id: number }>("/ctl/products/", {
       organization: organisation,
       category: categoryId,
       name: text(form, "name"),
@@ -149,6 +149,26 @@ export async function createFirstProduct(
       tax_rule: taxRuleId,
       is_active: true,
     });
+
+    /*
+     * ── AND PUT IT ON THE SHELF, OR THE FIRST SALE FAILS ──────────────────
+     *
+     * A product is catalogue; stock is per branch. Creating one has never
+     * created the other, so this flow used to end with a till that refused
+     * the only product it had: "not stocked at this branch", with the fix on
+     * a screen nobody had been sent to.
+     *
+     * The count is booked as a delivery, so even the opening number has a
+     * movement behind it.
+     */
+    const branch = Number(text(form, "branch_id"));
+    if (branch) {
+      await post(`/ctl/products/${product.id}/stock/`, {
+        branch,
+        quantity: text(form, "opening_stock") || "0",
+        note: "Opening stock",
+      });
+    }
   } catch (error) {
     return asFormErrors(error);
   }

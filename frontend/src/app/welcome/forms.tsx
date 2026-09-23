@@ -140,9 +140,12 @@ export function BranchForm({ organisationId }: { organisationId: number }) {
 export function ProductForm({
   organisationId,
   hasTaxRule,
+  branchId,
 }: {
   organisationId: number;
   hasTaxRule: boolean;
+  /** Where the opening count goes. The flow has made exactly one by now. */
+  branchId: number | null;
 }) {
   const [state, action] = useActionState(createFirstProduct, NONE);
 
@@ -156,6 +159,9 @@ export function ProductForm({
 
       <form action={action}>
         <input type="hidden" name="organization_id" value={organisationId} />
+        {branchId ? (
+          <input type="hidden" name="branch_id" value={branchId} />
+        ) : null}
         <General messages={state?.general ?? []} />
 
         <Text
@@ -221,6 +227,18 @@ export function ProductForm({
             error={state?.field.tax_rate}
           />
         )}
+
+        {branchId ? (
+          <Text
+            name="opening_stock"
+            label="How many do you have?"
+            hint="Booked in as your first delivery, so the number has a record behind it. A till will not sell what is not on the shelf."
+            inputMode="decimal"
+            mono
+            defaultValue="0"
+            error={state?.field.opening_stock}
+          />
+        ) : null}
 
         <Text
           name="category_name"

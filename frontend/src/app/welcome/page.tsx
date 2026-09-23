@@ -112,6 +112,7 @@ export default async function Welcome() {
         <ProductForm
           organisationId={organisationId}
           hasTaxRule={state.taxRules > 0}
+          branchId={(await branchChoices())[0]?.id ?? null}
         />
       ) : null}
 

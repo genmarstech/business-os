@@ -52,7 +52,22 @@ export async function saveProduct(
     if (id) {
       await patch(`/ctl/products/${id}/`, body);
     } else {
-      await post("/ctl/products/", body);
+      const made = await post<{ id: number }>("/ctl/products/", body);
+
+      /*
+       * A new product that is on no shelf cannot be sold, and the till's
+       * refusal names the branch rather than the omission. Stocking it here
+       * — at zero if they did not say — at least puts it on /stock where the
+       * count can be booked in.
+       */
+      const branch = Number(text(form, "stock_branch"));
+      if (branch) {
+        await post(`/ctl/products/${made.id}/stock/`, {
+          branch,
+          quantity: text(form, "opening_stock") || "0",
+          note: "Opening stock",
+        });
+      }
     }
   } catch (error) {
     return asFormErrors(error);
