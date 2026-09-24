@@ -32,6 +32,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # ── THE SUITE RUNS ON THE DATABASE IT SHIPS ON ──────────────────────────
+    #
+    # settings.py refuses to boot on SQLite with DEBUG off, and says why: "Two
+    # tills writing at the same moment is the normal case for a POS, and SQLite
+    # has no answer for it." Then RUNNING_TESTS exempts the test runner from
+    # that refusal — so for the life of this repository the suite has been run
+    # against a database the application itself is not allowed to use.
+    #
+    # 17-alpine matches compose.yaml. A suite green on a different major
+    # version is a weaker claim than it looks.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        # Without this the suite races the database on a cold runner and fails
+        # its first connection for a reason that reads like a code bug.
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     defaults:
       run:
         working-directory: backend
@@ -49,24 +76,25 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # ⚠ THESE RUN ON SQLITE, AND PRODUCTION IS POSTGRES.
-      #
-      # settings.py refuses to boot on SQLite with DEBUG off, and says why:
-      # "Two tills writing at the same moment is the normal case for a POS,
-      # and SQLite has no answer for it." The test runner is exempt from that
-      # refusal, so the suite has always run on SQLite — locally and now here.
-      #
-      # Matching gen-portal rather than quietly diverging. Moving to a Postgres
-      # service container is the right change and is a change of its own: it
-      # can surface real failures (stricter typing, transaction behaviour, row
-      # locking) and those deserve to land in a commit that is about them,
-      # not hidden inside the one that introduces CI. Recorded in the README.
+      # DATABASE_URL is what selects Postgres — see the block in settings.py.
+      # Without it Django falls back to SQLite silently, and this job goes back
+      # to proving nothing about the database production uses while still
+      # reporting green. That is the failure worth guarding, because it looks
+      # exactly like success.
       - name: Tests
+        env:
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
         run: python manage.py test --verbosity 2
 
-      # A DSN that is never connected to. `check --deploy` reads configuration;
-      # it does not open the database. Without one, settings.py refuses to boot
-      # at all and the check never runs — which would look like a pass.
+      # `check --deploy` reads configuration; it does not open the database.
+      # Without a DSN, settings.py refuses to boot at all and the check never
+      # runs — which would look like a pass.
+      #
+      # It points at the service container above, which is now genuinely
+      # listening. That is incidental rather than required: this step would
+      # pass against an address with nothing on it, and saying otherwise would
+      # invite somebody to delete the service and wonder why only the tests
+      # broke.
       #
       # ⚠ RESEND_API_KEY IS SET HERE AND THAT IS NOT A WORKAROUND TO DELETE.
       #
