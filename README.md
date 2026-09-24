@@ -142,13 +142,15 @@ These are written down rather than left to be rediscovered.
   second variable to forget, because a key set with the backend still on the
   console is a configuration that looks complete and drops every message.
   It is used by the cashier password reset below.
-- **The tests run on SQLite; production is Postgres.** `RUNNING_TESTS` exempts
-  the test runner from the refusal that otherwise stops this application
-  booting on SQLite — which settings.py justifies with "two tills writing at
-  the same moment is the normal case for a POS". So the suite has never
-  exercised the database it ships on. A Postgres service container in CI is
-  the fix, and it is its own change: it can surface real failures that deserve
-  a commit about them.
+- **The tests run on SQLite locally.** CI now runs them against Postgres 17,
+  matching compose.yaml, so the claim "the suite passes" is about the database
+  the application actually ships on. A local `manage.py test` still uses
+  SQLite, which is a development convenience — if a failure appears only in
+  CI, that difference is the first place to look:
+
+  ```bash
+  DATABASE_URL=postgres://… virtual/bin/python manage.py test
+  ```
 - **`OrganizationStaff.external_user_id`** is an orphan. It defaults to a
   fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
   that once joined through it has been replaced by `identity/scoping.py`. The
