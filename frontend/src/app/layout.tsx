@@ -1,17 +1,36 @@
 import type { Metadata } from "next";
-import {
-  IBM_Plex_Mono,
-  IBM_Plex_Sans,
-  Jost,
-  Source_Serif_4,
-} from "next/font/google";
+import localFont from "next/font/local";
 
 import "./globals.css";
 
 /**
- * Three faces, each doing a job the others cannot. Self-hosted at build time
- * by next/font — no request to Google at runtime, which is both faster and one
- * fewer third party seeing who uses a shop's till.
+ * Four faces, each doing a job the others cannot. Served from this origin —
+ * no request to Google at runtime, which is faster and one fewer third party
+ * seeing who uses a shop's till.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * next/font/LOCAL, NOT next/font/google, AND THAT IS THE WHOLE POINT.
+ *
+ * `next/font/google` also self-hosts — but it DOWNLOADS the files during the
+ * build, which put fonts.googleapis.com on the critical path of
+ * `docker build`. A transient failure there fails the image with "An error
+ * occurred in `next/font`" while nothing about this application is wrong.
+ *
+ * It failed CI on a commit that changed one SVG path, and then failed the
+ * deploy on the server minutes later. A deploy somebody else's CDN can break
+ * is not a deploy we control, so the files live in src/app/fonts/ and a
+ * build needs no network beyond the npm registry.
+ *
+ * To add a face or a weight: edit WANTED in scripts/vendor-fonts.mjs, run
+ * it, and add the declaration here. See src/app/fonts/README.md.
+ *
+ * ── THREE OF THESE ARE ONE FILE COVERING A RANGE ──────────────────────────
+ *
+ * Jost, Source Serif and Plex Sans are variable fonts: a single woff2 serves
+ * every weight, so they declare `weight: "400 600"` rather than one entry
+ * each. Plex Mono is static on Google Fonts and genuinely needs a file per
+ * weight — which is why it alone has two.
+ * ══════════════════════════════════════════════════════════════════════════
  *
  * ── THREE FACES, AND EACH HAS ONE JOB ─────────────────────────────────────
  *
@@ -27,9 +46,10 @@ import "./globals.css";
  * 1 l I and 0 O are genuinely distinct and a serif's are not at 12px. Plex
  * Mono takes every amount, SKU, barcode and receipt preview.
  */
-const jost = Jost({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+const jost = localFont({
+  src: "./fonts/jost-variable.woff2",
+  weight: "400 600",
+  style: "normal",
   variable: "--font-jost",
   display: "swap",
 });
@@ -39,23 +59,28 @@ const jost = Jost({
  * one, so it is tempting to reach for it everywhere; two weights is the fence
  * that keeps it in headings.
  */
-const sourceSerif = Source_Serif_4({
-  subsets: ["latin"],
-  weight: ["400", "600"],
+const sourceSerif = localFont({
+  src: "./fonts/source-serif-4-variable.woff2",
+  weight: "400 600",
+  style: "normal",
   variable: "--font-source-serif",
   display: "swap",
 });
 
-const plexSans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+const plexSans = localFont({
+  src: "./fonts/ibm-plex-sans-variable.woff2",
+  weight: "400 600",
+  style: "normal",
   variable: "--font-plex-sans",
   display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const plexMono = localFont({
+  // Static, so one file per weight — see the banner.
+  src: [
+    { path: "./fonts/ibm-plex-mono-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-mono-500.woff2", weight: "500", style: "normal" },
+  ],
   variable: "--font-plex-mono",
   display: "swap",
 });
