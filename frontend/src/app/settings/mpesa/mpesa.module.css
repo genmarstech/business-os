@@ -1,0 +1,208 @@
+/*
+ * The shop's M-Pesa settings.
+ *
+ * A form somebody fills in once and then forgets, so the craft goes into
+ * making the dangerous field — production — visibly different from the rest,
+ * and into saying plainly which secrets are already on file.
+ */
+
+.page {
+  max-width: 48rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 20px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 66ch;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 3px 11px;
+  white-space: nowrap;
+}
+
+.chipOn {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.chipOff {
+  background: var(--sunken);
+  color: var(--ink-faint);
+}
+
+.chipLive {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin: 18px 0 0;
+  max-width: 70ch;
+}
+
+/* ── form ──────────────────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 15px 16px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.legend {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding: 0 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.onFile {
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.notOnFile {
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin: 0;
+}
+
+.input {
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+  width: 100%;
+  min-width: 0;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.warn {
+  border: 1px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.primary {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  padding: 9px 18px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  align-self: flex-start;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin: 0;
+}

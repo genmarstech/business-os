@@ -136,6 +136,88 @@ Editing a list changes tomorrow's prices and rewrites nothing. Every price on
 a sale line is a copy — the same snapshot rule that keeps a supplier's price
 rise out of last quarter's margin.
 
+## Taking M-Pesa at the till
+
+A cashier types the customer's number, the customer gets a prompt, and the
+sale rings itself up when Safaricom confirms it. `payments/`, screens at
+`/settings/mpesa` and inside the till.
+
+**These are the tenant's payments, not Genmars'.** A customer pays the SHOP,
+on the shop's own paybill, through the shop's own Daraja application. No money
+passes through Genmars and no Genmars credential is involved. What a tenant
+pays Genmars for their subscription is a separate flow, brokered by gen-portal
+where the `Invoice` and the company's M-Pesa credentials already are — keeping
+those apart is why this app holds no Genmars secret.
+
+### The callback is public, so it decides nothing
+
+Safaricom post the result to a URL we publish, and a payment processor cannot
+hold a session, so that URL is reachable by anyone. If a callback saying
+"paid" were enough to mark a sale paid, the endpoint would be a way to walk
+out of the shop with the stock.
+
+So **the STK query is the source of truth and the callback is only a hint.** A
+callback with a valid token causes us to ask Safaricom directly; nothing in
+its body is parsed, stored or believed. A forged callback costs one outbound
+query and achieves nothing — `test_a_forged_callback_cannot_mark_a_push_paid`
+posts a perfectly-formed success while Safaricom says cancelled, and the push
+must come out FAILED.
+
+It also makes the feature work when the callback never arrives, which happens
+often enough to design for: the till polls, and the endpoint it polls asks
+Safaricom every time.
+
+Other decisions in that endpoint: an unknown token is answered **200**, not
+404 — a 404 tells a prober which tokens are real, and Safaricom retry anything
+that is not a 200 for hours. The token is 32 random bytes, stored as a SHA-256
+digest, so a database read does not hand anybody a working callback URL.
+
+### A confirmed payment is spent exactly once
+
+`StkPush.sale` is a OneToOne and the database enforces it. The push is spent
+**inside the transaction that writes the sale** — `sales/services.checkout`
+calls `payments.services.spend`, and a refusal rolls the whole sale back,
+stock included. Two separate requests would leave a window where the sale
+exists and the payment is still unspent, and an unspent confirmed payment can
+fund somebody else's basket. `spend` also refuses a wrong amount, an
+unconfirmed push, and one belonging to another business.
+
+The sale is written **after** the money, not before. Creating it first would
+mean voiding one every time a customer changes their mind at the PIN prompt,
+and a void is something a manager has to explain.
+
+### Credentials, and the dependency that stores them
+
+A Daraja consumer key, secret and passkey belong to the **customer**. Holding
+them makes this database worth breaking into for a reason unrelated to the
+shop's own data, so they are encrypted rather than merely access-controlled.
+
+That needed `cryptography` — **Charter 03 §I's first exception in this
+repository**. The standard library authenticates and generates but ships no
+symmetric encryption, and hand-rolling AES-GCM over a KDF is exactly the code
+that should not be hand-rolled. The alternative was other businesses' merchant
+secrets in plaintext in a Postgres dump.
+
+The key is `MPESA_CREDENTIAL_KEY`, deliberately **not** derived from
+`DJANGO_SECRET_KEY`. Rotating the secret key is the ordinary response to
+thinking it may have leaked, and its documented cost is invalidated sessions —
+if merchant credentials hung off it, rotation would also turn every tenant's
+M-Pesa configuration into noise, discovered at a counter. Absent, the feature
+is honestly off: the configuration endpoint answers 503 and nothing is stored
+in the clear. The three secrets are write-only in the API and never returned,
+masked or otherwise.
+
+### Two smaller decisions
+
+- **Cents are refused, not rounded.** M-Pesa moves whole shillings. Rounding
+  down leaves the drawer short on every such sale and never reconciles;
+  rounding up charges more than the receipt says. So a basket of 150.50 is
+  refused with a message, and a shop that wants to round records it as a
+  discount.
+- **There is no "mark as paid" button at the till.** A cashier who could say
+  the money arrived is one who can be talked into it by a customer holding a
+  convincing SMS.
+
 ## Buying
 
 Blueprint §9's Procurement domain, and the other end of a stock figure. Until
@@ -478,5 +560,5 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 399 tests
+virtual/bin/python manage.py test          # 444 tests
 ```

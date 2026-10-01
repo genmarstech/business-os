@@ -431,6 +431,23 @@ def checkout(
                 credit_balance=F("credit_balance") + money(amount - change)
             )
 
+        # ── SPEND THE M-PESA PUSH INSIDE THIS TRANSACTION ─────────────────
+        #
+        # Imported here rather than at the top because `payments` imports
+        # `sales` for its StkPush.sale relation, and a module-level import
+        # both ways is a cycle. This is the only direction that needs one.
+        #
+        # It must happen HERE and not in a second request from the till: a
+        # sale written while the push stayed unspent leaves a confirmed
+        # payment available to fund somebody else's basket. `spend` refuses
+        # a push that is the wrong amount, already spent, not confirmed, or
+        # another tenant's, and the refusal rolls this whole sale back.
+        push = payment.get("stk_push")
+        if push is not None:
+            from payments import services as payment_services
+
+            payment_services.spend(push, sale)
+
     issue_receipt(sale)
     return sale
 

@@ -17,6 +17,8 @@ from branches.models import Branches, RegisterShift
 from catalog.models import CatalogCategoryProduct, TaxRule
 from organisations.models import OrganizationStaff
 
+from payments.models import StkPush
+
 from .models import Customer, Payment, Receipt, Refund, RefundItem, Sale, SaleItem
 
 
@@ -122,6 +124,21 @@ class CheckoutPaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     reference = serializers.CharField(
         max_length=100, required=False, allow_blank=True, default=""
+    )
+    # ── A CONFIRMED M-PESA PUSH, WHERE THERE IS ONE ─────────────────────
+    #
+    # Sent by the till after `/pay/mpesa/pushes/{id}/check/` has come back
+    # paid. `services.checkout` spends it INSIDE the same transaction that
+    # writes the sale: if the two were separate calls, a sale could be
+    # written while the push stayed unspent, and the same confirmed payment
+    # would then be available to fund a second basket.
+    #
+    # Unscoped queryset on purpose — the service checks the organisation,
+    # the amount and whether it has already been spent, and says so in
+    # words. A scoped queryset here would turn all three into "that is not
+    # a valid choice".
+    stk_push = serializers.PrimaryKeyRelatedField(
+        queryset=StkPush.objects.all(), required=False, allow_null=True
     )
 
 

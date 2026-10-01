@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'inventory',
     'identity',
     'sales',
+    'payments',
     'procurement',
 ]
 
@@ -241,6 +242,25 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # boot — worth knowing, because every example on the internet still shows the
 # old name.
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+
+# ── THE KEY THAT SEALS TENANTS' M-PESA CREDENTIALS ──────────────────────────
+#
+# Its own variable, deliberately NOT derived from DJANGO_SECRET_KEY. Rotating
+# the secret key is an ordinary response to thinking it may have leaked, and
+# the documented cost of doing so is invalidated sessions. If merchant
+# credentials hung off it, rotation would also turn every tenant's M-Pesa
+# configuration into undecryptable noise and the shop would find out at the
+# counter. One key, one blast radius.
+#
+# Absent means the feature is OFF: payments/crypto.py refuses to seal or
+# unseal and the configuration endpoint answers 503 saying so. It does not
+# fall back to plaintext and it does not invent an ephemeral key, which would
+# work until the next restart and then quietly destroy everything stored.
+#
+# Generate one with:
+#   python -c "from cryptography.fernet import Fernet; \
+#              print(Fernet.generate_key().decode())"
+MPESA_CREDENTIAL_KEY = os.environ.get("MPESA_CREDENTIAL_KEY", "")
 
 # Resend refuses a From address on a domain that has not been verified with
 # them, and answers with a readable reason rather than silently dropping it —
