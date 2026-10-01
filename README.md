@@ -279,6 +279,26 @@ caller's authority and is wrong here: an owner holds every permission there
 is, and is being refused over an invoice. Telling them they lack permission
 sends them to look at roles, which is the one place the answer is not.
 
+### Recording that somebody has paid
+
+`services.extend` existed and **nothing called it**. A customer could pay by
+bank transfer, by M-Pesa to the company till, in cash — and Genmars had no way
+to write it down, so the trial lapsed and the subscription suspended anyway.
+The product was not chargeable, not because the money could not be taken but
+because its arrival could not be recorded.
+
+It is an admin action now, on `Subscription`: select the tenants, give the date
+the money covers, and the services write the change and the event beside it.
+Taking the money is still not this application's job and deliberately never
+will be.
+
+The admin also **used to allow exactly what the API forbids.** Every field was
+editable, so `paid_until` could be moved eighteen months out by typing in a box
+and the append-only log would say nothing happened — the one surface Genmars
+actually uses was the one that bypassed the rule. Every commercial field is
+read-only now, and the only way to move one is an action that writes an event
+naming who did it.
+
 ### Three more decisions worth knowing
 
 - **There is no `status` column. The state is derived from dates.** A stored
