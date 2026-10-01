@@ -78,12 +78,25 @@ class Base(TestCase):
             services.submit_order(order)
             order.refresh_from_db()
         if status == PurchaseOrder.Status.APPROVED:
-            services.approve_order(
-                order,
-                actor=a_subscriber(self.org, TenantMembership.Role.OWNER, number=99),
-            )
+            services.approve_order(order, actor=self.approver())
             order.refresh_from_db()
         return order
+
+    def approver(self):
+        """
+        One owner per test, made on demand.
+
+        `genmars_account_id` is unique across the whole table, so minting a
+        fresh account inside this helper meant a test could only raise one
+        approved order — the second collided on the constraint and surfaced
+        as an IntegrityError from deep inside the service, which points
+        nowhere near the helper that caused it.
+        """
+        if not hasattr(self, "_approver"):
+            self._approver = a_subscriber(
+                self.org, TenantMembership.Role.OWNER, number=99
+            )
+        return self._approver
 
 
 class SubscriberTests(Base):
@@ -482,3 +495,112 @@ class SupplierTests(Base):
         other_org, _ = a_shop("Shop B")
         a_supplier(other_org, name="Brookside")
         self.assertEqual(Supplier.objects.filter(name="Brookside").count(), 2)
+
+
+class BuyingReportApiTests(Base):
+    """
+    The reports over HTTP. Who may read them is a decision in its own right —
+    see the banner on `BuyingReportViewSet` — so it is tested rather than
+    assumed.
+    """
+
+    ROUTES = (
+        "/prc/reports/overview/",
+        "/prc/reports/by-supplier/",
+        "/prc/reports/by-product/",
+        "/prc/reports/outstanding/",
+        "/prc/reports/reliability/",
+    )
+
+    def test_every_report_refuses_an_anonymous_caller(self):
+        for route in self.ROUTES:
+            response = self.client.get(route)
+            self.assertIn(response.status_code, (401, 403), route)
+
+    def test_a_purchasing_officer_may_read_them(self):
+        """
+        The decision this viewset makes, as a test. A purchasing officer
+        holds no reporting permission at all; gating buying reports behind
+        one would hide what a supplier costs from the only person whose job
+        is to negotiate it.
+        """
+        self.sign_in_staff(
+            role=staffAssignment.StaffRoles.PurchasingOfficer,
+            branch=self.westlands,
+            name="Peter Buyer",
+            email="peter@a.co.ke",
+            id_number=3001,
+            username="peter",
+        )
+        for route in self.ROUTES:
+            response = self.client.get(route, **self.auth())
+            self.assertEqual(response.status_code, 200, f"{route}: {response.content}")
+
+    def test_a_cashier_is_refused(self):
+        """The positive control above makes this mean something."""
+        self.sign_in_staff(
+            role=staffAssignment.StaffRoles.Cashier,
+            branch=self.westlands,
+            name="Jane Cashier",
+            email="jane@a.co.ke",
+            id_number=3002,
+            username="jane",
+        )
+        for route in self.ROUTES:
+            response = self.client.get(route, **self.auth())
+            self.assertEqual(response.status_code, 403, route)
+
+    def test_every_figure_crosses_the_wire_as_a_string(self):
+        """
+        ── DRF RENDERS A BARE Decimal AS A float ───────────────────────────
+        These reports are plain dicts, not serialisers, so they miss
+        DRF's own DecimalField treatment and 19.99 would leave as
+        19.989999999999998. `exact()` is what stops that, and this is what
+        notices if a new action forgets to call it.
+        """
+        self.sign_in_subscriber(TenantMembership.Role.OWNER)
+        order = self.an_order(status=PurchaseOrder.Status.APPROVED)
+        BranchInventory.objects.create(
+            branch=self.westlands, product=self.milk, quantity=Decimal("0")
+        )
+        services.receive_goods(
+            order, lines=[{"item": order.items.first(), "quantity": Decimal("10")}]
+        )
+
+        body = self.client.get("/prc/reports/overview/").json()
+        self.assertIsInstance(body["received_value"], str)
+        self.assertEqual(body["received_value"], "700.00")
+
+        suppliers = self.client.get("/prc/reports/by-supplier/").json()["suppliers"]
+        self.assertIsInstance(suppliers[0]["received_value"], str)
+
+        position = self.client.get("/prc/reports/outstanding/").json()
+        self.assertIsInstance(position["committed"], str)
+
+    def test_a_branch_manager_sees_their_own_branch_and_not_the_other(self):
+        """
+        The order LIST is confined by `branch_path`; the report has to stop
+        in the same place or it is a way round the scoping of the screen it
+        summarises.
+        """
+        self.sign_in_staff(
+            role=staffAssignment.StaffRoles.AssistantManager,
+            branch=self.westlands,
+            name="Grace Manager",
+            email="grace@a.co.ke",
+            id_number=3003,
+            username="grace",
+        )
+        for branch in (self.westlands, self.karen):
+            BranchInventory.objects.create(
+                branch=branch, product=self.milk, quantity=Decimal("0")
+            )
+            order = self.an_order(branch=branch, status=PurchaseOrder.Status.APPROVED)
+            services.receive_goods(
+                order,
+                lines=[{"item": order.items.first(), "quantity": Decimal("10")}],
+            )
+
+        body = self.client.get("/prc/reports/overview/", **self.auth()).json()
+        self.assertEqual(body["received_value"], "700.00")
+        self.assertEqual(body["deliveries"], 1)

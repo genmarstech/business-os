@@ -16,9 +16,10 @@ from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 
-from branches.models import Branches, Register, RegisterShift
+from branches.models import Branches, Register, RegisterShift, staffAssignment
 from catalog.models import CatalogCategories, CatalogCategoryProduct, TaxRule
-from identity.models import PlatformAccount, TenantMembership
+from identity.authentication import StaffPrincipal
+from identity.models import PlatformAccount, StaffCredential, TenantMembership
 from inventory.models import BranchInventory, StockMovement
 from organisations.models import BusinessOrganization, OrganizationStaff
 
@@ -1043,3 +1044,122 @@ class ReportingWindowTests(TestCase):
         self.assertEqual(timezone.localtime(start).hour, 0)
         self.assertEqual(timezone.localtime(end).hour, 23)
         self.assertEqual(timezone.localtime(end).minute, 59)
+
+
+class BranchConfinedReportingTests(TestCase):
+    """
+    A branch manager's reports must stop at their branch.
+
+    §5: a branch manager "should see only the data and actions permitted for
+    that branch", and `ReportViewSet` chooses REPORTS_BRANCH over
+    REPORTS_ORGANISATION for exactly that reason. Choosing the narrower
+    permission is only half of it — the aggregate underneath has to be narrow
+    too, and these tests are the half that was missing.
+    """
+
+    class _Session:
+        """The two attributes StaffPrincipal reads. Signing in is not the
+        thing under test, and a real session would need a request."""
+
+        def __init__(self, credential):
+            self.credential = credential
+
+    def setUp(self):
+        self.org = BusinessOrganization.objects.create(name="Two Branch Grocers")
+        self.west = Branches.objects.create(
+            organization=self.org, branch_name="Westlands",
+            branch_location="Nairobi", branch_allocation="Shop 4",
+            branch_manager="W Manager", is_active=True,
+        )
+        self.karen = Branches.objects.create(
+            organization=self.org, branch_name="Karen",
+            branch_location="Nairobi", branch_allocation="Shop 9",
+            branch_manager="K Manager", is_active=True,
+        )
+
+        self.product = a_product(self.org, name="Milk", price="100.00", cost="60.00")
+        stock(self.west, self.product, "100")
+        stock(self.karen, self.product, "100")
+
+        self.manager = OrganizationStaff.objects.create(
+            organization=self.org, full_name="Grace Manager",
+            email="grace@grocers.co.ke", phone_number="+254700000777",
+            address="Nairobi", id_number=77001,
+        )
+        staffAssignment.objects.create(
+            staff_member=self.manager, branch=self.west, staff_assignment="AM"
+        )
+        credential = StaffCredential(staff=self.manager, username="grace")
+        credential.set_password("not-a-real-password")
+        credential.save()
+        self.principal = StaffPrincipal(self._Session(credential))
+
+        # One sale at each branch, so a leak is unmistakable: 100 is correct
+        # and 900 is the whole organisation.
+        self.sell(self.west, "1")
+        self.sell(self.karen, "8")
+
+    def sell(self, branch, quantity):
+        register = Register.objects.create(
+            branch=branch, name=f"{branch.branch_name} till", register_number="T1"
+        )
+        shift = RegisterShift.objects.create(
+            register=register, operator=self.manager, opening_cash=Decimal("0.00")
+        )
+        return services.checkout(
+            shift=shift,
+            cashier=self.manager,
+            lines=[{"product": self.product, "quantity": Decimal(quantity)}],
+            payments=[
+                {
+                    "method": Payment.Method.CASH,
+                    "amount": Decimal(quantity) * Decimal("100.00"),
+                }
+            ],
+        )
+
+    def window(self):
+        today = timezone.localtime().date()
+        tz = timezone.get_current_timezone()
+        return (
+            timezone.make_aware(datetime.combine(today, time.min), tz),
+            timezone.make_aware(datetime.combine(today, time.max), tz),
+        )
+
+    def test_the_overview_stops_at_the_branches_they_are_assigned_to(self):
+        start, end = self.window()
+        figures = reports.overview(self.principal, start, end)
+        self.assertEqual(figures["revenue"], Decimal("100.00"))
+        self.assertEqual(figures["transactions"], 1)
+
+    def test_the_branch_comparison_lists_only_their_own_branch(self):
+        """
+        The one that makes the leak legible: a branch manager reading a table
+        of every branch's takings is being shown the comparison §5 reserves
+        for the organisation's own dashboard.
+        """
+        start, end = self.window()
+        rows = reports.by_branch(self.principal, start, end)
+        self.assertEqual([row["branch"] for row in rows], [self.west.pk])
+
+    def test_naming_a_branch_they_are_not_assigned_to_reports_nothing(self):
+        start, end = self.window()
+        figures = reports.overview(self.principal, start, end, self.karen.pk)
+        self.assertEqual(figures["revenue"], Decimal("0.00"))
+
+    def test_the_cashier_report_does_not_reach_another_branch(self):
+        start, end = self.window()
+        rows = reports.by_cashier(self.principal, start, end)
+        self.assertEqual([row["revenue"] for row in rows], [Decimal("100.00")])
+
+    def test_an_owner_still_sees_the_whole_organisation(self):
+        """The confinement must not catch a subscriber: `branch_scope`
+        returns None for organisation-wide authority, and None means
+        unrestricted, not none."""
+        account = PlatformAccount.objects.create(
+            genmars_account_id=777, email="owner@grocers.co.ke", full_name="Owner"
+        )
+        TenantMembership.objects.create(account=account, organization=self.org)
+        start, end = self.window()
+        figures = reports.overview(account, start, end)
+        self.assertEqual(figures["revenue"], Decimal("900.00"))
