@@ -244,6 +244,106 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # old name.
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# WHEN SOMETHING BREAKS, A HUMAN HEARS ABOUT IT
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# There was nothing here at all: no ADMINS, no LOGGING, no handler. An
+# un-caught 500 in this application went to the container log and stopped
+# there, and the container log is a thing somebody looks at *after* being told
+# there is a problem. The way Genmars found out a till was failing was a shop
+# telephoning — which means the shop was the monitoring.
+#
+# gen-portal has had this since its own Tier 1 work; this is the same floor,
+# with the reasoning rewritten for what a crash in a POS actually carries.
+#
+# ── include_html=False, AND HERE IT IS NOT A PREFERENCE ────────────────────
+#
+# Django's HTML traceback embeds every local variable in every frame. In this
+# application, at the moment of a 500, those locals plausibly include:
+#
+#     a decrypted Daraja passkey      payments/daraja.py holds one mid-call
+#     a cashier's password            identity, during a sign-in
+#     a customer's phone number       the till, during an M-Pesa request
+#     another business's basket       sales, during a checkout
+#
+# Mailing that to an operator inbox would turn an error alert into a credential
+# disclosure and a personal-data breach in one message, through a third-party
+# relay, in plain text. The plain traceback is frames and line numbers and is
+# enough to find the fault.
+#
+# Django's own SafeExceptionReporterFilter does cleanse POST parameters whose
+# names look like secrets, which covers the configuration form. It does not
+# cleanse local variables outside that, and it does not cleanse the URL path.
+#
+# ── THE ONE THING IN A PATH WORTH THINKING ABOUT ───────────────────────────
+#
+# /pay/mpesa/callback/<token> puts a token in the URL, so a 500 reaching this
+# handler from middleware would mail it. Judged acceptable rather than
+# redacted, because that token is deliberately not worth much: by design a
+# valid one lets somebody trigger one outbound query to Safaricom and settles
+# nothing (see payments/models.py). If the callback ever starts deciding
+# anything, this decision has to be revisited in the same change.
+#
+# ── IT GOES TO AN OPERATOR ADDRESS, NOT A PUBLISHED ONE ────────────────────
+#
+# gen-portal learned this the expensive way — GM-INC-2026-0001, where alerts
+# were pointed at a published address with no mailbox behind it, Zoho answered
+# 550, Resend suppressed the address, and thirty-one hours of alerts were
+# dropped in silence while the API kept returning 200. Alerting is a different
+# job from correspondence and gets a different address.
+#
+# ⚠ AND IT NEEDS RESEND_API_KEY. Without it MAILERS stays on the console and
+# these alerts go to the container log beside the traceback they describe,
+# which is no alert at all. `check --deploy` reports mail.E001 truthfully in
+# that state; it is the honest signal that this is not armed.
+ADMINS = [("Genmars Tech", os.environ.get("ERROR_EMAIL", "edwin@genmars.co.ke"))]
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "{levelname} {name} {message}", "style": "{"},
+    },
+    "filters": {
+        # Without this, a developer running DEBUG=1 emails a real human every
+        # time they mistype something.
+        "require_debug_false": {"()": "django.utils.log.RequireDebugFalse"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+        "mail_admins": {
+            "class": "django.utils.log.AdminEmailHandler",
+            "level": "ERROR",
+            "filters": ["require_debug_false"],
+            # See the banner. This one is load-bearing.
+            "include_html": False,
+        },
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        # Un-caught exceptions in a view land here. Both handlers: the console
+        # for the container log, the mail for the person who can fix it.
+        "django.request": {
+            "handlers": ["console", "mail_admins"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        # Refusals and outcomes, by reason, never with a credential in them.
+        # INFO so a sign-in problem can be traced without turning on DEBUG in
+        # production, which is the other way people end up leaking locals.
+        "identity": {"level": "INFO", "propagate": True},
+        "payments": {"level": "INFO", "propagate": True},
+    },
+}
+
+# ── NOT RATE LIMITED BEYOND DJANGO'S OWN, AND THAT IS A KNOWN EDGE ─────────
+#
+# AdminEmailHandler de-duplicates per process only, so a crash loop across
+# four workers can still send a burst. Accepted, as gen-portal accepts it: the
+# alternative is a queue that would itself need monitoring, and an alert
+# system nobody watches is the failure this is fixing.
+
 # ── THE KEY THAT SEALS TENANTS' M-PESA CREDENTIALS ──────────────────────────
 #
 # Its own variable, deliberately NOT derived from DJANGO_SECRET_KEY. Rotating
