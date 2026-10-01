@@ -32,7 +32,7 @@ so rather than letting somebody discover it.
 |---|---|---|
 | Organization | Organization, Membership, Role, Permission | **done** — Subscription is not built |
 | Branches | Branch, Register, RegisterShift, StaffAssignment | **done** |
-| Catalog | Product, Category, TaxRule | **done** — ProductPrice (price lists) is not built |
+| Catalog | Product, Category, TaxRule, PriceList | **done** |
 | Inventory | StockLevel, StockMovement, StockAdjustment, StockTransfer | **done** |
 | Sales | Sale, SaleItem, Payment, Refund, Receipt | **done** |
 | Procurement | Supplier, PurchaseOrder, GoodsReceipt | **done** — purchase tax is not modelled |
@@ -60,6 +60,81 @@ e-commerce sync, advanced analytics, automated replenishment. §11 asks for
 idempotency keys and transaction identifiers to be defined *before* production
 rollout, and they are — sales and refunds both take one — so the offline
 queue has something to synchronise against when it is built.
+
+## What things cost
+
+Blueprint §9's `ProductPrice`, and the last structural gap in the domain
+table. Until it existed a product had exactly one price, and the only way to
+run a promotion was to edit it and remember to edit it back.
+
+A **price list** is a named set of prices, in force at some branches (or all),
+between some dates (or always). `/ctl/price-lists/`, screen at
+`/catalogue/prices`.
+
+### One implementation, or the shelf edge and the till disagree
+
+`catalog/pricing.py` is the only place a price is decided. The product
+endpoint calls it, `sales/services.checkout` calls it, and nothing else works
+a price out at all.
+
+That is the whole point of the module. A till that priced off `selling_price`
+while the server charged a promotion is a customer being charged something
+other than what they were quoted, at a counter, with nobody in the shop able
+to say who is right. `SamePriceEverywhereTests` reads the price from the API
+and then rings up a sale, and asserts the same number.
+
+The checkout used to read `product.selling_price` **twice** — once for the
+line total and again when writing the `SaleItem`. Those agreed only because
+they were the same attribute; with a list in play they are two resolutions of
+a question that can move, so there is now one, carried through.
+
+### The rule
+
+A list applies when it belongs to the organisation, is active, names this
+branch *or no branch at all*, and the day is inside its window *or it has no
+window*. Applying lists are walked **highest precedence first**, and the first
+one holding an entry for that product wins.
+
+Not the highest-precedence list alone: a promotion naming three items must not
+blank out the prices of the four hundred it does not mention.
+
+**Precedence is unique per organisation, enforced by the database.** Two lists
+can easily both apply — a branch's own prices and a promotion running
+everywhere — and something has to decide. If that something were row order, a
+till and a receipt printed a second apart could disagree and the shop would
+have no way to find out why. A tie cannot be stored, so a tie cannot be broken
+arbitrarily at read time; setting precedence is a conversation somebody has
+once, when they make the list.
+
+Nothing applies → the product's own `selling_price`, which remains the answer
+in the overwhelming majority of shops.
+
+### Four more decisions
+
+- **A list never removes a price.** There is no way for one to withdraw a
+  product from sale — that is `is_active` on the product, it is one switch,
+  and splitting it across two concepts is how a shop ends up unable to work
+  out why something will not scan.
+- **A row is the override, so zero means zero.** A giveaway is a real thing a
+  shop does; encoding "no override" as `0.00` would make the two
+  indistinguishable. Negative is refused — a price below nothing pays the
+  customer to take the stock.
+- **Branches are a join table, not a nullable column.** "This promotion runs
+  at Westlands and Karen but not Kisumu" is an ordinary thing to want and one
+  foreign key cannot say it. No rows at all means everywhere.
+- **The sale records which list priced it.** `SaleItem.price_list`, PROTECT.
+  "Why was this 80 when the shelf says 100" is asked weeks later, by which
+  time the promotion has ended and the configuration explains nothing. Lists
+  are deactivated, never deleted, for the same reason.
+
+Resolution is **bulk-first**: a till opens with the whole catalogue on screen,
+so `prices_for` takes every product at once and costs two queries whatever the
+count. `price_for` is a thin wrapper over it rather than the other way round,
+and a test asserts the query count does not move with the catalogue.
+
+Editing a list changes tomorrow's prices and rewrites nothing. Every price on
+a sale line is a copy — the same snapshot rule that keeps a supplier's price
+rise out of last quarter's margin.
 
 ## Buying
 
@@ -403,5 +478,5 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 363 tests
+virtual/bin/python manage.py test          # 399 tests
 ```

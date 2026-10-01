@@ -3,8 +3,13 @@ from django.shortcuts import render
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
-from .serializers import CatalogCategoriesSerializers, CatalogCategoryProductSerializer
-from .models import CatalogCategories, CatalogCategoryProduct
+from .serializers import (
+    CatalogCategoriesSerializers,
+    CatalogCategoryProductSerializer,
+    PriceListSerializer,
+)
+from .models import CatalogCategories, CatalogCategoryProduct, PriceList
+from . import pricing
 from identity import access
 from identity.scoping import TenantScoped
 
@@ -42,6 +47,41 @@ class CatalogCategoryProductViewSets(TenantScoped, viewsets.ModelViewSet):
     }
     queryset = CatalogCategoryProduct.objects.select_related('category').all()
     serializer_class = CatalogCategoryProductSerializer
+
+    def get_serializer_context(self):
+        """
+        Hand the serializer the resolved price for every product on the page.
+
+        ── THE TILL MUST NOT WORK A PRICE OUT FOR ITSELF ───────────────────
+        It used to read `selling_price` straight off each product, which was
+        the right answer while that was the only price there was. With price
+        lists it is the BASE, and a till showing the base while the checkout
+        charges the list price is a customer being charged something other
+        than the shelf edge said.
+
+        So the resolved figure is computed here, by `catalog.pricing`, the
+        same module `sales.services.checkout` calls — one implementation, so
+        the two cannot disagree. Resolved for the whole page at once rather
+        than per row: a till opens with the entire catalogue on screen, and
+        per-row resolution would be two queries per product.
+
+        `?branch=` names where. Without it only organisation-wide lists can
+        apply, because guessing at a branch's own prices is how one shop's
+        promotion gets shown at another.
+        """
+        context = super().get_serializer_context()
+        if self.action not in ("list", "retrieve"):
+            return context
+
+        raw = self.request.query_params.get("branch")
+        try:
+            branch_id = int(raw) if raw else None
+        except (TypeError, ValueError):
+            branch_id = None
+
+        page = list(self.filter_queryset(self.get_queryset()))
+        context["resolved_prices"] = pricing.prices_for(page, branch_id=branch_id)
+        return context
 
     @action(detail=True, methods=["post"])
     def stock(self, request, pk=None):
@@ -100,3 +140,36 @@ class CatalogCategoryProductViewSets(TenantScoped, viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+class PriceListViewSet(TenantScoped, viewsets.ModelViewSet):
+    """
+    Promotions, branch pricing and wholesale rates.
+
+    ── NO `branch_path`, AND IT IS NOT AN OVERSIGHT ────────────────────────
+    A price list reaches branches through `PriceListBranch`, and a list with
+    NO branch rows applies everywhere. Scoping the queryset to the caller's
+    branches would therefore hide exactly the lists that apply to them —
+    `scoped_to_branch` filters on a column, and "no rows" is not a column
+    value.
+
+    It is organisation-level configuration, like `TaxRule` (§7), and gated
+    the same way: anybody who can see a price can see the rule behind it,
+    and changing one is catalogue management.
+
+    Writing is held at CATALOG_MANAGE, which no operational role holds. The
+    selling price is the one field a till must not be able to edit, and a
+    price list is the selling price wearing a hat.
+    """
+
+    tenant_path = "organization_id"
+    default_permission = access.CATALOG_MANAGE
+    permissions = {
+        "list": access.CATALOG_VIEW,
+        "retrieve": access.CATALOG_VIEW,
+    }
+    queryset = (
+        PriceList.objects.prefetch_related(
+            "branch_links", "entries", "entries__product"
+        ).all()
+    )
+    serializer_class = PriceListSerializer

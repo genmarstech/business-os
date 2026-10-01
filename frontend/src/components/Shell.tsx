@@ -49,6 +49,17 @@ const GROUPS: Group[] = [
       */
       { href: "/stock/history", label: "Stock history", permission: PERM.inventoryView },
       { href: "/catalogue", label: "Catalogue", permission: PERM.catalogView },
+      /*
+        Separate from Catalogue because it answers a different question.
+        Catalogue is "what do we sell and what does it normally cost";
+        this is "what are we charging instead, where, and until when" —
+        and the second is the one that quietly stops being true.
+      */
+      {
+        href: "/catalogue/prices",
+        label: "Price lists",
+        permission: PERM.catalogView,
+      },
     ],
   },
   {

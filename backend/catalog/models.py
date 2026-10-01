@@ -174,3 +174,193 @@ class CatalogCategoryProduct(models.Model):
 
     def __str__(self):
         return f"{self.organization} - {self.name}"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRICE LISTS — blueprint §9, the `ProductPrice` the Catalog domain was missing
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# A shop charges different prices in different places and at different times:
+# a branch in a wealthier suburb, a wholesale rate for somebody buying a case,
+# a fortnight of promotional pricing. Until now there was exactly one number —
+# `CatalogCategoryProduct.selling_price` — and the only way to run a promotion
+# was to edit it and remember to edit it back.
+#
+# ── THE OVERRIDE NEVER REMOVES A PRICE ─────────────────────────────────────
+#
+# `selling_price` on the product remains the answer whenever no list says
+# otherwise. A price list adds an override for the products it names and is
+# silent about everything else, so a promotion listing three items cannot make
+# the other four hundred unsellable. There is deliberately no way for a price
+# list to withdraw a product from sale: that is `is_active` on the product, it
+# is one switch, and splitting it across two concepts is how a shop ends up
+# unable to work out why something will not scan.
+#
+# ── AND IT CHANGES WHAT IS OFFERED, NEVER WHAT WAS CHARGED ─────────────────
+#
+# Every price on a sale line is a copy, as it has always been. Editing a list
+# changes tomorrow's prices and rewrites nothing — the same snapshot rule that
+# keeps a supplier's price rise out of last quarter's margin.
+
+
+class PriceList(models.Model):
+    """
+    A named set of prices, in force somewhere, sometimes.
+
+    ── PRECEDENCE IS UNIQUE PER ORGANISATION, AND THAT IS THE WHOLE DESIGN ─
+
+    Two lists can easily both apply: a branch's own prices and a promotion
+    running everywhere. Something has to decide, and "something" must not be
+    whatever order the database felt like returning rows in — a till and a
+    receipt printed a second apart would disagree, and the shop would have no
+    way to find out why.
+
+    So precedence is an integer, it is UNIQUE per organisation at the database
+    level, and resolution walks lists from the highest down. A tie cannot be
+    stored, so a tie cannot be broken arbitrarily at read time. Setting one up
+    is a conversation somebody has once, when they create the list, rather
+    than a mystery somebody has at the counter.
+
+    ── IT APPLIES AT THE BRANCHES NAMED, OR EVERYWHERE IF NONE ARE ────────
+
+    Through `PriceListBranch` rather than a single nullable foreign key,
+    because "this promotion runs at Westlands and Karen but not Kisumu" is an
+    ordinary thing to want and a nullable column cannot say it.
+    """
+
+    organization = models.ForeignKey(
+        "organisations.BusinessOrganization",
+        on_delete=models.CASCADE,
+        related_name="price_lists",
+    )
+
+    name = models.CharField(max_length=120)
+    note = models.TextField(blank=True)
+
+    # ── THE WINDOW. BOTH ENDS OPTIONAL, BOTH ENDS INCLUSIVE ────────────────
+    #
+    # Dates rather than timestamps: a promotion runs "the whole of Friday" in
+    # the shop's own day, and a shop three hours east of the server must not
+    # lose an evening of it. Inclusive at both ends, because "ends on the
+    # 30th" and a price that reverted on the morning of the 30th is an
+    # argument with a customer holding a flyer.
+    starts_on = models.DateField(null=True, blank=True)
+    ends_on = models.DateField(null=True, blank=True)
+
+    precedence = models.PositiveSmallIntegerField(
+        help_text=(
+            "Higher wins. Unique within the business, so two lists can never "
+            "both claim the same product at the same moment."
+        )
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-precedence", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_price_list_name_per_organization",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "precedence"],
+                name="unique_price_list_precedence_per_organization",
+            ),
+            # A window that ends before it starts is in force on no day at
+            # all. Stored, it looks like a configured promotion that silently
+            # never happens, and the shop blames the till.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(starts_on__isnull=True)
+                    | models.Q(ends_on__isnull=True)
+                    | models.Q(ends_on__gte=models.F("starts_on"))
+                ),
+                name="price_list_window_is_not_backwards",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def in_force_on(self, day) -> bool:
+        """Whether the window covers `day`. Both ends inclusive."""
+        if self.starts_on and day < self.starts_on:
+            return False
+        if self.ends_on and day > self.ends_on:
+            return False
+        return True
+
+
+class PriceListBranch(models.Model):
+    """
+    Where a list applies. No rows at all means everywhere.
+
+    Not exposed as an endpoint of its own — it is written through the price
+    list, so there is nothing to scope separately and no way to point one at
+    somebody else's branch without the list's own write guard seeing it.
+    """
+
+    price_list = models.ForeignKey(
+        PriceList, on_delete=models.CASCADE, related_name="branch_links"
+    )
+    branch = models.ForeignKey(
+        "branches.Branches", on_delete=models.CASCADE, related_name="price_lists"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["price_list", "branch"],
+                name="unique_branch_per_price_list",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.price_list} @ {self.branch}"
+
+
+class PriceListEntry(models.Model):
+    """
+    What one product costs on one list.
+
+    ── A ROW IS THE PRICE; THERE IS NO "UNSET" VALUE ──────────────────────
+    The presence of the row is what makes the override apply, which is why
+    zero is allowed and means zero. A giveaway is a real thing a shop does,
+    and encoding "no override" as 0.00 would make the two indistinguishable
+    — the first promotion priced at nothing would be read as a mistake, or a
+    mistake would be read as a promotion.
+
+    Negative is refused: a price below nothing pays the customer to take the
+    stock, and no shop means that.
+    """
+
+    price_list = models.ForeignKey(
+        PriceList, on_delete=models.CASCADE, related_name="entries"
+    )
+    # PROTECT: deleting a product that a live price list names would leave the
+    # list quietly pricing nothing. Products are deactivated, not deleted.
+    product = models.ForeignKey(
+        CatalogCategoryProduct,
+        on_delete=models.PROTECT,
+        related_name="price_entries",
+    )
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["product__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["price_list", "product"],
+                name="unique_product_per_price_list",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(price__gte=0),
+                name="price_list_entry_is_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.product} = {self.price}"

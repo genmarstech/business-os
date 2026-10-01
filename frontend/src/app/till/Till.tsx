@@ -34,7 +34,23 @@ type Product = {
   name: string;
   sku: string;
   barcode?: string;
+  /**
+   * The base. Shown struck through when a list has overridden it, and NEVER
+   * charged off — see `price` below.
+   */
   selling_price: string;
+  /**
+   * What it costs at THIS branch today, resolved by the server.
+   *
+   * ── DRAW FROM THIS, NOT FROM `selling_price` ────────────────────────────
+   * A price list can override the base, and `catalog/pricing.py` is the one
+   * place that decides by how much — the same module `checkout` calls. A
+   * till that priced off `selling_price` would show the shelf price while
+   * the server charged the promotion, which is a customer being charged
+   * something other than what they were quoted.
+   */
+  price: string;
+  price_list_name: string | null;
   is_active: boolean;
   tax_rule: number | null;
   category: { id: number; name: string } | number | null;
@@ -308,11 +324,23 @@ function Selling({
    */
   const [key, setKey] = useState(() => crypto.randomUUID());
 
+  // The branch this till stands in. Everything priced on this screen is
+  // priced for here; a till cannot move between branches mid-shift.
+  const branchId = shift.register?.branch?.id;
+
   const refresh = useCallback(async () => {
     setError("");
     try {
+      /*
+        `?branch=` is what lets the server apply this branch's own prices.
+        Without it only organisation-wide lists can apply, because guessing
+        at a branch's prices is how one shop's promotion gets shown at
+        another.
+      */
       const [productPage, rulePage] = await Promise.all([
-        call<Page<Product>>("/ctl/products/"),
+        call<Page<Product>>(
+          branchId ? `/ctl/products/?branch=${branchId}` : "/ctl/products/",
+        ),
         call<Page<TaxRule>>("/sls/tax-rules/"),
       ]);
       setProducts(rows(productPage).filter((p) => p.is_active));
@@ -320,7 +348,7 @@ function Selling({
     } catch (caught) {
       setError(readError(caught, "Could not load the catalogue."));
     }
-  }, []);
+  }, [branchId]);
 
   useEffect(() => {
     void refresh();
@@ -356,7 +384,7 @@ function Selling({
             productId: product.id,
             name: product.name,
             sku: product.sku,
-            unitCents: cents(product.selling_price),
+            unitCents: cents(product.price),
             quantity: 1,
             taxRate: rule?.is_active ? Number(rule.rate) : 0,
             taxInclusive: rule?.is_inclusive ?? true,
@@ -539,7 +567,20 @@ function Selling({
                 >
                   <span className={styles.tileName}>{product.name}</span>
                   <span className={styles.tilePrice}>
-                    {shillings(cents(product.selling_price))}
+                    {shillings(cents(product.price))}
+                    {/*
+                      The base, struck through, when a list has moved it.
+                      A cashier asked "why is this 80?" can answer without
+                      leaving the till — and sees at a glance that the
+                      promotion is actually running, which is the thing
+                      that goes wrong on the morning one was supposed to
+                      start.
+                    */}
+                    {product.price !== product.selling_price ? (
+                      <span className={styles.tileWas}>
+                        {shillings(cents(product.selling_price))}
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               ))}
