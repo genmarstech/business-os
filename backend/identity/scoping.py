@@ -256,6 +256,7 @@ class TenantScoped:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.refuse_out_of_scope(serializer.validated_data)
+        self.check_growth(serializer.validated_data)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(
@@ -274,6 +275,24 @@ class TenantScoped:
             instance._prefetched_objects_cache = {}
 
         return Response(serializer.data)
+
+    def check_growth(self, validated_data: dict) -> None:
+        """
+        Hook: refuse a create the tenant's subscription does not cover.
+
+        A no-op here, and overridden by `subscriptions.limits.GrowthLimited`
+        on the three viewsets a plan is actually sold by. It lives in this
+        method, called from `create()`, for the same reason the scope guard
+        does: a check a subclass can lose by defining an ordinary
+        `perform_create` is not a check, and that has already happened once
+        in this file's history.
+
+        This module does not import `subscriptions`. Tenant isolation and
+        commercial entitlement are different questions — one is a security
+        boundary and the other is a billing arrangement — and a security
+        file that depends on a billing app is a security file that fails
+        when billing does.
+        """
 
     def refuse_out_of_scope(self, validated_data: dict) -> None:
         """

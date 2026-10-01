@@ -30,7 +30,7 @@ so rather than letting somebody discover it.
 
 | §9 domain | Models | State |
 |---|---|---|
-| Organization | Organization, Membership, Role, Permission | **done** — Subscription is not built |
+| Organization | Organization, Membership, Role, Permission, Subscription | **done** |
 | Branches | Branch, Register, RegisterShift, StaffAssignment | **done** |
 | Catalog | Product, Category, TaxRule, PriceList | **done** |
 | Inventory | StockLevel, StockMovement, StockAdjustment, StockTransfer | **done** |
@@ -39,7 +39,8 @@ so rather than letting somebody discover it.
 
 **V1 Core POS is complete**: organizations, branches, users/roles, products,
 inventory, POS checkout, payments, customers, receipts and a basic
-dashboard/reports.
+dashboard/reports. Subscriptions were the last thing §9 listed and did not
+have — see *Paying for it* below.
 
 **V2 is part built.** Two of its pieces exist. Closing a till by counting it
 is one — `RegisterShift`, `GET /sls/reports/register-status` for the expected
@@ -54,6 +55,11 @@ they would. See *What the buying reports will and will not say* below.
 What is left of V2: cash reconciliation beyond the drawer count, the returns
 workflow beyond the refund itself, advanced permissions, notifications, and
 multi-branch reporting beyond the branch comparison.
+What is left of V2: cash reconciliation beyond the drawer count, the returns
+workflow beyond the refund itself, advanced permissions, notifications, and
+multi-branch reporting beyond the branch comparison. Nothing reports on
+purchasing yet — what a supplier has cost this quarter, and what is committed
+and not yet delivered, are questions this data can answer and no screen asks.
 
 **V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
 e-commerce sync, advanced analytics, automated replenishment. §11 asks for
@@ -218,6 +224,85 @@ masked or otherwise.
   the money arrived is one who can be talked into it by a customer holding a
   convincing SMS.
 
+## Paying for it
+
+A multi-tenant POS sold to other businesses has to know whether a tenant is
+paid up. `subscriptions/` is that, and the shape of it is decided by two
+things it deliberately is **not**.
+
+**It is an entitlement, not an invoice.** gen-portal already holds `Contract`,
+`Invoice` and `Offer` against a client, and
+`BusinessOrganization.genmars_organisation_id` says in its own comment that it
+"records who we invoice, which is a different question from who may open a
+till". So business-os does not grow a second invoicing system. It holds the
+answer — what this tenant may do, and until when — and nothing about who was
+billed, what they were charged or how they paid. Two records of one debt
+eventually disagree.
+
+**Nothing in it takes a payment.** `services.extend` records that a period has
+been paid for; it does not charge anything and has no idea how to. There is no
+endpoint that extends a subscription and there should not be one here: an
+endpoint in the POS that moves `paid_until` grants entitlement with no money
+behind it, and a subscriber's own session would be enough to use it. When the
+integration is built it belongs behind a machine credential from the parent,
+not behind a browser session. CLAUDE.md is explicit that no live STK push has
+ever been fired from this codebase; nothing here moves that line.
+
+### Selling never stops
+
+```
+       lapses                            nothing changes
+subscription ───────▶ past due ─────────▶ sales, refunds, shifts,
+                         │                stock, deliveries, reports
+                      grace ends
+                         ▼
+                     suspended ─────────▶ adding a branch, a till or
+                                          a member of staff: on hold
+```
+
+A till that refuses a sale because an invoice is late is a shop with a queue
+at the counter and no way out of it from behind the till. The damage lands on
+a cashier and a customer, neither of whom is party to the arrangement, and it
+lands when the shop is busiest. This application already decided this once in
+another costume — `must_change_password` is *asked and not required*, because
+"a POS that will not open because somebody cannot think of a password at seven
+in the morning is a shop that cannot sell".
+
+So nothing a subscription does can stop a sale, a refund, a shift, a stock
+movement or a delivery. What narrows is **growth**: another branch, another
+till, another member of staff. Those are decisions made at a desk, they are
+what a plan is actually sold by, and refusing one costs the shop nothing it is
+doing today. `SellingNeverStopsTests` is the line that says so in code.
+
+A refusal is **402 Payment Required**, not 403. 403 is a statement about the
+caller's authority and is wrong here: an owner holds every permission there
+is, and is being refused over an invoice. Telling them they lack permission
+sends them to look at roles, which is the one place the answer is not.
+
+### Three more decisions worth knowing
+
+- **There is no `status` column. The state is derived from dates.** A stored
+  status is only as current as the last job that ran, and the job is the thing
+  that fails quietly — at which point the database says a lapsed tenant is in
+  good standing and every check believes it. The facts are stored and the
+  state is computed on read, so it cannot go stale, needs no cron to be
+  correct, and a backup restored from last month gives today's answer.
+- **A tenant with no subscription row is treated as ACTIVE, not suspended.**
+  Every organisation that existed before this app has no row, and reading the
+  absence as unpaid would narrow the whole customer base the moment it ships —
+  a new feature behaving as an outage. New tenants get a row at onboarding, in
+  the same transaction that creates the business.
+- **The `Plan` table ships empty and no price is invented in code.** Charter
+  04 §IV: nothing untrue on a Genmars surface. The published prices live in
+  `gen-website/src/lib/company.ts` and are already duplicated into gen-portal's
+  `seed_services.py`; a third copy written by whoever wrote this file would be
+  a price the company never agreed to, shown to a customer. Plans are entered
+  by Genmars in the admin. A tenant with no plan has no ceiling to enforce,
+  which is correct for a trial and for a bespoke arrangement.
+
+A `null` limit means **no ceiling**, never a ceiling of zero — the same shape
+as `access.branch_scope` returning None for unrestricted authority, and the
+same trap: a falsy check locks the largest customer out of adding a branch.
 ## Buying
 
 Blueprint §9's Procurement domain, and the other end of a stock figure. Until
@@ -235,6 +320,8 @@ Endpoints are under `/prc/`: `suppliers`, `purchase-orders` (with `submit`,
 `approve`, `cancel` and `receive` actions), a read-only `goods-receipts`, and
 `reports` (`overview`, `by-supplier`, `by-product`, `outstanding`,
 `reliability`). Screens are under `/buying`.
+`approve`, `cancel` and `receive` actions) and a read-only `goods-receipts`.
+Screens are under `/buying`.
 
 **The approval is the point, and it is built as a permission, not an `if`.**
 `purchasing.manage` raises and sends; `purchasing.approve` commits the
@@ -561,4 +648,6 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 ```bash
 cd backend
 virtual/bin/python manage.py test          # 444 tests
+virtual/bin/python manage.py test          # 325 tests
+virtual/bin/python manage.py test          # 332 tests
 ```

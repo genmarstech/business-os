@@ -7,6 +7,7 @@ from .views import (
     PurchaseOrderViewSet,
     SupplierViewSet,
 )
+from .views import GoodsReceiptViewSet, PurchaseOrderViewSet, SupplierViewSet
 
 router = DefaultRouter()
 

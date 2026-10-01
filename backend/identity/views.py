@@ -27,6 +27,12 @@ from .models import PlatformAccount, StaffCredential, TenantInvitation, TenantMe
 # The only thing logged from this module is a mail failure, and it names the
 # credential id rather than the address or the code. See RequestPasswordResetView.
 log = logging.getLogger(__name__)
+# Imported inside the module rather than at the top of the file would be
+# tidier for the dependency graph, but identity is the lower layer here and
+# subscriptions already imports identity — a top-level import both ways is a
+# cycle. This one is safe because `entitlement` imports only models.
+from subscriptions import entitlement
+
 from .permissions import IsKnownPrincipal, tenant_scope
 from .scoping import TenantScoped
 from .serializers import (
@@ -365,6 +371,13 @@ class WhoAmIView(APIView):
                         )
                         for branch_id in (access.branch_scope(principal) or [])
                     },
+                    # The commercial state, so any page can warn without a
+                    # second round trip. It carries no price — what the shop
+                    # pays is not a cashier's business — but it does carry
+                    # the state, because a shop whose staff are the last to
+                    # know is one where the owner finds out from somebody
+                    # asking why a button is missing.
+                    "subscription": entitlement.summary(principal.organization_id),
                 }
             )
 
@@ -384,6 +397,14 @@ class WhoAmIView(APIView):
                     # §2, so no branch narrows it.
                     "branches": access.branch_scope(principal),
                     "permissions": sorted(access.granted(principal)),
+                    # Null for a subscriber with no business yet — there is
+                    # nothing to be entitled to, and `summary` of nothing
+                    # would have to invent a tenant to describe.
+                    "subscription": (
+                        entitlement.summary(scope[0])
+                        if (scope := tenant_scope(principal))
+                        else None
+                    ),
                 }
             )
 

@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     'identity',
     'sales',
     'payments',
+    'subscriptions',
     'procurement',
 ]
 

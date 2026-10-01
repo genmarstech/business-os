@@ -50,6 +50,7 @@ urlpatterns = [
     path('invt/', include('inventory.urls')),
     path('sls/', include('sales.urls')),
     path('pay/', include('payments.urls')),
+    path('sub/', include('subscriptions.urls')),
     path('prc/', include('procurement.urls')),
     path('auth/', include('identity.urls')),
 ]

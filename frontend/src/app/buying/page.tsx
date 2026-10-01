@@ -15,6 +15,8 @@ import styles from "./buying.module.css";
  * Open orders first, closed ones after, because the question somebody has
  * here is "what are we waiting for". "What did we buy in March, and from
  * whom" is a different question and lives on /buying/reports.
+ * here is "what are we waiting for" — not "what did we buy in March", which
+ * is a report and does not exist yet.
  *
  * ── AND IT NEVER SHOWS A BUTTON THE SERVER WILL REFUSE ────────────────────
  * Each action is asked for AT THE ORDER'S BRANCH. One person can be a

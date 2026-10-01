@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Mark } from "./Mark";
+import { SubscriptionNotice } from "./SubscriptionNotice";
 import { PERM, may, tenantName, type Me } from "@/lib/session";
 import styles from "./Shell.module.css";
 
@@ -92,6 +93,23 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    /*
+      Separate from Inventory on purpose. Stock answers "what is on the
+      shelf"; this answers "what have we committed to buy, and from whom" —
+      and the people who do the two jobs are deliberately not the same people
+      (identity/access.py, the four purchasing permissions).
+    */
+    title: "Buying",
+    items: [
+      { href: "/buying", label: "Orders", permission: PERM.purchasingView },
+      {
+        href: "/buying/suppliers",
+        label: "Suppliers",
+        permission: PERM.purchasingView,
+      },
+    ],
+  },
+  {
     title: "Organisation",
     items: [
       {
@@ -123,6 +141,14 @@ const GROUPS: Group[] = [
       {
         href: "/settings/mpesa",
         label: "M-Pesa",
+        What the business pays Genmars, and until when. Held at the same
+        permission as the business's own registered details: it is the
+        owner's arrangement, not the shop's operating data, and an
+        accountant who reads the books does not read this.
+      */
+      {
+        href: "/settings/subscription",
+        label: "Subscription",
         permission: PERM.settingsOrganisation,
       },
     ],
@@ -181,7 +207,15 @@ export function Shell({
         </div>
       </nav>
 
-      <main className={styles.main}>{children}</main>
+      <main className={styles.main}>
+        {/*
+          Above the page, not over it. Nothing it says can hide what somebody
+          came here to do, and it renders nothing at all while things are
+          fine — a banner that is always there is furniture.
+        */}
+        <SubscriptionNotice me={me} />
+        {children}
+      </main>
     </div>
   );
 }

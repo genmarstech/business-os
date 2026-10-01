@@ -98,6 +98,13 @@ class Base(TestCase):
             )
         return self._approver
 
+            services.approve_order(
+                order,
+                actor=a_subscriber(self.org, TenantMembership.Role.OWNER, number=99),
+            )
+            order.refresh_from_db()
+        return order
+
 
 class SubscriberTests(Base):
     def test_an_owner_can_raise_an_order_with_its_lines(self):

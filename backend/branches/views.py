@@ -8,6 +8,8 @@ from .serializers import RegisterSerializer, RegisterShiftSerializer, BranchesSe
 from .models import Branches, Register, RegisterShift, staffAssignment
 from identity import access
 from identity.scoping import TenantScoped
+from subscriptions import entitlement
+from subscriptions.limits import GrowthLimited
 
 
 # Create your views here.
@@ -18,7 +20,12 @@ def greeting(request):
 
     return Response({'message': message})
 
-class BranchesViewSets(TenantScoped, viewsets.ModelViewSet):
+class BranchesViewSets(GrowthLimited, TenantScoped, viewsets.ModelViewSet):
+
+    # A plan is sold by branches. GrowthLimited comes FIRST in the bases —
+    # the hook it implements is called from TenantScoped.create, so the other
+    # order keeps the no-op and the limit quietly stops applying.
+    grows = entitlement.BRANCH
 
     tenant_path = "organization_id"
     # "id", because this IS the branch table. §5: a branch manager "should see
@@ -37,8 +44,10 @@ class BranchesViewSets(TenantScoped, viewsets.ModelViewSet):
     serializer_class = BranchesSerializer
 
 
-class RegisterViewSets(TenantScoped, viewsets.ModelViewSet):
+class RegisterViewSets(GrowthLimited, TenantScoped, viewsets.ModelViewSet):
     """A register reaches its organisation through its branch."""
+
+    grows = entitlement.REGISTER
 
     tenant_path = "branch__organization_id"
     branch_path = "branch_id"
@@ -184,7 +193,19 @@ def _money(figures: dict) -> dict:
     }
 
 
-class StaffAssignmentViewSet(TenantScoped, viewsets.ModelViewSet):
+class StaffAssignmentViewSet(GrowthLimited, TenantScoped, viewsets.ModelViewSet):
+
+    # ── THE SEAT IS THE ASSIGNMENT, NOT THE PERSON ──────────────────────
+    #
+    # A plan's staff limit is enforced here rather than on OrganizationStaff,
+    # because this is the table `entitlement._in_use` counts. Gating the two
+    # in different places would mean a shop with thirty people on the books
+    # and ten working being refused at ten or at thirty depending on which
+    # endpoint they happened to hit.
+    #
+    # It also means a replacement can be added before the leaver is taken
+    # off, which is the order it actually happens in.
+    grows = entitlement.STAFF
 
     tenant_path = "branch__organization_id"
 
@@ -199,6 +220,15 @@ class StaffAssignmentViewSet(TenantScoped, viewsets.ModelViewSet):
     }
     queryset = staffAssignment.objects.select_related('branch').all()
     serializer_class = StaffAssignmentSerializer
+
+    def adds_one(self, validated_data):
+        # `perform_create` below deactivates whatever this person held
+        # before, so assigning somebody who already works here is a MOVE and
+        # the headcount does not change. Refusing it at the limit would
+        # strand a shop merely rearranging staff it already pays for.
+        return not staffAssignment.objects.filter(
+            staff_member=validated_data["staff_member"], is_active=True
+        ).exists()
 
     def perform_create(self, serializer):
         # No scope check needed here: TenantScoped.create() has already run it
