@@ -9,6 +9,7 @@ import {
   endAssignment,
   issueLogin,
   resetLoginPassword,
+  sendLoginDetails,
   setLoginActive,
   type State,
 } from "./actions";
@@ -221,6 +222,55 @@ export function IssueLoginForm({
       </Row>
 
       <Submit pending="Creating…">Create their sign-in</Submit>
+    </form>
+  );
+}
+
+/**
+ * Email somebody their login so they can start working.
+ *
+ * ── THE FIRST THING A MANAGER SHOULD REACH FOR ──────────────────────────
+ * Above "set a new password", because the alternative a manager reaches
+ * for otherwise is to type a password and send it over WhatsApp — at
+ * which point two people know it and nothing the cashier rings up is
+ * solely theirs. This sends a single-use code and the cashier chooses
+ * their own.
+ */
+export function SendLoginForm({
+  credentialId,
+  staffId,
+  email,
+}: {
+  credentialId: number;
+  staffId: number;
+  email: string;
+}) {
+  const [state, action] = useActionState(sendLoginDetails, NONE);
+
+  return (
+    <form action={action} className={styles.panelForm}>
+      <input type="hidden" name="credential_id" value={credentialId} />
+      <input type="hidden" name="staff_member" value={staffId} />
+      <General messages={state?.general ?? []} />
+
+      {email ? (
+        <p className={styles.hint}>
+          Sends {email} their username and a code to choose a password with.
+          No password is ever emailed — they pick one nobody else knows.
+        </p>
+      ) : (
+        /*
+          Said before the button is pressed rather than as an error after.
+          The fix is on their staff record, which is the screen they are
+          already on.
+        */
+        <p className={styles.hint}>
+          They have no email address on file, so there is nowhere to send it.
+          Add one above first.
+        </p>
+      )}
+
+      <Submit pending="Sending…">Email their login details</Submit>
     </form>
   );
 }
