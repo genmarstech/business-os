@@ -12,34 +12,38 @@ name: ci
 # It never touches the server. Deploys here are by hand; this is the gate that
 # says the code is fit to deploy, not the thing that deploys it.
 
-# ── EVERY PUSH, NOT EVERY PUSH TO main ──────────────────────────────────────
+# ── THE BASE FILTER ON `pull_request` IS THE THING THAT WAS WRONG ───────────
 #
-# This said `push: branches: [main]`, which meant the gate ran on the branch
-# where it is already too late and nowhere else. A feature branch got a
-# pipeline only once a pull request against main existed, so work pushed for
-# somebody to look at, and work stacked on another branch, ran nothing at all
-# — and "the suite passes" meant "it passed on somebody's laptop", which is
-# the state the header above says this file was written to end.
+# This said `pull_request: branches: [main]`, so a PR opened against any other
+# branch got no pipeline at all — and a stacked PR, which is the change
+# nobody has run against main yet, is exactly the one most worth checking.
+# That is how #15 came to sit there reporting no checks, with "the suite
+# passes" meaning "it passed on somebody's laptop" — the state the header
+# above says this file was written to end.
 #
-# `pull_request` keeps no base filter for the same reason: a PR stacked on
-# another branch is exactly the change most worth checking, because it is the
-# one nobody has run against main yet.
+# `push` stays filtered to main, and that is deliberate rather than an
+# oversight. Widening it was tried: with both triggers unfiltered, every push
+# to a branch with an open PR starts two runs, and the concurrency group
+# below cancels one. A cancelled run is reported as a FAILED check, so the
+# pull request shows a red cross beside the green one — on a repository whose
+# rule is that a red pipeline blocks deploy, a check that is red by design is
+# worse than the gap it closed.
+#
+# So: every pull request, whatever its base, and every push to main. A branch
+# pushed with no pull request open is not under review by anybody.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# ── ONE RUN PER BRANCH, NOT ONE PER TRIGGER ─────────────────────────────────
-#
-# With both `push` and `pull_request` enabled above, a push to a branch with
-# an open PR fires twice. `github.ref` does not collapse them — it is
-# `refs/heads/<branch>` for the push and `refs/pull/<n>/merge` for the PR, so
-# they land in different groups and both bill. `head_ref` is the source branch
-# on a pull_request and empty otherwise, so this names the branch either way
-# and the later run cancels the earlier one. They test the same commit.
+# `head_ref` is the source branch on a pull_request and empty otherwise, so
+# this names the branch for either trigger. `github.ref` does not: it is
+# `refs/pull/<n>/merge` on a pull request and `refs/heads/<branch>` on a push,
+# which put the same branch in two groups.
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
