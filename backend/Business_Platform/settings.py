@@ -363,6 +363,18 @@ LOGGING = {
 #              print(Fernet.generate_key().decode())"
 MPESA_CREDENTIAL_KEY = os.environ.get("MPESA_CREDENTIAL_KEY", "")
 
+# ── WHETHER /admin/ INSISTS ON A SECOND FACTOR ──────────────────────────────
+#
+# False: an account with a confirmed authenticator must use it; one without
+# carries on as before. True: no authenticator, no admin.
+#
+# It ships False and that is not timidity. Nobody has a device until somebody
+# runs `manage.py enrol_admin_totp`, that needs a shell on the server, and
+# turning this on first locks out the person who would run it. Deploy, enrol,
+# then set it — and because it is a setting, that last step is a decision
+# somebody makes rather than something a deploy does to them.
+ADMIN_REQUIRE_TOTP = os.environ.get("ADMIN_REQUIRE_TOTP", "") == "1"
+
 # Resend refuses a From address on a domain that has not been verified with
 # them, and answers with a readable reason rather than silently dropping it —
 # see mail_backends.py on why that is the point of using the API.
