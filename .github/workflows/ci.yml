@@ -4,26 +4,48 @@ name: ci
 # is no manual override."
 #
 # business-os was the last of the four repositories with no pipeline at all.
-# 246 backend tests — including the ones that prove one business cannot read
-# another's takings — ran only when somebody remembered to run them, and the
+# The backend suite — including the tests that prove one business cannot read
+# another's takings — ran only when somebody remembered to run it, and the
 # deployed instance had drifted five commits behind main without anything
 # noticing. A suite nobody is obliged to run is a collection of scripts.
 #
 # It never touches the server. Deploys here are by hand; this is the gate that
 # says the code is fit to deploy, not the thing that deploys it.
 
+# ── THE BASE FILTER ON `pull_request` IS THE THING THAT WAS WRONG ───────────
+#
+# This said `pull_request: branches: [main]`, so a PR opened against any other
+# branch got no pipeline at all — and a stacked PR, which is the change
+# nobody has run against main yet, is exactly the one most worth checking.
+# That is how #15 came to sit there reporting no checks, with "the suite
+# passes" meaning "it passed on somebody's laptop" — the state the header
+# above says this file was written to end.
+#
+# `push` stays filtered to main, and that is deliberate rather than an
+# oversight. Widening it was tried: with both triggers unfiltered, every push
+# to a branch with an open PR starts two runs, and the concurrency group
+# below cancels one. A cancelled run is reported as a FAILED check, so the
+# pull request shows a red cross beside the green one — on a repository whose
+# rule is that a red pipeline blocks deploy, a check that is red by design is
+# worse than the gap it closed.
+#
+# So: every pull request, whatever its base, and every push to main. A branch
+# pushed with no pull request open is not under review by anybody.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# `head_ref` is the source branch on a pull_request and empty otherwise, so
+# this names the branch for either trigger. `github.ref` does not: it is
+# `refs/pull/<n>/merge` on a pull request and `refs/heads/<branch>` on a push,
+# which put the same branch in two groups.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

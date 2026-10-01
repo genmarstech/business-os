@@ -25,8 +25,8 @@ root `CLAUDE.md` carry the full reasoning.
 ## Against the blueprint
 
 `Multi_Tenant_POS_System_Blueprint.pdf` §12 sets the roadmap. V1 is complete;
-nothing from V2 or V3 has been started, and the table says so rather than
-letting somebody discover it.
+V2 has started with procurement and is otherwise untouched, and the table says
+so rather than letting somebody discover it.
 
 | §9 domain | Models | State |
 |---|---|---|
@@ -35,21 +35,24 @@ letting somebody discover it.
 | Catalog | Product, Category, TaxRule | **done** — ProductPrice (price lists) is not built |
 | Inventory | StockLevel, StockMovement, StockAdjustment, StockTransfer | **done** |
 | Sales | Sale, SaleItem, Payment, Refund, Receipt | **done** |
-| Procurement | Supplier, PurchaseOrder, GoodsReceipt | **not built** — V2 |
+| Procurement | Supplier, PurchaseOrder, GoodsReceipt | **done** — purchase tax is not modelled |
 
 **V1 Core POS is complete**: organizations, branches, users/roles, products,
 inventory, POS checkout, payments, customers, receipts and a basic
 dashboard/reports. Subscriptions were the last thing §9 listed and did not
 have — see *Paying for it* below.
 
-**V2 is not started**: purchasing, suppliers, cash reconciliation at shift
-close, returns workflow beyond the refund itself, advanced permissions,
-notifications and multi-branch reporting beyond the branch comparison.
-`RegisterShift` exists, `GET /sls/reports/register-status` computes the
-expected drawer figure, and closing a till by counting it is now built — a
-cashier cannot count their own. What is left of V2 here is the rest:
-purchasing, suppliers, the returns workflow beyond the refund itself, advanced
-permissions, notifications and multi-branch reporting.
+**V2 is part built.** Two of its pieces exist. Closing a till by counting it
+is one — `RegisterShift`, `GET /sls/reports/register-status` for the expected
+drawer figure, and a cashier who cannot count their own. **Purchasing is the
+other, and it is new**: suppliers, purchase orders with an approval step, and
+goods receipts that move stock. See *Buying* below.
+
+What is left of V2: cash reconciliation beyond the drawer count, the returns
+workflow beyond the refund itself, advanced permissions, notifications, and
+multi-branch reporting beyond the branch comparison. Nothing reports on
+purchasing yet — what a supplier has cost this quarter, and what is committed
+and not yet delivered, are questions this data can answer and no screen asks.
 
 **V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
 e-commerce sync, advanced analytics, automated replenishment. §11 asks for
@@ -136,10 +139,64 @@ sends them to look at roles, which is the one place the answer is not.
 A `null` limit means **no ceiling**, never a ceiling of zero — the same shape
 as `access.branch_scope` returning None for unrestricted authority, and the
 same trap: a falsy check locks the largest customer out of adding a branch.
+## Buying
+
+Blueprint §9's Procurement domain, and the other end of a stock figure. Until
+it existed the only way stock went UP was a manual adjustment: somebody typed
+a number and the shop took their word for it.
+
+```
+Supplier ──▶ PurchaseOrder ──▶ GoodsReceipt ──▶ StockMovement(PURCHASE)
+                    │
+     draft ─send─▶ submitted ─approve─▶ approved ─receive─▶ part/received
+                                            └──── cancel ────┘
+```
+
+Endpoints are under `/prc/`: `suppliers`, `purchase-orders` (with `submit`,
+`approve`, `cancel` and `receive` actions) and a read-only `goods-receipts`.
+Screens are under `/buying`.
+
+**The approval is the point, and it is built as a permission, not an `if`.**
+`purchasing.manage` raises and sends; `purchasing.approve` commits the
+business to the money; `purchasing.receive` counts the delivery in. A
+purchasing officer holds the first and third and not the second, a branch
+manager holds the second and third and not the first — so an order is raised
+by one person and approved by another, the same construction that stops a
+cashier voiding their own sale. An owner holds all of them, which in a shop
+whose back office is one person is the only workable answer; the control is
+real where there are two people and advisory where there is one.
+
+Three rules it shares with the sales side, deliberately, so the two money
+flows do not disagree about what a document is:
+
+- **Every cost on a line is a copy.** A supplier raising their price next
+  month does not rewrite what this order committed to.
+- **Nothing edits a document that has left the building.** A draft may be
+  rewritten; a submitted order may only be approved, received or cancelled.
+- **Numbering is per organisation** — orders from 3000, deliveries from 4000.
+
+And three decisions worth knowing before changing it:
+
+- **Purchase tax is not modelled.** A supplier invoice carries VAT and what a
+  shop may reclaim of it is an accounting question with a filing attached;
+  §12 puts accounting integrations in V3. A half-modelled input-VAT column
+  would be read as an answer by whoever eventually files the return.
+- **Receiving does not restate `CatalogCategoryProduct.cost_price`.** It is
+  the obvious next line of code and it is wrong by default: cost_price is what
+  every margin report measures against, so one delivery at a promotional price
+  would silently restate the profitability of everything sold before it.
+- **Over-receipt is refused, not absorbed.** Twelve arriving against an order
+  for ten is either a supplier error or a cost nobody approved. Raise a second
+  order for the extra, so what arrived is still explained by what was asked
+  for.
+
+A delivery writes a `PURCHASE` StockMovement and **no** StockAdjustment:
+`inventory/services.adjust` writes both because a manual correction has no
+other document to point at, and a delivery has one.
 
 ### Roles and permissions
 
-`identity/access.py` holds one catalogue of 20 named permissions and the map
+`identity/access.py` holds one catalogue of 26 named permissions and the map
 from roles onto it. Code asks *"may this caller refund a sale"*, never *"is
 this caller a manager"* — the second question has to be re-answered in every
 view the day a shop wants its accountants approving refunds, and one of those
@@ -154,12 +211,20 @@ talking to.
 |---|---|---|
 | Owner | everything | — |
 | Org admin | everything operational, tax included | `staff.manage`, `settings.organisation` |
-| Accountant | reads the money, reports | voids, refunds, checkout |
-| Branch manager | the branch, end to end | `reports.organisation` |
+| Accountant | reads the money, reports, what is on order | voids, refunds, checkout |
+| Branch manager | the branch, end to end; approves and receives orders | `reports.organisation`, **`purchasing.manage`** |
 | Cashier | checkout, open a shift | **voids, refunds, reports** |
-| Inventory clerk | stock and transfers | anything to do with sales |
-| Finance clerk | sales and branch reports | any write |
+| Inventory clerk | stock and transfers, receives deliveries | anything to do with sales |
+| Purchasing officer | suppliers, raising orders, receiving | **approving an order**, adjusting stock by hand |
+| Finance clerk | sales and branch reports, what is on order | any write |
 | Branch auditor | reads the branch | every write |
+
+The purchasing officer used to be mapped onto the inventory clerk's
+permissions with the comment "procurement is V2". The role is now its own,
+and it is NARROWER than that stopgap in one respect: no `inventory.adjust`
+and no `inventory.transfer`. A buyer who can also move a quantity by hand can
+make the difference between what was ordered and what arrived disappear
+without a document.
 
 `GET /auth/me` returns the caller's permissions so a client can draw a screen
 without offering buttons the server will refuse — plus `permissions_by_branch`
@@ -260,8 +325,8 @@ Left here briefly because a gap list nobody trusts is worse than no gap list.
 - ~~No Content-Security-Policy~~ — shipped `Report-Only`, then promoted to
   enforcing, in the two halves the split host needs.
 - ~~There is no dashboard~~ — branches, catalogue, stock, till, sales,
-  refunds, reports, staff and settings all exist, and the landing page no
-  longer claims otherwise.
+  refunds, reports, buying, staff and settings all exist, and the landing
+  page no longer claims otherwise.
 - ~~`must_change_password` is written but never enforced~~ — the backend was
   always complete; nothing in the frontend called it. A cashier was told to
   "ask your manager to show you how", and there was no how: a manager can only
@@ -371,4 +436,5 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 ```bash
 cd backend
 virtual/bin/python manage.py test          # 325 tests
+virtual/bin/python manage.py test          # 332 tests
 ```
