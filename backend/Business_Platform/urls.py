@@ -49,5 +49,6 @@ urlpatterns = [
     path('ctl/', include('catalog.urls')),
     path('invt/', include('inventory.urls')),
     path('sls/', include('sales.urls')),
+    path('sub/', include('subscriptions.urls')),
     path('auth/', include('identity.urls')),
 ]

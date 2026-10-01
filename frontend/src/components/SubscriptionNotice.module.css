@@ -1,0 +1,77 @@
+/*
+ * The subscription line.
+ *
+ * Quiet by construction: one line, full width, no icon, no shadow. It sits
+ * above the page rather than over it, so nothing it says can hide what
+ * somebody came here to do.
+ */
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  padding: 10px clamp(16px, 3vw, 32px);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.info {
+  background: var(--accent-wash);
+  border-bottom-color: var(--accent-fill);
+}
+
+.warn {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn);
+  color: var(--warn);
+}
+
+/*
+ * Not red. A suspended subscription is a billing matter and the shop is
+ * still trading — a danger colour across the top of a working till reads as
+ * "the system is down", which is the one thing it must not say.
+ */
+.urgent {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn);
+  color: var(--warn);
+}
+
+.text {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+.heading {
+  font-weight: 600;
+}
+
+.body {
+  opacity: 0.92;
+}
+
+.action {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 4px 13px;
+  white-space: nowrap;
+}
+
+.action:hover {
+  background: var(--panel);
+}
+
+@media (max-width: 560px) {
+  .notice {
+    padding: 10px 16px;
+  }
+}
