@@ -475,6 +475,32 @@ that enforces it.
 - **Tenant scope is resolved server-side, always.** A `branch` in a request
   narrows a result; it never grants access to one (§8).
 
+## Starting somebody on a till
+
+A manager creates the login; `POST /auth/staff/credentials/{id}/invite/`
+emails the person their username and a six-digit code, and they choose a
+password at the till.
+
+**The email carries no password, and that is the whole design.** The
+alternative a manager reaches for is to type one and send it over WhatsApp,
+at which point two people know it and nothing that cashier rings up is solely
+theirs until they change it — and `must_change_password` is *asked, not
+required*, so "later" is a button people press. The invitation reuses the
+same single-use code the forgotten-password flow mints, so the password is
+chosen by the person who will type it and seen by nobody else. There is a
+test asserting the message contains no password.
+
+It also **says why it could not send**, unlike `StaffPasswordResetView`,
+which answers identically whatever happens. That uniformity exists so an
+anonymous caller cannot learn whether a username exists; it does not apply to
+a manager holding `staff.manage` asking about their own employee, whose
+record they are looking at. "Jane has no email address on file" costs nothing
+and saves somebody staring at a screen that claims to have sent something.
+
+The hourly ceiling on reset codes applies, so a mistyped address cannot be
+turned into a hundred emails at a stranger — reported as a 429 rather than
+silently swallowed.
+
 ## Known gaps
 
 These are written down rather than left to be rediscovered.
@@ -647,7 +673,5 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 444 tests
-virtual/bin/python manage.py test          # 325 tests
-virtual/bin/python manage.py test          # 332 tests
+virtual/bin/python manage.py test          # 501 tests
 ```

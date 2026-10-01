@@ -143,6 +143,39 @@ export async function issueLogin(
   return { field: {}, general: [] };
 }
 
+/**
+ * Email somebody their username and a code to choose a password with.
+ *
+ * ── IT SENDS NO PASSWORD, AND THAT IS WHY IT EXISTS ──────────────────────
+ * The alternative a manager reaches for is to set a password and tell the
+ * cashier what it is — over WhatsApp, usually. That password is then known
+ * to two people, and nothing the cashier rings up is solely theirs until
+ * they change it. This sends a single-use code instead, and the cashier
+ * picks something nobody else has ever seen.
+ */
+export async function sendLoginDetails(
+  _previous: State,
+  form: FormData,
+): Promise<State> {
+  const id = Number(text(form, "credential_id"));
+  const staff = Number(text(form, "staff_member"));
+  if (!id) return { field: {}, general: ["No login to send."] };
+
+  let message = "Sent.";
+  try {
+    const answer = await post<{ detail?: string }>(
+      `/auth/staff/credentials/${id}/invite/`,
+      {},
+    );
+    if (answer?.detail) message = answer.detail;
+  } catch (error) {
+    return asFormErrors(error);
+  }
+
+  revalidatePath(`/staff/${staff}`);
+  return { field: {}, general: [message] };
+}
+
 export async function resetLoginPassword(
   _previous: State,
   form: FormData,
