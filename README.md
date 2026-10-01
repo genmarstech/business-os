@@ -32,7 +32,7 @@ so rather than letting somebody discover it.
 |---|---|---|
 | Organization | Organization, Membership, Role, Permission, Subscription | **done** |
 | Branches | Branch, Register, RegisterShift, StaffAssignment | **done** |
-| Catalog | Product, Category, TaxRule | **done** — ProductPrice (price lists) is not built |
+| Catalog | Product, Category, TaxRule, PriceList | **done** |
 | Inventory | StockLevel, StockMovement, StockAdjustment, StockTransfer | **done** |
 | Sales | Sale, SaleItem, Payment, Refund, Receipt | **done** |
 | Procurement | Supplier, PurchaseOrder, GoodsReceipt | **done** — purchase tax is not modelled |
@@ -48,6 +48,13 @@ drawer figure, and a cashier who cannot count their own. **Purchasing is the
 other, and it is new**: suppliers, purchase orders with an approval step, and
 goods receipts that move stock. See *Buying* below.
 
+**Purchasing now reports on itself** — what each supplier has cost, what is
+committed and not yet delivered, and which of them turn up when they said
+they would. See *What the buying reports will and will not say* below.
+
+What is left of V2: cash reconciliation beyond the drawer count, the returns
+workflow beyond the refund itself, advanced permissions, notifications, and
+multi-branch reporting beyond the branch comparison.
 What is left of V2: cash reconciliation beyond the drawer count, the returns
 workflow beyond the refund itself, advanced permissions, notifications, and
 multi-branch reporting beyond the branch comparison. Nothing reports on
@@ -59,6 +66,163 @@ e-commerce sync, advanced analytics, automated replenishment. §11 asks for
 idempotency keys and transaction identifiers to be defined *before* production
 rollout, and they are — sales and refunds both take one — so the offline
 queue has something to synchronise against when it is built.
+
+## What things cost
+
+Blueprint §9's `ProductPrice`, and the last structural gap in the domain
+table. Until it existed a product had exactly one price, and the only way to
+run a promotion was to edit it and remember to edit it back.
+
+A **price list** is a named set of prices, in force at some branches (or all),
+between some dates (or always). `/ctl/price-lists/`, screen at
+`/catalogue/prices`.
+
+### One implementation, or the shelf edge and the till disagree
+
+`catalog/pricing.py` is the only place a price is decided. The product
+endpoint calls it, `sales/services.checkout` calls it, and nothing else works
+a price out at all.
+
+That is the whole point of the module. A till that priced off `selling_price`
+while the server charged a promotion is a customer being charged something
+other than what they were quoted, at a counter, with nobody in the shop able
+to say who is right. `SamePriceEverywhereTests` reads the price from the API
+and then rings up a sale, and asserts the same number.
+
+The checkout used to read `product.selling_price` **twice** — once for the
+line total and again when writing the `SaleItem`. Those agreed only because
+they were the same attribute; with a list in play they are two resolutions of
+a question that can move, so there is now one, carried through.
+
+### The rule
+
+A list applies when it belongs to the organisation, is active, names this
+branch *or no branch at all*, and the day is inside its window *or it has no
+window*. Applying lists are walked **highest precedence first**, and the first
+one holding an entry for that product wins.
+
+Not the highest-precedence list alone: a promotion naming three items must not
+blank out the prices of the four hundred it does not mention.
+
+**Precedence is unique per organisation, enforced by the database.** Two lists
+can easily both apply — a branch's own prices and a promotion running
+everywhere — and something has to decide. If that something were row order, a
+till and a receipt printed a second apart could disagree and the shop would
+have no way to find out why. A tie cannot be stored, so a tie cannot be broken
+arbitrarily at read time; setting precedence is a conversation somebody has
+once, when they make the list.
+
+Nothing applies → the product's own `selling_price`, which remains the answer
+in the overwhelming majority of shops.
+
+### Four more decisions
+
+- **A list never removes a price.** There is no way for one to withdraw a
+  product from sale — that is `is_active` on the product, it is one switch,
+  and splitting it across two concepts is how a shop ends up unable to work
+  out why something will not scan.
+- **A row is the override, so zero means zero.** A giveaway is a real thing a
+  shop does; encoding "no override" as `0.00` would make the two
+  indistinguishable. Negative is refused — a price below nothing pays the
+  customer to take the stock.
+- **Branches are a join table, not a nullable column.** "This promotion runs
+  at Westlands and Karen but not Kisumu" is an ordinary thing to want and one
+  foreign key cannot say it. No rows at all means everywhere.
+- **The sale records which list priced it.** `SaleItem.price_list`, PROTECT.
+  "Why was this 80 when the shelf says 100" is asked weeks later, by which
+  time the promotion has ended and the configuration explains nothing. Lists
+  are deactivated, never deleted, for the same reason.
+
+Resolution is **bulk-first**: a till opens with the whole catalogue on screen,
+so `prices_for` takes every product at once and costs two queries whatever the
+count. `price_for` is a thin wrapper over it rather than the other way round,
+and a test asserts the query count does not move with the catalogue.
+
+Editing a list changes tomorrow's prices and rewrites nothing. Every price on
+a sale line is a copy — the same snapshot rule that keeps a supplier's price
+rise out of last quarter's margin.
+
+## Taking M-Pesa at the till
+
+A cashier types the customer's number, the customer gets a prompt, and the
+sale rings itself up when Safaricom confirms it. `payments/`, screens at
+`/settings/mpesa` and inside the till.
+
+**These are the tenant's payments, not Genmars'.** A customer pays the SHOP,
+on the shop's own paybill, through the shop's own Daraja application. No money
+passes through Genmars and no Genmars credential is involved. What a tenant
+pays Genmars for their subscription is a separate flow, brokered by gen-portal
+where the `Invoice` and the company's M-Pesa credentials already are — keeping
+those apart is why this app holds no Genmars secret.
+
+### The callback is public, so it decides nothing
+
+Safaricom post the result to a URL we publish, and a payment processor cannot
+hold a session, so that URL is reachable by anyone. If a callback saying
+"paid" were enough to mark a sale paid, the endpoint would be a way to walk
+out of the shop with the stock.
+
+So **the STK query is the source of truth and the callback is only a hint.** A
+callback with a valid token causes us to ask Safaricom directly; nothing in
+its body is parsed, stored or believed. A forged callback costs one outbound
+query and achieves nothing — `test_a_forged_callback_cannot_mark_a_push_paid`
+posts a perfectly-formed success while Safaricom says cancelled, and the push
+must come out FAILED.
+
+It also makes the feature work when the callback never arrives, which happens
+often enough to design for: the till polls, and the endpoint it polls asks
+Safaricom every time.
+
+Other decisions in that endpoint: an unknown token is answered **200**, not
+404 — a 404 tells a prober which tokens are real, and Safaricom retry anything
+that is not a 200 for hours. The token is 32 random bytes, stored as a SHA-256
+digest, so a database read does not hand anybody a working callback URL.
+
+### A confirmed payment is spent exactly once
+
+`StkPush.sale` is a OneToOne and the database enforces it. The push is spent
+**inside the transaction that writes the sale** — `sales/services.checkout`
+calls `payments.services.spend`, and a refusal rolls the whole sale back,
+stock included. Two separate requests would leave a window where the sale
+exists and the payment is still unspent, and an unspent confirmed payment can
+fund somebody else's basket. `spend` also refuses a wrong amount, an
+unconfirmed push, and one belonging to another business.
+
+The sale is written **after** the money, not before. Creating it first would
+mean voiding one every time a customer changes their mind at the PIN prompt,
+and a void is something a manager has to explain.
+
+### Credentials, and the dependency that stores them
+
+A Daraja consumer key, secret and passkey belong to the **customer**. Holding
+them makes this database worth breaking into for a reason unrelated to the
+shop's own data, so they are encrypted rather than merely access-controlled.
+
+That needed `cryptography` — **Charter 03 §I's first exception in this
+repository**. The standard library authenticates and generates but ships no
+symmetric encryption, and hand-rolling AES-GCM over a KDF is exactly the code
+that should not be hand-rolled. The alternative was other businesses' merchant
+secrets in plaintext in a Postgres dump.
+
+The key is `MPESA_CREDENTIAL_KEY`, deliberately **not** derived from
+`DJANGO_SECRET_KEY`. Rotating the secret key is the ordinary response to
+thinking it may have leaked, and its documented cost is invalidated sessions —
+if merchant credentials hung off it, rotation would also turn every tenant's
+M-Pesa configuration into noise, discovered at a counter. Absent, the feature
+is honestly off: the configuration endpoint answers 503 and nothing is stored
+in the clear. The three secrets are write-only in the API and never returned,
+masked or otherwise.
+
+### Two smaller decisions
+
+- **Cents are refused, not rounded.** M-Pesa moves whole shillings. Rounding
+  down leaves the drawer short on every such sale and never reconciles;
+  rounding up charges more than the receipt says. So a basket of 150.50 is
+  refused with a message, and a shop that wants to round records it as a
+  discount.
+- **There is no "mark as paid" button at the till.** A cashier who could say
+  the money arrived is one who can be talked into it by a customer holding a
+  convincing SMS.
 
 ## Paying for it
 
@@ -153,6 +317,9 @@ Supplier ──▶ PurchaseOrder ──▶ GoodsReceipt ──▶ StockMovement(
 ```
 
 Endpoints are under `/prc/`: `suppliers`, `purchase-orders` (with `submit`,
+`approve`, `cancel` and `receive` actions), a read-only `goods-receipts`, and
+`reports` (`overview`, `by-supplier`, `by-product`, `outstanding`,
+`reliability`). Screens are under `/buying`.
 `approve`, `cancel` and `receive` actions) and a read-only `goods-receipts`.
 Screens are under `/buying`.
 
@@ -193,6 +360,39 @@ And three decisions worth knowing before changing it:
 A delivery writes a `PURCHASE` StockMovement and **no** StockAdjustment:
 `inventory/services.adjust` writes both because a manual correction has no
 other document to point at, and a delivery has one.
+
+### What the buying reports will and will not say
+
+`/buying/reports`, served by `procurement/reports.py`. Three decisions in it
+are worth more than the arithmetic:
+
+- **Ordering is a commitment; receiving is a cost, and the two are never
+  added together.** "What has this supplier cost us" is answered by what
+  actually arrived — a goods receipt is the moment a liability becomes real.
+  Reporting ordered value as spend overstates every quarter with stock in
+  transit, and overstates it for ever wherever an order was cancelled. Both
+  figures appear, labelled, the same way the sales reports put refunds beside
+  revenue instead of netting them off.
+- **"Outstanding" takes no window, and that is not an oversight.** Everything
+  else is an aggregate over a period; this is a position — what is owed right
+  now. "What was outstanding during September" is not a question with one
+  answer, and a date filter would quietly produce a number that looks like
+  one. It also starts at `submitted`, not `draft`: nobody outside the shop
+  has been asked for a draft, so counting one as money committed would let an
+  abandoned shopping list sit in the obligations figure for ever.
+- **Supplier reliability reports what it could not judge.** An order still in
+  transit has no verdict yet, and one raised with no expected date cannot be
+  judged at all. Both are counted and shown rather than dropped, so a 100%
+  figure computed from three of a supplier's forty orders says so on its
+  face. The average lateness is over the late orders only — averaging the
+  zeros of the on-time ones into it produces a small, reassuring number for a
+  supplier who is occasionally catastrophic.
+
+Window parsing, two-decimal quantisation and the Decimal-to-string walk moved
+to `Business_Platform/reporting.py` when this was written. They were in
+`sales/reports.py`, which was right while sales was the only thing with a
+dashboard — buying should not have to depend on selling for the meaning of
+"this month".
 
 ### Roles and permissions
 
@@ -327,6 +527,18 @@ Left here briefly because a gap list nobody trusts is worse than no gap list.
 - ~~There is no dashboard~~ — branches, catalogue, stock, till, sales,
   refunds, reports, buying, staff and settings all exist, and the landing
   page no longer claims otherwise.
+- ~~A branch manager's reports covered the whole organisation~~ — the
+  permission half was right all along (`ReportViewSet` correctly demanded
+  `reports.branch` rather than `reports.organisation`) and the queryset half
+  was missing: nothing called `scoped_to_branch`, so asking for the overview
+  with no branch named returned every branch's takings and the branch
+  comparison handed over a table of them. Found while writing the buying
+  reports, because the same mistake was available there. The comment in
+  `ReportViewSet` asserted the confinement existed, which is worse than
+  either half alone — code that reads as though it were handled. Both report
+  modules now confine, and a third guard in `identity/tests/test_access.py`
+  walks the URLconf for report viewsets, which the two existing guards skip
+  because they filter on `TenantScoped` and a report is not.
 - ~~`must_change_password` is written but never enforced~~ — the backend was
   always complete; nothing in the frontend called it. A cashier was told to
   "ask your manager to show you how", and there was no how: a manager can only
@@ -435,6 +647,7 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 
 ```bash
 cd backend
+virtual/bin/python manage.py test          # 444 tests
 virtual/bin/python manage.py test          # 325 tests
 virtual/bin/python manage.py test          # 332 tests
 ```

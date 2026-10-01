@@ -1153,3 +1153,120 @@ class EveryCustomActionIsNamedTests(TestCase):
             "map — inheriting the default is how a cashier got to close their "
             "own till.",
         )
+
+
+class EveryReportActionIsGatedTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    THE TWO GUARDS ABOVE BOTH FILTER ON `TenantScoped`, AND A REPORT IS NOT.
+
+    `sales.ReportViewSet` and `procurement.BuyingReportViewSet` are plain
+    `viewsets.ViewSet`s — they have no queryset, so there is nothing for the
+    mixin to scope and nothing for `permissions` to be declared on. Each
+    action calls `self.check(request)` by hand, as its first statement, and
+    returns early.
+
+    Which means the protection is one forgotten line per action, on exactly
+    the endpoints where forgetting it costs the most: a report is a whole
+    quarter in one response. `EveryViewsetIsGatedTests` would never notice,
+    because it is not looking at these classes at all.
+
+    So this walks the live URL configuration for the ones the others skip and
+    asks each action, over HTTP, whether it refuses somebody holding nothing.
+    A new report action is in scope the moment it is routed.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop("Shop A")
+        # Taken off the rota: a real staff member, a valid session, and no
+        # live assignment anywhere — so `granted()` is empty and every named
+        # permission must refuse them. Using a cashier instead would not work,
+        # because some report actions are correctly open to one: stock alerts
+        # are gated on INVENTORY_VIEW, which a cashier holds.
+        self.nobody = a_staff(
+            self.org, name="Sam Nobody", email="sam@a.co.ke", id_number=9009
+        )
+        credential = a_till(self.org, self.nobody, "sam")
+        _, self.token = services.open_staff_session(credential)
+
+    def auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def report_routes(self):
+        """Every routed GET action on a viewset the other guards skip."""
+        from django.urls import get_resolver
+
+        from identity.scoping import TenantScoped
+
+        found = []
+
+        def walk(patterns, prefix=""):
+            for entry in patterns:
+                if hasattr(entry, "url_patterns"):
+                    walk(entry.url_patterns, prefix + str(entry.pattern))
+                    continue
+                callback = getattr(entry, "callback", None)
+                cls = getattr(callback, "cls", None)
+                if cls is None or issubclass(cls, TenantScoped):
+                    continue
+                if not hasattr(cls, "get_extra_actions"):
+                    continue
+                initkwargs = getattr(callback, "initkwargs", {})
+                mapping = getattr(callback, "actions", {}) or {}
+                if "get" not in mapping:
+                    continue
+                # Only routes with no captured arguments can be called blind.
+                # Every report action is detail=False, so this drops nothing
+                # today and stops the walk inventing a URL if one ever is not.
+                if "(?P<" in str(entry.pattern):
+                    continue
+                found.append(
+                    (
+                        f"{cls.__name__}.{mapping['get']}",
+                        "/" + prefix + str(entry.pattern).lstrip("^").rstrip("$"),
+                        initkwargs,
+                    )
+                )
+
+        walk(get_resolver().url_patterns)
+        return found
+
+    def test_the_walk_finds_the_report_actions(self):
+        """
+        The control. If the resolver walk stopped matching, the assertion
+        below would pass over an empty list and report nothing for ever.
+        """
+        names = [name for name, _, _ in self.report_routes()]
+        self.assertIn("ReportViewSet.overview", names)
+        self.assertIn("BuyingReportViewSet.overview", names)
+        self.assertGreaterEqual(len(names), 12, names)
+
+    def test_every_report_action_refuses_a_caller_holding_nothing(self):
+        open_doors = []
+        for name, url, _ in self.report_routes():
+            response = self.client.get(url, **self.auth())
+            if response.status_code == 200:
+                open_doors.append(f"{name} ({url})")
+
+        self.assertEqual(
+            open_doors,
+            [],
+            "these report endpoints answered somebody with no permissions at "
+            f"all: {open_doors}. A report viewset is not TenantScoped, so "
+            "nothing declares its permissions for it — each action has to "
+            "call `self.check(request)` and return early, and one of these "
+            "does not.",
+        )
+
+    def test_every_report_action_refuses_an_anonymous_caller(self):
+        """
+        Belt and braces over DRF's `IsAuthenticated` default. It is set in
+        settings and a viewset can override `permission_classes` without
+        anybody noticing, at which point these endpoints are public.
+        """
+        for name, url, _ in self.report_routes():
+            response = self.client.get(url)
+            self.assertIn(
+                response.status_code, (401, 403), f"{name} answered anonymously"
+            )

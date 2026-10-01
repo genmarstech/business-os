@@ -50,6 +50,46 @@ const GROUPS: Group[] = [
       */
       { href: "/stock/history", label: "Stock history", permission: PERM.inventoryView },
       { href: "/catalogue", label: "Catalogue", permission: PERM.catalogView },
+      /*
+        Separate from Catalogue because it answers a different question.
+        Catalogue is "what do we sell and what does it normally cost";
+        this is "what are we charging instead, where, and until when" —
+        and the second is the one that quietly stops being true.
+      */
+      {
+        href: "/catalogue/prices",
+        label: "Price lists",
+        permission: PERM.catalogView,
+      },
+    ],
+  },
+  {
+    /*
+      Separate from Inventory on purpose. Stock answers "what is on the
+      shelf"; this answers "what have we committed to buy, and from whom" —
+      and the people who do the two jobs are deliberately not the same people
+      (identity/access.py, the four purchasing permissions).
+    */
+    title: "Buying",
+    items: [
+      { href: "/buying", label: "Orders", permission: PERM.purchasingView },
+      {
+        href: "/buying/suppliers",
+        label: "Suppliers",
+        permission: PERM.purchasingView,
+      },
+      /*
+        Gated on purchasing.view rather than on a reports permission, and
+        that is deliberate: a purchasing officer holds no reporting
+        permission at all, and what a supplier costs is the working
+        information of the only person whose job is to negotiate it. The
+        server agrees — see BuyingReportViewSet.
+      */
+      {
+        href: "/buying/reports",
+        label: "Spending",
+        permission: PERM.purchasingView,
+      },
     ],
   },
   {
@@ -94,6 +134,13 @@ const GROUPS: Group[] = [
         permission: PERM.settingsOrganisation,
       },
       /*
+        The shop being PAID — its own paybill, for its own customers. Not to
+        be confused with what the shop pays Genmars, which is a different
+        arrangement entirely and does not touch these credentials.
+      */
+      {
+        href: "/settings/mpesa",
+        label: "M-Pesa",
         What the business pays Genmars, and until when. Held at the same
         permission as the business's own registered details: it is the
         owner's arrangement, not the shop's operating data, and an

@@ -31,6 +31,7 @@ from identity.authentication import StaffPrincipal
 from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
 
+from Business_Platform.reporting import exact as _exact
 from . import reports, services
 from .models import Customer, Refund, Sale
 from .serializers import (
@@ -61,30 +62,6 @@ def _refuse(error: DjangoValidationError) -> Response:
         else {"detail": error.messages}
     )
     return Response(detail, status=status.HTTP_400_BAD_REQUEST)
-
-
-def _exact(value):
-    """
-    Render a report's Decimals as strings, all the way down.
-
-    ── DRF RENDERS A BARE Decimal AS A float ───────────────────────────────
-    Its JSON encoder does `float(obj)`, so 1234.55 leaves here as 1234.55 and
-    19.99 leaves as 19.989999999999998. DRF's own DecimalField does not have
-    this problem — it emits a string — but these reports are plain dicts, not
-    serialisers, so they miss that treatment entirely.
-
-    Money that has been through a float is money that no longer adds up, and a
-    dashboard whose total disagrees with the sum of its rows by a cent is a
-    dashboard nobody trusts again. So the conversion is explicit and happens
-    once, here, on the way out.
-    """
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, dict):
-        return {key: _exact(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_exact(item) for item in value]
-    return value
 
 
 class TaxRuleViewSet(TenantScoped, viewsets.ModelViewSet):
@@ -412,8 +389,14 @@ class ReportViewSet(viewsets.ViewSet):
     # distinction, and it would be lost under a single "reports" permission.
     #
     # An operational principal with no branch named falls back to their own
-    # assignments rather than being refused: `reports` scopes every aggregate
-    # through `branch_scope`, so "all branches" already means "all of mine".
+    # assignments rather than being refused, because `sales.reports` confines
+    # every aggregate through `scoped_to_branch` — so "all branches" means
+    # "all of mine".
+    #
+    # That confinement was missing until the buying reports were written, and
+    # this comment asserted it anyway: the permission chosen here was the
+    # narrow one while the aggregate underneath answered the wide question.
+    # If this ever needs saying again, say it where the queryset is built.
     def check(self, request, needed: str | None = None):
         """Returns an error Response, or None when the caller may proceed."""
         branch_id = self._branch(request)

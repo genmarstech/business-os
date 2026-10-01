@@ -329,6 +329,22 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/*
+ * What it would have cost. Struck through and dimmer, so the figure that is
+ * actually charged stays the one the eye lands on — a cashier reading the
+ * wrong one of two numbers at a counter is the failure this is risking, so
+ * the two must not look alike.
+ */
+.tileWas {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+  font-size: 11.5px;
 }
 
 .note {
@@ -816,4 +832,79 @@
 /* The bar is the positioning context for .tool. */
 .till {
   position: relative;
+}
+
+/* ── M-Pesa ──────────────────────────────────────────────────────────────
+ *
+ * The waiting state is the loudest thing on the till while it is up, because
+ * the cashier must not start another action against the same basket — and
+ * quiet the rest of the time, because most sales are cash.
+ */
+
+.mpesaAsk {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mpesaLabel {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.mpesaPhone {
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.mpesaWaiting {
+  border: 1px solid var(--accent-fill);
+  background: var(--accent-wash);
+  border-radius: var(--r-md);
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mpesaHeading {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.mpesaNote {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.mpesaQuiet {
+  font: inherit;
+  font-size: 12.5px;
+  align-self: flex-start;
+  background: transparent;
+  color: var(--ink-muted);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.mpesaQuiet:hover {
+  color: var(--ink);
+}
+
+.mpesaFailed {
+  font-size: 12.5px;
+  color: var(--danger);
+  margin: 0;
 }

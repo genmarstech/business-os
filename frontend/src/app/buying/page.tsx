@@ -13,6 +13,8 @@ import styles from "./buying.module.css";
  *
  * ── THE SCREEN IS ORGANISED BY WHAT IS STILL OWED ─────────────────────────
  * Open orders first, closed ones after, because the question somebody has
+ * here is "what are we waiting for". "What did we buy in March, and from
+ * whom" is a different question and lives on /buying/reports.
  * here is "what are we waiting for" — not "what did we buy in March", which
  * is a report and does not exist yet.
  *

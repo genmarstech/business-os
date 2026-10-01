@@ -33,32 +33,22 @@ wrong in the direction that gets a business into trouble.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
-from django.utils import timezone
 
+# Window parsing and money quantisation moved to Business_Platform/reporting.py
+# when procurement started reporting too — see the docstring there. They are
+# re-imported rather than left behind, so there is one definition of what
+# "this month" means across the whole application.
+from Business_Platform.reporting import parse_window, q  # noqa: F401
+from identity.access import scoped_to_branch
 from identity.permissions import scoped
 from inventory.models import BranchInventory
 
 from .models import Payment, Refund, Sale, SaleItem
 
 ZERO = Decimal("0.00")
-CENTS = Decimal("0.01")
-
-
-def q(value) -> Decimal:
-    """
-    Two decimal places, always.
-
-    A Sum over a DecimalField comes back with whatever scale the database
-    felt like — SQLite hands back `300` where Postgres hands back `300.00`.
-    Rendered straight, the same report reads differently on a developer's
-    machine and in production, and only one of them looks like money.
-    """
-    return (Decimal(value or 0)).quantize(CENTS)
-
 
 MONEY = DecimalField(max_digits=14, decimal_places=2)
 
@@ -86,72 +76,34 @@ def margin():
     )
 
 
-# The windows a screen offers, resolved HERE rather than by whoever is asking.
+# ── BOTH SCOPES, ALWAYS, IN THAT ORDER ──────────────────────────────────────
 #
-# ── WHY THE CLIENT MUST NOT WORK OUT "TODAY" ITSELF ─────────────────────────
+# `scoped` answers "which organisation" and `scoped_to_branch` answers "which
+# branch", and a report needs both.
 #
-# It gets it wrong, and silently. A Next server rendering this page computes
-# dates in ITS clock, which is UTC in a container; a shop in Nairobi is three
-# hours ahead, so for three hours every night the frontend asks for yesterday
-# and a dashboard that should read 302.00 reads 0.00. It looks like a day with
-# no trade rather than like a bug, which is the worst way for it to look.
+# For a long time it applied only the first. A branch manager asking for the
+# overview with no branch named got the WHOLE organisation's takings, and the
+# branch comparison handed them a table of every other branch's revenue — the
+# consolidated view §5 reserves for the organisation's own dashboard.
 #
-# So the periods have names, and the one clock that knows what they mean is
-# the one the sales were stamped against.
-RANGES = ("today", "week", "month", "year")
-
-
-def _named_window(name: str, today):
-    if name == "week":
-        return today - timedelta(days=6), today
-    if name == "month":
-        return today.replace(day=1), today
-    if name == "year":
-        return today.replace(month=1, day=1), today
-    return today, today
-
-
-def parse_window(request) -> tuple[datetime, datetime]:
-    """
-    The reporting window, defaulting to today in the shop's timezone.
-
-    Either `range=today|week|month|year`, or explicit `from`/`to` dates.
-
-    Dates are read as whole local days — `from=2026-09-01&to=2026-09-30`
-    includes everything that happened on the 30th, not everything up to
-    midnight at its start. An off-by-one here silently drops the last day of
-    every month-end report, and month-end is when somebody actually reads one.
-    """
-    now = timezone.localtime()
-    raw_range = (request.query_params.get("range") or "").strip().lower()
-    raw_from = (request.query_params.get("from") or "").strip()
-    raw_to = (request.query_params.get("to") or "").strip()
-
-    if raw_range in RANGES:
-        # A named range wins outright. Honouring a stray `from` beside it
-        # would give two answers to one question.
-        start_date, end_date = _named_window(raw_range, now.date())
-        tz = timezone.get_current_timezone()
-        return (
-            timezone.make_aware(datetime.combine(start_date, time.min), tz),
-            timezone.make_aware(datetime.combine(end_date, time.max), tz),
-        )
-
-    def as_date(value, fallback):
-        if not value:
-            return fallback
-        try:
-            return datetime.strptime(value, "%Y-%m-%d").date()
-        except ValueError:
-            return fallback
-
-    start_date = as_date(raw_from, now.date())
-    end_date = as_date(raw_to, start_date)
-
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(datetime.combine(start_date, time.min), tz)
-    end = timezone.make_aware(datetime.combine(end_date, time.max), tz)
-    return start, end
+# What hid it is that the permission half was right all along: `ReportViewSet`
+# correctly demanded REPORTS_BRANCH rather than REPORTS_ORGANISATION, and its
+# comment said the aggregate was "already confined by branch_scope". It was
+# not; nothing here called it. Choosing the narrower permission and then
+# answering the wider question is worse than either mistake alone, because the
+# code reads as though it were handled.
+#
+# `scoped_to_branch` returns the queryset untouched when `branch_scope` is
+# None, so a subscriber is unaffected — None means organisation-wide authority,
+# not "no branches".
+def _confine(rows, user, branch_path, branch_id):
+    rows = scoped_to_branch(rows, user, branch_path)
+    if branch_id:
+        # An explicit branch narrows further and is never widening: it is
+        # applied on top of the confinement, so naming somebody else's branch
+        # matches nothing rather than reaching it.
+        rows = rows.filter(**{branch_path: branch_id})
+    return rows
 
 
 def _sales(user, start, end, branch_id=None):
@@ -161,9 +113,7 @@ def _sales(user, start, end, branch_id=None):
         completed_at__gte=start,
         completed_at__lte=end,
     )
-    if branch_id:
-        rows = rows.filter(branch_id=branch_id)
-    return rows
+    return _confine(rows, user, "branch_id", branch_id)
 
 
 def _refunds(user, start, end, branch_id=None):
@@ -172,9 +122,7 @@ def _refunds(user, start, end, branch_id=None):
         created_at__gte=start,
         created_at__lte=end,
     )
-    if branch_id:
-        rows = rows.filter(branch_id=branch_id)
-    return rows
+    return _confine(rows, user, "branch_id", branch_id)
 
 
 def overview(user, start, end, branch_id=None) -> dict:
@@ -338,8 +286,7 @@ def stock_alerts(user, branch_id=None, limit=100) -> list[dict]:
         "branch__organization_id",
     ).filter(is_active=True, quantity__lte=F("reorder_level"))
 
-    if branch_id:
-        rows = rows.filter(branch_id=branch_id)
+    rows = _confine(rows, user, "branch_id", branch_id)
 
     return [
         {
@@ -375,8 +322,7 @@ def register_status(user, branch_id=None) -> list[dict]:
         "register__branch__organization_id",
     ).filter(status="OPEN")
 
-    if branch_id:
-        shifts = shifts.filter(register__branch_id=branch_id)
+    shifts = _confine(shifts, user, "register__branch_id", branch_id)
 
     out = []
     for shift in shifts:

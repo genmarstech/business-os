@@ -1,0 +1,311 @@
+/*
+ * Buying reports.
+ *
+ * Information design, not typography: the position before the period, state
+ * encoded in form as well as number, and digits that line up so two suppliers
+ * can be compared by eye.
+ *
+ * Every colour here is a semantic token. A brand constant used as a surface
+ * while the text on it uses a semantic token is a light band with light text
+ * in one of the two themes — scripts/check-theme-tokens.mjs refuses it, and
+ * it refuses it because that shipped once.
+ */
+
+.page {
+  max-width: 76rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 66ch;
+}
+
+.ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.range {
+  font-size: 12.5px;
+  text-decoration: none;
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--panel);
+}
+
+.range:hover {
+  border-color: var(--line-firm);
+  color: var(--ink);
+}
+
+.rangeOn {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  color: var(--on-fill);
+}
+
+/* ── the position, which has no period ────────────────────────────────── */
+
+.position {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.owed,
+.late {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  padding: 16px 18px;
+}
+
+/* Overdue is the one thing on this page that needs a colour of its own: it
+   is the only figure that asks somebody to pick up a telephone today. */
+.late {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.lateFigure {
+  color: var(--warn);
+}
+
+.positionLabel {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.late .positionLabel {
+  color: var(--warn);
+}
+
+.positionValue {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.35rem, 3vw, 1.7rem);
+  letter-spacing: -0.02em;
+}
+
+.positionNote {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 6px 0 0;
+}
+
+.late .positionNote {
+  color: var(--warn);
+}
+
+/* ── the window figures ───────────────────────────────────────────────── */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.kpi {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  padding: 13px 15px;
+}
+
+.kpiLead {
+  border-color: var(--line-firm);
+}
+
+.kpiLabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 5px;
+}
+
+.kpiValue {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  letter-spacing: -0.015em;
+}
+
+.kpiNote {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+/* ── panels and tables ────────────────────────────────────────────────── */
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.1rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0 0 14px;
+  max-width: 70ch;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 10px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 10px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
+.quiet {
+  color: var(--ink-faint);
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.footnote {
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin: 14px 0 0;
+  max-width: 70ch;
+}
+
+/* ── verdict chips: a rate is not readable as a bare number ───────────── */
+
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+.chipGood {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.chipWarn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.chipBad {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.chipNone {
+  background: var(--sunken);
+  color: var(--ink-faint);
+}
+
+.overdueRow td {
+  background: var(--warn-bg);
+}
+
+.link {
+  color: var(--accent-text);
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 15px 14px;
+  }
+}

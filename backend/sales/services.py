@@ -41,6 +41,7 @@ from django.db.models import F, Max
 from django.utils import timezone
 
 from branches.models import RegisterShift
+from catalog import pricing
 from catalog.models import CatalogCategoryProduct, TaxRule
 from inventory.models import BranchInventory, StockMovement
 
@@ -235,6 +236,19 @@ def checkout(
 
     stock = _lock_inventory(branch.pk, [p.pk for p in products])
 
+    # ── WHAT THINGS COST IS NOT THIS MODULE'S QUESTION ──────────────────────
+    #
+    # `catalog.pricing` is the one place a price is decided, so that the till
+    # that displayed a figure and the checkout that charges it cannot work it
+    # out differently. Resolved ONCE, here, for every line at once — two
+    # queries rather than two per line — and then carried through `priced`.
+    #
+    # It used to read `product.selling_price` twice: once for the gross and
+    # again when writing the SaleItem. Those agreed only because they were the
+    # same attribute. With a list in play they are two resolutions of a
+    # question that can move, so there is now one.
+    resolved = pricing.prices_for(products, branch_id=branch.pk)
+
     # ── price the lines ─────────────────────────────────────────────────────
     priced = []
     subtotal = discount_total = tax_total = total = ZERO
@@ -247,7 +261,8 @@ def checkout(
         if quantity <= 0:
             raise SaleError({"lines": "A quantity has to be more than zero."})
 
-        gross = money(Decimal(product.selling_price) * quantity)
+        unit_price, from_list = resolved[product.pk]
+        gross = money(unit_price * quantity)
         if discount > gross:
             raise SaleError(
                 {"lines": f"The discount on {product.name} is more than the line."}
@@ -289,6 +304,8 @@ def checkout(
                 "tax_rate": Decimal(rule.rate) if rule else ZERO,
                 "line_total": line_total,
                 "gross": gross,
+                "unit_price": unit_price,
+                "price_list": from_list,
                 "note": str(line.get("note", "") or "").strip()[:200],
             }
         )
@@ -360,7 +377,12 @@ def checkout(
             product=product,
             product_name=product.name,
             sku=product.sku,
-            unit_price=product.selling_price,
+            # The resolved price, not the product's own — and recorded
+            # beside the list it came from, because "why was this 80 when the
+            # shelf says 100" is asked weeks later, by which time the
+            # promotion has ended and the configuration no longer explains it.
+            unit_price=line["unit_price"],
+            price_list=line["price_list"],
             unit_cost=product.cost_price,
             quantity=line["quantity"],
             discount_amount=line["discount"],
@@ -408,6 +430,23 @@ def checkout(
             Customer.objects.filter(pk=customer.pk).update(
                 credit_balance=F("credit_balance") + money(amount - change)
             )
+
+        # ── SPEND THE M-PESA PUSH INSIDE THIS TRANSACTION ─────────────────
+        #
+        # Imported here rather than at the top because `payments` imports
+        # `sales` for its StkPush.sale relation, and a module-level import
+        # both ways is a cycle. This is the only direction that needs one.
+        #
+        # It must happen HERE and not in a second request from the till: a
+        # sale written while the push stayed unspent leaves a confirmed
+        # payment available to fund somebody else's basket. `spend` refuses
+        # a push that is the wrong amount, already spent, not confirmed, or
+        # another tenant's, and the refusal rolls this whole sale back.
+        push = payment.get("stk_push")
+        if push is not None:
+            from payments import services as payment_services
+
+            payment_services.spend(push, sale)
 
     issue_receipt(sale)
     return sale
