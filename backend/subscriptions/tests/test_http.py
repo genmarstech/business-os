@@ -243,12 +243,38 @@ class SubscriptionApiTests(Base):
 
 
 class PlanApiTests(Base):
-    def test_plans_are_readable_by_any_signed_in_caller(self):
+    def test_an_owner_can_read_the_plans(self):
         a_plan(code="standard", name="Standard")
         self.sign_in_owner()
         response = self.client.get("/sub/plans/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual([p["code"] for p in response.json()], ["standard"])
+
+    def test_a_cashier_cannot(self):
+        """
+        This was open to any signed-in caller, on the reasoning that a
+        published price list holds nothing worth hiding.
+        `EveryReportActionIsGatedTests` disagreed the moment the
+        subscriptions and buying-reports branches met on main, and it was
+        right: "nothing worth hiding" is the argument made about every
+        endpoint in turn, and a cashier has no use for Genmars' commercial
+        terms. Nothing is lost — the only screen that reads it already
+        requires the same permission.
+        """
+        from branches.models import staffAssignment
+        from django.test import Client
+        from identity import services as identity_services
+
+        jane = a_staff(self.org, name="Jane", email="jane@a.co.ke", id_number=7001)
+        assign(jane, self.branch, staffAssignment.StaffRoles.Cashier)
+        _, token = identity_services.open_staff_session(a_till(jane, "jane"))
+
+        self.assertEqual(
+            Client().get(
+                "/sub/plans/", HTTP_AUTHORIZATION=f"Bearer {token}"
+            ).status_code,
+            403,
+        )
 
     def test_a_withdrawn_plan_is_not_offered(self):
         a_plan(code="legacy", is_offered=False)

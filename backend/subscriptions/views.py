@@ -29,7 +29,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from identity import access
-from identity.permissions import tenant_scope
+from identity.permissions import Requires, tenant_scope
 from identity.scoping import TenantScoped
 
 from . import entitlement, services
@@ -54,19 +54,29 @@ class PlanViewSet(viewsets.ReadOnlyModelViewSet):
     everybody, and routing it through the tenant mixin would ask it to filter
     on a column that does not exist.
 
-    `EveryViewsetIsGatedTests` walks the URLconf for `TenantScoped` viewsets
-    and will not see this one; `EveryReportActionIsGatedTests` walks the rest
-    and will. It answers any signed-in caller and nothing more: somebody
-    deciding whether to upgrade has to see what they would be upgrading to,
-    and there is nothing in a published price list worth hiding from a
-    customer.
+    ── HELD AT SETTINGS_ORGANISATION, AND IT USED NOT TO BE ───────────────
+    This answered any signed-in caller, on the reasoning that somebody
+    deciding whether to upgrade has to see what they would be upgrading to
+    and a published price list holds nothing worth hiding.
+
+    `EveryReportActionIsGatedTests` disagreed the moment the two branches met
+    on main: it signs in a staff member with no live assignments and asserts
+    every non-TenantScoped endpoint refuses them, and this one answered. The
+    guard was right and the reasoning was weak. "Nothing worth hiding" is the
+    argument that gets made about every endpoint in turn, and a cashier taken
+    off the rota has no use for Genmars' commercial terms.
+
+    Nothing is lost by closing it: the only screen that reads this is
+    `/settings/subscription`, which already refuses anybody without the same
+    permission, and the banner that tells a cashier the subscription has
+    lapsed is fed by `entitlement.summary`, which carries no price.
 
     There is NO write endpoint. Plans are Genmars' commercial terms; they are
     entered in the admin, by Genmars, and an API that let a tenant create one
     would let them create one with no limits.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [Requires(access.SETTINGS_ORGANISATION)]
     serializer_class = PlanSerializer
     queryset = Plan.objects.filter(is_offered=True)
     pagination_class = None
