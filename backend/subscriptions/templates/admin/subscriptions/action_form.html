@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{#
+  One intermediate page for every subscription action that needs a value.
+
+  Deliberately plain and deliberately shared: the alternative is a template
+  per action, four of which would drift apart, and the thing that matters
+  here is not the styling but that the operator is shown exactly which
+  subscriptions they are about to change before they change them.
+#}
+{% block content %}
+  <h1>{{ title }}</h1>
+  <p>{{ lede }}</p>
+
+  <ul>
+    {% for subscription in subscriptions %}
+      <li><strong>{{ subscription.organization.name }}</strong>
+          — {{ subscription.get_state_display }}
+          {% if subscription.paid_until %}, paid to {{ subscription.paid_until }}{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {% for subscription in subscriptions %}
+      <input type="hidden" name="_selected_action" value="{{ subscription.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="{{ action }}">
+    <input type="hidden" name="apply" value="1">
+    <p>
+      <input type="submit" value="{{ submit_label }}" class="default">
+      <a href="." class="button cancel-link">Cancel</a>
+    </p>
+  </form>
+{% endblock %}
