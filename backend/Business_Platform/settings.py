@@ -375,6 +375,24 @@ MPESA_CREDENTIAL_KEY = os.environ.get("MPESA_CREDENTIAL_KEY", "")
 # somebody makes rather than something a deploy does to them.
 ADMIN_REQUIRE_TOTP = os.environ.get("ADMIN_REQUIRE_TOTP", "") == "1"
 
+# ── HOW THIS INSTALLATION IDENTIFIES ITSELF TO GENMARS ──────────────────────
+#
+# A SystemKey, issued in ops under Settings → Engineering and pasted here. It
+# lets this application POST its own health and events to the registry, and
+# does nothing else — the direction of trust is inward only, so there is no
+# endpoint it opens and no instruction it accepts. See Business_Platform/parent.py.
+#
+# Absent means this installation is simply not registered, which is an
+# ordinary state: a developer's laptop, or a copy somebody else runs. It
+# reports nothing and nothing breaks.
+GENMARS_SYSTEM_KEY = os.environ.get("GENMARS_SYSTEM_KEY", "")
+
+# What the heartbeat calls this build. Set by the deploy to the image's commit
+# so the dashboard can say WHICH version is running — "the deployed instance
+# had drifted five commits behind main without anything noticing" is in the CI
+# workflow's own header, and this is the part that would have shown it.
+APP_VERSION = os.environ.get("APP_VERSION", "")
+
 # Resend refuses a From address on a domain that has not been verified with
 # them, and answers with a readable reason rather than silently dropping it —
 # see mail_backends.py on why that is the point of using the API.
