@@ -93,23 +93,6 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    /*
-      Separate from Inventory on purpose. Stock answers "what is on the
-      shelf"; this answers "what have we committed to buy, and from whom" —
-      and the people who do the two jobs are deliberately not the same people
-      (identity/access.py, the four purchasing permissions).
-    */
-    title: "Buying",
-    items: [
-      { href: "/buying", label: "Orders", permission: PERM.purchasingView },
-      {
-        href: "/buying/suppliers",
-        label: "Suppliers",
-        permission: PERM.purchasingView,
-      },
-    ],
-  },
-  {
     title: "Organisation",
     items: [
       {
@@ -141,6 +124,9 @@ const GROUPS: Group[] = [
       {
         href: "/settings/mpesa",
         label: "M-Pesa",
+        permission: PERM.settingsOrganisation,
+      },
+      /*
         What the business pays Genmars, and until when. Held at the same
         permission as the business's own registered details: it is the
         owner's arrangement, not the shop's operating data, and an
