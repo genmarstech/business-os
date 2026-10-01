@@ -86,6 +86,11 @@ REFERENCE_TO_ORGANISATION = {
     # entirely.
     "price_list": lambda obj: obj.organization_id,
     "branches": lambda obj: obj.organization_id,
+    # M-Pesa. A till is one per organisation and a push reaches one through
+    # its own column; both are named here per the warning above, in the same
+    # commit that introduces them.
+    "mpesa_till": lambda obj: obj.organization_id,
+    "stk_push": lambda obj: obj.organization_id,
 }
 
 

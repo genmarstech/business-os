@@ -115,6 +115,16 @@ const GROUPS: Group[] = [
         label: "Business details",
         permission: PERM.settingsOrganisation,
       },
+      /*
+        The shop being PAID — its own paybill, for its own customers. Not to
+        be confused with what the shop pays Genmars, which is a different
+        arrangement entirely and does not touch these credentials.
+      */
+      {
+        href: "/settings/mpesa",
+        label: "M-Pesa",
+        permission: PERM.settingsOrganisation,
+      },
     ],
   },
 ];

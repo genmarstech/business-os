@@ -1,5 +1,6 @@
 argon2-cffi==25.1.0
 asgiref==3.12.1
+cryptography==46.0.3
 Django==6.1.1
 django-filter==26.1
 djangorestframework==3.18.0
