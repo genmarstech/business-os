@@ -311,6 +311,26 @@ class SaleItem(models.Model):
         ),
     )
     unit_price = models.DecimalField(**MONEY)
+
+    # ── WHY THE PRICE WAS WHAT IT WAS ───────────────────────────────────
+    #
+    # The price itself is copied, as everything here is. This records the
+    # price LIST it came from, because "the shelf says 100 and this says 80"
+    # is a question asked weeks later, by which time the promotion has ended
+    # and the configuration no longer explains anything.
+    #
+    # Null is the ordinary case: no list applied and the product's own price
+    # was charged. PROTECT, so a list that has priced real sales cannot be
+    # deleted out from under the explanation — lists are deactivated, the
+    # same as suppliers and products.
+    price_list = models.ForeignKey(
+        "catalog.PriceList",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sale_items",
+    )
+
     unit_cost = models.DecimalField(
         **MONEY,
         default=ZERO,

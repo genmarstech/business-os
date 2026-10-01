@@ -80,6 +80,12 @@ REFERENCE_TO_ORGANISATION = {
     "supplier": lambda obj: obj.organization_id,
     "purchase_order": lambda obj: obj.organization_id,
     "order_item": lambda obj: obj.purchase_order.organization_id,
+    # Price lists. `branches` is PLURAL and holds a list of Branch instances
+    # rather than one — see the list handling in the walk below, which was
+    # recursing into lists of DICTS only and would have skipped this
+    # entirely.
+    "price_list": lambda obj: obj.organization_id,
+    "branches": lambda obj: obj.organization_id,
 }
 
 
@@ -112,11 +118,30 @@ def organisations_referenced(validated_data: dict, prefix: str = "") -> dict[str
             continue
 
         if isinstance(value, (list, tuple)):
+            # ── A LIST HOLDS EITHER NESTED WRITES OR PLAIN REFERENCES ──────
+            #
+            # `items` on a purchase order is a list of dicts, each its own
+            # little write. `branches` on a price list is a list of resolved
+            # Branch instances — a many-to-many, with no dict anywhere.
+            #
+            # This recursed into dicts and silently ignored everything else,
+            # so the second shape was not checked at all: a price list could
+            # have been pointed at another tenant's branch and the guard
+            # would have found nothing it recognised. Exactly the fail-open
+            # the map's own warning describes, one container deeper.
+            resolve_each = REFERENCE_TO_ORGANISATION.get(field)
             for index, entry in enumerate(value):
                 if isinstance(entry, dict):
                     found.update(
                         organisations_referenced(entry, prefix=f"{name}[{index}].")
                     )
+                    continue
+                if resolve_each is None or entry is None:
+                    continue
+                try:
+                    found[f"{name}[{index}]"] = resolve_each(entry)
+                except AttributeError:
+                    found[f"{name}[{index}]"] = -1
             continue
 
         resolve = REFERENCE_TO_ORGANISATION.get(field)

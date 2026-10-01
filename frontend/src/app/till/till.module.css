@@ -329,6 +329,22 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/*
+ * What it would have cost. Struck through and dimmer, so the figure that is
+ * actually charged stays the one the eye lands on — a cashier reading the
+ * wrong one of two numbers at a counter is the failure this is risking, so
+ * the two must not look alike.
+ */
+.tileWas {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+  font-size: 11.5px;
 }
 
 .note {
