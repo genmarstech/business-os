@@ -74,28 +74,61 @@ REFERENCE_TO_ORGANISATION = {
     "sale_item": lambda obj: obj.sale.organization_id,
     "refund": lambda obj: obj.organization_id,
     "tax_rule": lambda obj: obj.organization_id,
+    # Procurement. Added in the same commit as the app, per the warning
+    # above. `order_item` reaches an organisation through its order, the same
+    # two-hop shape as `sale_item`.
+    "supplier": lambda obj: obj.organization_id,
+    "purchase_order": lambda obj: obj.organization_id,
+    "order_item": lambda obj: obj.purchase_order.organization_id,
 }
 
 
-def organisations_referenced(validated_data: dict) -> dict[str, int]:
+def organisations_referenced(validated_data: dict, prefix: str = "") -> dict[str, int]:
     """
     Every organisation this write would touch, by the field that reaches it.
 
     Returns a mapping so a refusal can name the offending field, which is the
     difference between a usable error and "something was wrong".
+
+    ── IT WALKS NESTED WRITES TOO ──────────────────────────────────────────
+    It used to read the top level only, which was fine while every write was
+    one flat row. A purchase order is not: it arrives as a header plus a list
+    of lines, each naming a product, and a flat walk sees `supplier` and
+    `branch`, finds them in order, and waves through a line pointing at
+    another tenant's product.
+
+    The same hole would open the first time anything else took a nested
+    write, and the fix belongs here rather than in one viewset — the whole
+    reason this file exists is that isolation enforced in several places
+    eventually disagrees with itself. Nested fields are reported as
+    `items[0].product`, so a refusal still names the line that caused it.
     """
     found: dict[str, int] = {}
-    for field, resolve in REFERENCE_TO_ORGANISATION.items():
-        value = validated_data.get(field)
-        if value is None:
+    for field, value in validated_data.items():
+        name = f"{prefix}{field}"
+
+        if isinstance(value, dict):
+            found.update(organisations_referenced(value, prefix=f"{name}."))
+            continue
+
+        if isinstance(value, (list, tuple)):
+            for index, entry in enumerate(value):
+                if isinstance(entry, dict):
+                    found.update(
+                        organisations_referenced(entry, prefix=f"{name}[{index}].")
+                    )
+            continue
+
+        resolve = REFERENCE_TO_ORGANISATION.get(field)
+        if resolve is None or value is None:
             continue
         try:
-            found[field] = resolve(value)
+            found[name] = resolve(value)
         except AttributeError:
             # The field held something other than the model this map expects.
             # Refusing to guess: an unresolvable reference is treated as out of
             # scope below, because the alternative is letting it through.
-            found[field] = -1
+            found[name] = -1
     return found
 
 

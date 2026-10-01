@@ -52,6 +52,23 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    /*
+      Separate from Inventory on purpose. Stock answers "what is on the
+      shelf"; this answers "what have we committed to buy, and from whom" —
+      and the people who do the two jobs are deliberately not the same people
+      (identity/access.py, the four purchasing permissions).
+    */
+    title: "Buying",
+    items: [
+      { href: "/buying", label: "Orders", permission: PERM.purchasingView },
+      {
+        href: "/buying/suppliers",
+        label: "Suppliers",
+        permission: PERM.purchasingView,
+      },
+    ],
+  },
+  {
     title: "Organisation",
     items: [
       {

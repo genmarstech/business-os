@@ -1,0 +1,362 @@
+/* Purchase orders, suppliers and deliveries. */
+
+.page {
+  max-width: 68rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.form {
+  margin-top: 6px;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+/* ── an order ───────────────────────────────────────────────────────────── */
+
+.orderHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.orderNumber {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.orderTotal {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+}
+
+/*
+ * Status carries meaning, so it carries colour: amber is waiting on a person,
+ * green is done, plain is in motion. Nothing here is red — a cancelled order
+ * is a decision somebody took, not a fault.
+ */
+.badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.waitingBadge {
+  color: var(--warn);
+}
+
+.doneBadge {
+  color: var(--ok);
+}
+
+.closed {
+  opacity: 0.6;
+}
+
+.scroll {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Space on the LEFT, where the previous column's text ends — see the long
+     note in stock.module.css about MARGINTAX. */
+  padding-left: 22px;
+}
+
+.table thead th.num {
+  text-align: right;
+}
+
+.short {
+  color: var(--warn);
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.quiet {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+
+.quiet:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+.primary {
+  background: var(--accent-wash);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+
+.waiting {
+  color: var(--warn);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.inlineForm {
+  width: 100%;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+
+.formLede {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0 0 14px;
+  max-width: 62ch;
+}
+
+/* ── repeating line inputs ──────────────────────────────────────────────── */
+
+.lines {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.linesHead {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem 7.5rem 2rem;
+  gap: 8px;
+  align-items: center;
+}
+
+.receiveLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.receiveLine:last-child {
+  border-bottom: 0;
+}
+
+.lineSelect,
+.lineNumber {
+  width: 100%;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 9px 11px;
+}
+
+.lineNumber {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.lineSelect:focus-visible,
+.lineNumber:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.lineDrop {
+  background: none;
+  border: 0;
+  color: var(--ink-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--r-sm);
+}
+
+.lineDrop:hover {
+  color: var(--danger);
+}
+
+.lineError {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin: 0 0 12px;
+}
+
+/* ── suppliers ──────────────────────────────────────────────────────────── */
+
+.cards {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.cardHead {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+@media (max-width: 40rem) {
+  .line {
+    grid-template-columns: minmax(0, 1fr) 2rem;
+  }
+
+  .line .lineNumber {
+    grid-column: 1 / 2;
+  }
+
+  .line .lineDrop {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}

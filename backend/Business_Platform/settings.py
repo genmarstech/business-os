@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'inventory',
     'identity',
     'sales',
+    'procurement',
 ]
 
 MIDDLEWARE = [
