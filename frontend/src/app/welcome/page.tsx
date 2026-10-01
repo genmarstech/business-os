@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Mark } from "@/components/Mark";
+import { BusinessMark } from "@/components/BusinessMark";
 import { progress, type Step } from "@/lib/onboarding";
 import { me as whoAmI, tenantName } from "@/lib/session";
 import { BranchForm, BusinessForm, ProductForm, RegisterForm } from "./forms";
@@ -60,7 +60,7 @@ export default async function Welcome() {
   return (
     <div className={styles.page}>
       <div className={styles.brand}>
-        <Mark size={30} />
+        <BusinessMark size={30} />
         <div>
           <div className={styles.brandName}>{business ?? "Genmars"}</div>
           <div className={styles.brandSub}>
