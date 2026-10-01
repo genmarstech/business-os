@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Mark } from "@/components/Mark";
+import { BusinessMark } from "@/components/BusinessMark";
 import { Shell } from "@/components/Shell";
 import { progress, type Progress } from "@/lib/onboarding";
 import { me as whoAmI, tenantName } from "@/lib/session";
@@ -178,7 +178,7 @@ function FrontDoor() {
 
       <header className={styles.doorBar}>
         <div className={styles.doorBrand}>
-          <Mark size={26} />
+          <BusinessMark size={26} lockup />
           <span className={styles.doorMaker}>Genmars</span>
         </div>
         <a className={styles.doorSignIn} href="/auth/start">
