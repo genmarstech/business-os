@@ -47,11 +47,13 @@ drawer figure, and a cashier who cannot count their own. **Purchasing is the
 other, and it is new**: suppliers, purchase orders with an approval step, and
 goods receipts that move stock. See *Buying* below.
 
+**Purchasing now reports on itself** — what each supplier has cost, what is
+committed and not yet delivered, and which of them turn up when they said
+they would. See *What the buying reports will and will not say* below.
+
 What is left of V2: cash reconciliation beyond the drawer count, the returns
 workflow beyond the refund itself, advanced permissions, notifications, and
-multi-branch reporting beyond the branch comparison. Nothing reports on
-purchasing yet — what a supplier has cost this quarter, and what is committed
-and not yet delivered, are questions this data can answer and no screen asks.
+multi-branch reporting beyond the branch comparison.
 
 **V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
 e-commerce sync, advanced analytics, automated replenishment. §11 asks for
@@ -73,8 +75,9 @@ Supplier ──▶ PurchaseOrder ──▶ GoodsReceipt ──▶ StockMovement(
 ```
 
 Endpoints are under `/prc/`: `suppliers`, `purchase-orders` (with `submit`,
-`approve`, `cancel` and `receive` actions) and a read-only `goods-receipts`.
-Screens are under `/buying`.
+`approve`, `cancel` and `receive` actions), a read-only `goods-receipts`, and
+`reports` (`overview`, `by-supplier`, `by-product`, `outstanding`,
+`reliability`). Screens are under `/buying`.
 
 **The approval is the point, and it is built as a permission, not an `if`.**
 `purchasing.manage` raises and sends; `purchasing.approve` commits the
@@ -113,6 +116,39 @@ And three decisions worth knowing before changing it:
 A delivery writes a `PURCHASE` StockMovement and **no** StockAdjustment:
 `inventory/services.adjust` writes both because a manual correction has no
 other document to point at, and a delivery has one.
+
+### What the buying reports will and will not say
+
+`/buying/reports`, served by `procurement/reports.py`. Three decisions in it
+are worth more than the arithmetic:
+
+- **Ordering is a commitment; receiving is a cost, and the two are never
+  added together.** "What has this supplier cost us" is answered by what
+  actually arrived — a goods receipt is the moment a liability becomes real.
+  Reporting ordered value as spend overstates every quarter with stock in
+  transit, and overstates it for ever wherever an order was cancelled. Both
+  figures appear, labelled, the same way the sales reports put refunds beside
+  revenue instead of netting them off.
+- **"Outstanding" takes no window, and that is not an oversight.** Everything
+  else is an aggregate over a period; this is a position — what is owed right
+  now. "What was outstanding during September" is not a question with one
+  answer, and a date filter would quietly produce a number that looks like
+  one. It also starts at `submitted`, not `draft`: nobody outside the shop
+  has been asked for a draft, so counting one as money committed would let an
+  abandoned shopping list sit in the obligations figure for ever.
+- **Supplier reliability reports what it could not judge.** An order still in
+  transit has no verdict yet, and one raised with no expected date cannot be
+  judged at all. Both are counted and shown rather than dropped, so a 100%
+  figure computed from three of a supplier's forty orders says so on its
+  face. The average lateness is over the late orders only — averaging the
+  zeros of the on-time ones into it produces a small, reassuring number for a
+  supplier who is occasionally catastrophic.
+
+Window parsing, two-decimal quantisation and the Decimal-to-string walk moved
+to `Business_Platform/reporting.py` when this was written. They were in
+`sales/reports.py`, which was right while sales was the only thing with a
+dashboard — buying should not have to depend on selling for the meaning of
+"this month".
 
 ### Roles and permissions
 
@@ -247,6 +283,18 @@ Left here briefly because a gap list nobody trusts is worse than no gap list.
 - ~~There is no dashboard~~ — branches, catalogue, stock, till, sales,
   refunds, reports, buying, staff and settings all exist, and the landing
   page no longer claims otherwise.
+- ~~A branch manager's reports covered the whole organisation~~ — the
+  permission half was right all along (`ReportViewSet` correctly demanded
+  `reports.branch` rather than `reports.organisation`) and the queryset half
+  was missing: nothing called `scoped_to_branch`, so asking for the overview
+  with no branch named returned every branch's takings and the branch
+  comparison handed over a table of them. Found while writing the buying
+  reports, because the same mistake was available there. The comment in
+  `ReportViewSet` asserted the confinement existed, which is worse than
+  either half alone — code that reads as though it were handled. Both report
+  modules now confine, and a third guard in `identity/tests/test_access.py`
+  walks the URLconf for report viewsets, which the two existing guards skip
+  because they filter on `TenantScoped` and a report is not.
 - ~~`must_change_password` is written but never enforced~~ — the backend was
   always complete; nothing in the frontend called it. A cashier was told to
   "ask your manager to show you how", and there was no how: a manager can only
@@ -355,5 +403,5 @@ cannot see. And there is no schedule: the script exists, nothing runs it.
 
 ```bash
 cd backend
-virtual/bin/python manage.py test          # 332 tests
+virtual/bin/python manage.py test          # 363 tests
 ```

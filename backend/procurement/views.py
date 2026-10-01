@@ -24,11 +24,12 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from Business_Platform.reporting import exact, parse_window
 from identity import access
 from identity.authentication import StaffPrincipal
 from identity.scoping import TenantScoped
 
-from . import services
+from . import reports, services
 from .models import GoodsReceipt, PurchaseOrder, Supplier
 from .serializers import (
     CancelSerializer,
@@ -342,3 +343,114 @@ class GoodsReceiptViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         .all()
     )
     serializer_class = GoodsReceiptSerializer
+
+
+class BuyingReportViewSet(viewsets.ViewSet):
+    """
+    What the shop is spending, and on whom — the buying half of module 12.
+
+    A ViewSet with no queryset, because none of these is a list of rows. Each
+    action is an aggregate that resolves its own scope inside
+    `procurement.reports` — see the banner there on why a report never takes a
+    queryset from a view.
+
+    ── ONE PERMISSION, NOT THE REPORTING PAIR ──────────────────────────────
+    `sales.ReportViewSet` splits on REPORTS_BRANCH vs REPORTS_ORGANISATION,
+    because §4 and §5 describe two different dashboards over the same
+    takings, and a branch manager is meant to be refused the consolidated
+    one.
+
+    These are gated on PURCHASING_VIEW instead, and that difference is
+    deliberate. What a supplier costs and whether they deliver on time is the
+    buyer's own working information — a purchasing officer holds no reporting
+    permission at all, and gating this behind one would hide the numbers from
+    the only person whose job is to act on them. Nobody is shown more than
+    their orders list already shows them: the aggregates are confined by
+    `scoped_to_branch` exactly as `PurchaseOrderViewSet` is, so a branch
+    manager's spend figures stop where their order list stops.
+    """
+
+    def _branch(self, request):
+        raw = request.query_params.get("branch")
+        try:
+            return int(raw) if raw else None
+        except (TypeError, ValueError):
+            return None
+
+    def check(self, request):
+        """Returns an error Response, or None when the caller may proceed."""
+        if not access.may(request.user, access.PURCHASING_VIEW, self._branch(request)):
+            return Response(
+                {"detail": "You do not have permission to do that."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+    @action(detail=False, methods=["get"])
+    def overview(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
+        start, end = parse_window(request)
+        return Response(
+            exact(reports.overview(request.user, start, end, self._branch(request)))
+        )
+
+    @action(detail=False, methods=["get"], url_path="by-supplier")
+    def by_supplier(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
+        start, end = parse_window(request)
+        return Response(
+            exact(
+                {
+                    "suppliers": reports.by_supplier(
+                        request.user, start, end, self._branch(request)
+                    )
+                }
+            )
+        )
+
+    @action(detail=False, methods=["get"], url_path="by-product")
+    def by_product(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
+        start, end = parse_window(request)
+        return Response(
+            exact(
+                {
+                    "products": reports.by_product(
+                        request.user, start, end, self._branch(request)
+                    )
+                }
+            )
+        )
+
+    @action(detail=False, methods=["get"])
+    def outstanding(self, request):
+        # Takes no window on purpose — it is a position, not a period. See
+        # the banner in reports.py.
+        refused = self.check(request)
+        if refused is not None:
+            return refused
+        return Response(
+            exact(reports.outstanding(request.user, self._branch(request)))
+        )
+
+    @action(detail=False, methods=["get"])
+    def reliability(self, request):
+        refused = self.check(request)
+        if refused is not None:
+            return refused
+        start, end = parse_window(request)
+        return Response(
+            exact(
+                {
+                    "suppliers": reports.supplier_reliability(
+                        request.user, start, end, self._branch(request)
+                    )
+                }
+            )
+        )

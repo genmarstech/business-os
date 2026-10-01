@@ -66,6 +66,18 @@ const GROUPS: Group[] = [
         label: "Suppliers",
         permission: PERM.purchasingView,
       },
+      /*
+        Gated on purchasing.view rather than on a reports permission, and
+        that is deliberate: a purchasing officer holds no reporting
+        permission at all, and what a supplier costs is the working
+        information of the only person whose job is to negotiate it. The
+        server agrees — see BuyingReportViewSet.
+      */
+      {
+        href: "/buying/reports",
+        label: "Spending",
+        permission: PERM.purchasingView,
+      },
     ],
   },
   {
