@@ -518,6 +518,18 @@ These are written down rather than left to be rediscovered.
   shift asks again. Making it mandatory is one early return in `Till.tsx`, and
   it is the business owner's call rather than ours.
 
+- **An un-caught 500 now reaches a person.** There was no `ADMINS`, no
+  `LOGGING` and no handler at all: an exception went to the container log and
+  stopped there, which means the way Genmars would have learned a till was
+  failing is a shop telephoning. `django.request` errors are mailed, and
+  **`include_html=False` is load-bearing rather than tidy** — Django's HTML
+  traceback embeds every local in every frame, which here means a decrypted
+  Daraja passkey, a cashier's password, a customer's phone number or another
+  business's basket, sent in plain text through a third-party relay. A test
+  asserts there is no HTML alternative, and flipping the flag makes it fail
+  with the secret visible in the report. It needs `RESEND_API_KEY`, which
+  production has.
+
 ### Closed since this list was written
 
 Left here briefly because a gap list nobody trusts is worse than no gap list.
