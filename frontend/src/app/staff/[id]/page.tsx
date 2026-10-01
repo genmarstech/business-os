@@ -8,6 +8,7 @@ import {
   EndAssignmentButton,
   IssueLoginForm,
   ResetPasswordForm,
+  SendLoginForm,
   SetActiveForm,
 } from "../forms";
 import { staffBoard } from "../data";
@@ -172,6 +173,20 @@ export default async function PersonPage({
                       exactly what makes a till count disputable.
                     </div>
                   ) : null}
+
+                  {/*
+                    Above the password reset, deliberately. This is what a
+                    manager should reach for when somebody starts; typing a
+                    password and sending it over WhatsApp is the habit it
+                    exists to replace.
+                  */}
+                  <SendLoginForm
+                    credentialId={login.id}
+                    staffId={staffId}
+                    email={person.email ?? ""}
+                  />
+
+                  <div className={styles.divide} />
 
                   <ResetPasswordForm
                     credentialId={login.id}
