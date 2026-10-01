@@ -4,26 +4,44 @@ name: ci
 # is no manual override."
 #
 # business-os was the last of the four repositories with no pipeline at all.
-# 246 backend tests — including the ones that prove one business cannot read
-# another's takings — ran only when somebody remembered to run them, and the
+# The backend suite — including the tests that prove one business cannot read
+# another's takings — ran only when somebody remembered to run it, and the
 # deployed instance had drifted five commits behind main without anything
 # noticing. A suite nobody is obliged to run is a collection of scripts.
 #
 # It never touches the server. Deploys here are by hand; this is the gate that
 # says the code is fit to deploy, not the thing that deploys it.
 
+# ── EVERY PUSH, NOT EVERY PUSH TO main ──────────────────────────────────────
+#
+# This said `push: branches: [main]`, which meant the gate ran on the branch
+# where it is already too late and nowhere else. A feature branch got a
+# pipeline only once a pull request against main existed, so work pushed for
+# somebody to look at, and work stacked on another branch, ran nothing at all
+# — and "the suite passes" meant "it passed on somebody's laptop", which is
+# the state the header above says this file was written to end.
+#
+# `pull_request` keeps no base filter for the same reason: a PR stacked on
+# another branch is exactly the change most worth checking, because it is the
+# one nobody has run against main yet.
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# ── ONE RUN PER BRANCH, NOT ONE PER TRIGGER ─────────────────────────────────
+#
+# With both `push` and `pull_request` enabled above, a push to a branch with
+# an open PR fires twice. `github.ref` does not collapse them — it is
+# `refs/heads/<branch>` for the push and `refs/pull/<n>/merge` for the PR, so
+# they land in different groups and both bill. `head_ref` is the source branch
+# on a pull_request and empty otherwise, so this names the branch either way
+# and the later run cancels the earlier one. They test the same commit.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
