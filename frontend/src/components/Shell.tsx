@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Mark } from "./Mark";
+import { BusinessMark } from "./BusinessMark";
 import { SubscriptionNotice } from "./SubscriptionNotice";
 import { PERM, may, tenantName, type Me } from "@/lib/session";
 import styles from "./Shell.module.css";
@@ -161,7 +161,7 @@ export function Shell({
     <div className={styles.shell}>
       <nav className={styles.side}>
         <div className={styles.brand}>
-          <Mark size={28} />
+          <BusinessMark size={28} />
           <div>
             {/*
               The tenant's business, not ours. If they have not made one yet

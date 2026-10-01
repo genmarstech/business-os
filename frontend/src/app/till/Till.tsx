@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Mark } from "@/components/Mark";
+import { BusinessMark } from "@/components/BusinessMark";
 import { Calculator } from "./Calculator";
 import { ChangePassword } from "./ChangePassword";
 import { ShiftNote } from "./ShiftNote";
@@ -592,7 +592,7 @@ function Selling({
     <div className={styles.till}>
       <header className={styles.bar}>
         <div className={styles.barBrand}>
-          <Mark size={22} />
+          <BusinessMark size={22} />
           <div>
             <div className={styles.barShop}>{session.organisation.name}</div>
             <div className={styles.barWhere}>

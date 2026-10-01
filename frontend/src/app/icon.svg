@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!--
+    The Business Platform mark, at tab size.
+
+    The square form, not the lockup: a favicon is 16 to 32 pixels and two
+    letterforms at that size are a smudge. Same geometry and same two greens
+    as src/components/BusinessMark.tsx — if one changes, change both.
+
+    No background rectangle. A tab strip is light in one theme and dark in
+    the other, and a mark that paints its own ground is a white square
+    sitting in a dark browser. These two greens were chosen to hold on either.
+  -->
+  <path d="M85.27 37.25 A34 34 0 1 0 85.27 82.75"
+        fill="none" stroke="#2E7D57" stroke-width="9" stroke-linecap="round"/>
+  <path d="M74 60 H92.5"
+        fill="none" stroke="#2E7D57" stroke-width="9" stroke-linecap="round"/>
+  <ellipse cx="60" cy="60" rx="55" ry="17"
+           fill="none" stroke="#5FB98A" stroke-width="4"
+           transform="rotate(-30 60 60)"/>
+</svg>
