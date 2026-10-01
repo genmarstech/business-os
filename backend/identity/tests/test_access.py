@@ -10,15 +10,22 @@ mean "the endpoint is broken for everybody".
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
+from django.core import mail
 from django.test import TestCase
 
 from branches.models import Branches, Register, RegisterShift, staffAssignment
 from catalog.models import CatalogCategories, CatalogCategoryProduct
 from identity import access, services
 from identity.authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
-from identity.models import PlatformAccount, StaffCredential, TenantMembership
+from identity.models import (
+    PlatformAccount,
+    StaffCredential,
+    StaffPasswordReset,
+    TenantMembership,
+)
 from inventory.models import BranchInventory
 from organisations.models import BusinessOrganization, OrganizationStaff
 from sales.models import Payment, Sale
@@ -1270,3 +1277,145 @@ class EveryReportActionIsGatedTests(TestCase):
             self.assertIn(
                 response.status_code, (401, 403), f"{name} answered anonymously"
             )
+
+
+class StaffInvitationTests(TestCase):
+    """
+    Emailing somebody their till login.
+
+    The assertion that matters is the negative one: the message must not
+    contain a password. A temporary password in an inbox is a working
+    credential for as long as the inbox exists, and one the manager also
+    knows — so nothing the cashier does is solely theirs until they change
+    it, and "later" is a button people press.
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop("Shop A")
+        self.jane = a_staff(
+            self.org, name="Jane Cashier", email="jane@a.co.ke", id_number=1001
+        )
+        assign(self.jane, self.branch, staffAssignment.StaffRoles.Cashier)
+        self.credential = a_till(self.org, self.jane, "jane")
+
+        self.owner = PlatformAccount.objects.create(
+            genmars_account_id=4242, email="owner@a.co.ke", full_name="Owner"
+        )
+        TenantMembership.objects.create(
+            account=self.owner, organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.owner.pk
+        session.save()
+
+    def invite(self, credential=None, **extra):
+        target = credential or self.credential
+        return self.client.post(
+            f"/auth/staff/credentials/{target.pk}/invite/", **extra
+        )
+
+    def test_it_sends_a_username_and_a_code(self):
+        response = self.invite()
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertEqual(len(mail.outbox), 1)
+
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["jane@a.co.ke"])
+        self.assertIn("jane", sent.body)
+        self.assertIn("Shop A", sent.body)
+        self.assertRegex(sent.body, r"\b\d{6}\b")
+
+    def test_the_email_carries_no_password(self):
+        """
+        ── THE ONE THAT MATTERS ───────────────────────────────────────────
+        The till password set by `a_till` must appear nowhere in it, and
+        neither must anything calling itself a password.
+        """
+        self.invite()
+        body = mail.outbox[0].body
+        self.assertNotIn(PASSWORD, body)
+        self.assertNotIn("Your password is", body)
+
+    def test_the_code_actually_works(self):
+        """
+        An invitation that cannot be used is worse than none — the cashier
+        is standing at a till being told to type something that is refused.
+        """
+        self.invite()
+        code = re.search(r"\b(\d{6})\b", mail.outbox[0].body).group(1)
+
+        services.complete_password_reset(
+            organization_id=self.org.pk,
+            username="jane",
+            code=code,
+            new_password="a-password-she-chose",
+        )
+        self.credential.refresh_from_db()
+        self.assertTrue(self.credential.check_password("a-password-she-chose"))
+
+    def test_somebody_with_no_address_is_reported_not_silently_skipped(self):
+        """
+        Unlike the public reset, which answers identically whatever happens
+        because an anonymous caller must not learn whether a username
+        exists. A manager asking about their own employee is owed the
+        reason, or they stare at a screen claiming to have sent something.
+        """
+        self.jane.email = ""
+        self.jane.save(update_fields=["email"])
+
+        response = self.invite()
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("no email address", response.json()["detail"])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_switched_off_login_is_refused(self):
+        self.credential.is_active = False
+        self.credential.save(update_fields=["is_active"])
+        response = self.invite()
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_cashier_cannot_invite_anybody(self):
+        """
+        staff.manage, which no operational role holds.
+
+        On a FRESH client: setUp signs in the owner with a session cookie,
+        and SubscriberSessionAuthentication is tried before the staff token,
+        so reusing `self.client` would send the owner's session alongside
+        the cashier's bearer and test nothing at all.
+        """
+        from django.test import Client
+
+        _, token = services.open_staff_session(self.credential)
+        response = Client().post(
+            f"/auth/staff/credentials/{self.credential.pk}/invite/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_another_tenants_credential_is_not_found(self):
+        other, (other_branch,) = a_shop("Shop B")
+        theirs = a_staff(
+            other, name="Sam", email="sam@b.co.ke", id_number=2002
+        )
+        assign(theirs, other_branch, staffAssignment.StaffRoles.Cashier)
+        their_credential = a_till(other, theirs, "sam")
+
+        # 404, not 403 — a 403 confirms the row exists.
+        self.assertEqual(self.invite(their_credential).status_code, 404)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_it_cannot_be_used_to_post_codes_at_somebody(self):
+        """
+        The hourly ceiling exists so a mistyped address cannot be turned
+        into a hundred emails. Reported, because a manager can act on it.
+        """
+        for _ in range(StaffPasswordReset.MAX_PER_HOUR):
+            self.invite()
+        mail.outbox.clear()
+
+        response = self.invite()
+        self.assertEqual(response.status_code, 429, response.content)
+        self.assertEqual(len(mail.outbox), 0)

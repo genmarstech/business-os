@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { getOrNull } from "@/lib/api";
 import { PERM, may, me as whoAmI } from "@/lib/session";
-import { BranchForm, RegisterForm } from "./forms";
+import { BranchForm, CloseBranch, EditBranch, RegisterForm } from "./forms";
 import styles from "./branches.module.css";
 
 /**
@@ -134,6 +134,25 @@ export default async function BranchesPage() {
                         ))
                       )}
                     </div>
+
+                    {/*
+                      Per card, because "which branch am I renaming" has to
+                      be unambiguous — a single form at the bottom with a
+                      branch picker is how somebody renames Karen by
+                      accident.
+                    */}
+                    {canManage && organisationId ? (
+                      <div className={styles.cardActions}>
+                        <EditBranch
+                          organisationId={organisationId}
+                          branch={branch}
+                        />
+                        <CloseBranch
+                          organisationId={organisationId}
+                          branch={branch}
+                        />
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}

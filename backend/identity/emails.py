@@ -1,7 +1,8 @@
 """
 The mail this application sends.
 
-Exactly one message so far: a till password reset code.
+Two messages: a till password reset code, and an invitation that carries
+one.
 
 ── THE BODY IS A LIVE CREDENTIAL FOR FIFTEEN MINUTES ───────────────────────
 Nothing here may log it, and mail_backends.py is written so that nothing
@@ -41,6 +42,49 @@ def send_password_reset(*, to: str, code: str, organisation: str, minutes: int) 
             # to press a button in an email they did not expect.
             "If you did not ask for this, you can ignore it — your password "
             "has not changed. Tell your manager if it keeps happening."
+        ),
+        to=[to],
+    ).send(fail_silently=False)
+
+
+def send_staff_invitation(
+    *, to: str, username: str, code: str, organisation: str, minutes: int
+) -> None:
+    """
+    Tell somebody they have a till login, and let them choose the password.
+
+    ── IT DOES NOT CONTAIN A PASSWORD, AND THAT IS THE DESIGN ──────────────
+    The obvious invitation emails a temporary password. That puts a working
+    credential in an inbox for as long as the inbox exists, and inboxes are
+    forwarded, shared on a shop's one laptop, and left open. It also means
+    the manager who typed it knows it, so nothing the cashier does under
+    that login is solely theirs until they change it — and "change it later"
+    is a button people press.
+
+    So this carries a code, the same fifteen-minute single-use code the
+    forgotten-password flow uses, and the cashier picks a password nobody
+    else has ever seen. The codebase already reached this conclusion for the
+    reset; an invitation is the same problem on the first day.
+
+    The code is passed in rather than read from a model, for the reason in
+    the module docstring: the plaintext should exist in two places only.
+    """
+    EmailMessage(
+        subject=f"Your till login for {organisation}",
+        body=(
+            f"You have been set up to work the till at {organisation}.\n\n"
+            f"Your username is {username}\n"
+            f"Your setup code is {code}\n\n"
+            "At the till, tap \u201cForgotten your password?\u201d, type your "
+            "username and this code, and choose a password. Nobody else will "
+            "know it \u2014 not your manager, not Genmars.\n\n"
+            f"The code works once and expires in {minutes} minutes. If it has "
+            "run out, tap the same link and ask for a new one, or tell your "
+            "manager.\n\n"
+            # No link to click. A shop's staff are exactly the people a
+            # phishing mail would target with one, and the real flow happens
+            # on a till they are standing at.
+            "If you were not expecting this, tell your manager."
         ),
         to=[to],
     ).send(fail_silently=False)

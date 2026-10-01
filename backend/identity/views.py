@@ -429,6 +429,7 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
     permissions = {
         "reset_password": access.STAFF_MANAGE,
         "set_active": access.STAFF_MANAGE,
+        "invite": access.STAFF_MANAGE,
     }
     queryset = StaffCredential.objects.select_related("staff", "organization")
     serializer_class = StaffCredentialSerializer
@@ -513,6 +514,95 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
 
         services.set_credential_active(credential=credential, active=wanted)
         return Response(self.get_serializer(credential).data)
+
+    @action(detail=True, methods=["post"])
+    def invite(self, request, pk=None):
+        """
+        Email somebody their username and a code to choose a password with.
+
+        ── IT SENDS NO PASSWORD ────────────────────────────────────────────
+        See `emails.send_staff_invitation`. A temporary password in an inbox
+        is a working credential for as long as the inbox exists, and it is
+        one the manager also knows — so nothing the cashier does is solely
+        theirs until they change it, and "later" is a button people press.
+        The code is the same single-use one the forgotten-password flow
+        mints, so the password is chosen by the person who will type it.
+
+        ── AND IT SAYS WHY IT COULD NOT, UNLIKE THE PUBLIC RESET ──────────
+        `StaffPasswordResetView` answers identically whatever happens,
+        because an anonymous caller must not learn whether a username
+        exists. That reasoning does not apply here: the caller holds
+        staff.manage over their own organisation and is asking about their
+        own employee, whose record they are looking at. Telling a manager
+        "Jane has no email address on file" costs nothing and saves them
+        staring at a screen that claims to have sent something.
+        """
+        credential = self.get_object()
+
+        if not credential.is_active:
+            return Response(
+                {"detail": "That login is switched off. Turn it back on first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not (credential.staff and credential.staff.email):
+            return Response(
+                {
+                    "detail": (
+                        f"{credential.staff.full_name if credential.staff else 'They'} "
+                        "has no email address on file, so there is nowhere to "
+                        "send it. Add one on their staff record."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        code = services.request_password_reset(
+            organization_id=credential.organization_id,
+            username=credential.username,
+        )
+        if not code:
+            # The only remaining cause is the hourly ceiling, which exists so
+            # a mistyped address cannot be used to post a hundred codes at
+            # somebody. Said plainly, because a manager can act on it.
+            return Response(
+                {
+                    "detail": (
+                        "That has been sent several times in the last hour. "
+                        "Wait a while before trying again."
+                    )
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        try:
+            emails.send_staff_invitation(
+                to=credential.staff.email,
+                username=credential.username,
+                code=code,
+                organisation=credential.organization.name,
+                minutes=int(services.RESET_CODE_LIFETIME.total_seconds() // 60),
+            )
+        except Exception:
+            # The recipient and the fact, never the code. exc_info is off for
+            # the reason given on the reset view: a traceback from an HTTP
+            # client can carry the request body, and the body is the email.
+            log.error(
+                "staff invitation email failed for credential id=%s", credential.pk
+            )
+            return Response(
+                {
+                    "detail": (
+                        "The code was created but the email did not go out. "
+                        "Try again in a moment."
+                    )
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {"detail": f"Sent to {credential.staff.email}."},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class ChangeOwnPasswordView(APIView):
