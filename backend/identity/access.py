@@ -71,6 +71,28 @@ CATALOG_MANAGE = "catalog.manage"
 CUSTOMER_VIEW = "customer.view"
 CUSTOMER_MANAGE = "customer.manage"
 
+# ── BUYING IS FOUR PERMISSIONS, NOT ONE ─────────────────────────────────────
+#
+# Procurement is the other end of a stock figure, and it is where a shop's
+# money leaves. Splitting it is what lets the order a clerk raises be approved
+# by somebody else — the control blueprint module 6 asks for beside cashier
+# access, built the same way voiding a sale is: the second person is a
+# permission the first one does not hold.
+#
+#   · PURCHASING_VIEW    — read orders, suppliers and deliveries
+#   · PURCHASING_MANAGE  — keep the supplier list, raise and edit a draft
+#   · PURCHASING_APPROVE — commit the business to the money, and cancel
+#   · PURCHASING_RECEIVE — count a delivery in and move the stock
+#
+# RECEIVE is apart from MANAGE deliberately. The person who orders and the
+# person who signs for what arrives are the pair every stock shrinkage audit
+# starts by separating; a storeman who can also raise the order can order
+# twelve, receive ten and book twelve.
+PURCHASING_VIEW = "purchasing.view"
+PURCHASING_MANAGE = "purchasing.manage"
+PURCHASING_APPROVE = "purchasing.approve"
+PURCHASING_RECEIVE = "purchasing.receive"
+
 # Deliberately two permissions, not one. A branch manager reading their own
 # branch's numbers is ordinary; reading every branch's numbers is what the
 # organisation level is for (§4 vs §5), and a single "reports" permission
@@ -121,6 +143,8 @@ KNOWN = frozenset(
         INVENTORY_VIEW, INVENTORY_ADJUST, INVENTORY_TRANSFER,
         CATALOG_VIEW, CATALOG_MANAGE,
         CUSTOMER_VIEW, CUSTOMER_MANAGE,
+        PURCHASING_VIEW, PURCHASING_MANAGE, PURCHASING_APPROVE,
+        PURCHASING_RECEIVE,
         REPORTS_BRANCH, REPORTS_ORGANISATION,
         BRANCH_MANAGE, REGISTER_MANAGE, STAFF_MANAGE, MEMBERS_MANAGE,
         SETTINGS_TAX, SETTINGS_ORGANISATION,
@@ -157,6 +181,9 @@ _ACCOUNTANT = frozenset(
         CUSTOMER_VIEW,
         INVENTORY_VIEW,
         CATALOG_VIEW,
+        # What the business has committed to spend is as much the
+        # accountant's business as what it has taken in. Reading only.
+        PURCHASING_VIEW,
     }
 )
 
@@ -209,6 +236,14 @@ _BRANCH_MANAGER = frozenset(
         # branch".
         REPORTS_BRANCH,
         REGISTER_MANAGE,
+        # ── THE SECOND SIGNATURE ON A PURCHASE ──────────────────────────
+        # Approves and receives; deliberately does NOT hold
+        # PURCHASING_MANAGE, so an order they approve is one somebody else
+        # raised. Where a shop has no purchasing officer, the owner or an
+        # admin raises it — both hold MANAGE.
+        PURCHASING_VIEW,
+        PURCHASING_APPROVE,
+        PURCHASING_RECEIVE,
     }
 )
 
@@ -216,11 +251,39 @@ _INVENTORY = frozenset(
     {
         INVENTORY_VIEW, INVENTORY_ADJUST, INVENTORY_TRANSFER,
         CATALOG_VIEW,
+        # They are the person at the door when the lorry arrives. Receiving
+        # without being able to raise or approve an order is the whole shape
+        # of the role.
+        PURCHASING_VIEW,
+        PURCHASING_RECEIVE,
+    }
+)
+
+# ── PURCHASING OFFICER, WHO USED TO BE AN INVENTORY CLERK ───────────────────
+#
+# "PO" was mapped onto _INVENTORY with the comment "procurement is V2". Now
+# that procurement exists the role is its own, and it is NARROWER than the
+# stopgap in one respect that matters: no INVENTORY_ADJUST and no
+# INVENTORY_TRANSFER.
+#
+# That is a correction, not a demotion. A buyer who can also adjust a
+# quantity by hand can make the difference between what was ordered and what
+# arrived disappear without a document — which is the one discrepancy the
+# whole of this app exists to keep visible. They raise orders; stock moves
+# when a delivery is counted.
+_PURCHASING = frozenset(
+    {
+        PURCHASING_VIEW, PURCHASING_MANAGE, PURCHASING_RECEIVE,
+        INVENTORY_VIEW,
+        CATALOG_VIEW,
     }
 )
 
 _FINANCE_CLERK = frozenset(
-    {SALES_VIEW, SALES_REPRINT, REPORTS_BRANCH, CUSTOMER_VIEW, CATALOG_VIEW}
+    {
+        SALES_VIEW, SALES_REPRINT, REPORTS_BRANCH, CUSTOMER_VIEW, CATALOG_VIEW,
+        PURCHASING_VIEW,
+    }
 )
 
 _AUDITOR = frozenset(
@@ -228,6 +291,7 @@ _AUDITOR = frozenset(
         # Reads everything at the branch and writes nothing at all. The
         # absence of every *_MANAGE and every write permission is the role.
         SALES_VIEW, REPORTS_BRANCH, INVENTORY_VIEW, CATALOG_VIEW, CUSTOMER_VIEW,
+        PURCHASING_VIEW,
     }
 )
 
@@ -236,7 +300,7 @@ OPERATIONAL_ROLES = {
     "CA": _CASHIER,             # Cashier
     "SA": _CASHIER,             # Sales associate — a cashier by another name
     "IC": _INVENTORY,           # Inventory clerk
-    "PO": _INVENTORY,           # Purchasing officer; procurement is V2
+    "PO": _PURCHASING,          # Purchasing officer
     "FC": _FINANCE_CLERK,       # Finance clerk
     "BA": _AUDITOR,             # Branch auditor
 }
