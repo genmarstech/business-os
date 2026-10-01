@@ -12,6 +12,7 @@ from identity import services
 from identity.models import PlatformAccount
 from identity import access
 from identity.scoping import TenantScoped
+from subscriptions import services as subscription_services
 
 
 # Create your views here.
@@ -92,6 +93,19 @@ class BusinessOrganizationViewSet(TenantScoped, viewsets.ModelViewSet):
                 # creator cannot reach it is worse than a refusal, because
                 # nothing on any screen will ever show it again.
                 raise ValidationError({"detail": error.safe_message}) from None
+
+            # ── THE TRIAL STARTS HERE, INSIDE THE SAME TRANSACTION ────────
+            #
+            # Not on a later screen, and not when somebody first opens the
+            # subscription page. A tenant that exists without a subscription
+            # row is a tenant `entitlement.state_of` has to guess about, and
+            # it guesses ACTIVE — deliberately, so the customers who predate
+            # this app are not narrowed overnight. A new business created
+            # today has no such excuse, and leaving it to a second step
+            # would make the guess the normal case.
+            subscription_services.open_trial(
+                serializer.instance, actor=account
+            )
 
 
 class OrganizationsStaffViewSet(TenantScoped, viewsets.ModelViewSet):

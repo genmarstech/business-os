@@ -11,6 +11,43 @@ import "server-only";
 
 import { getOrNull } from "./api";
 
+/**
+ * The tenant's commercial state, for drawing a warning.
+ *
+ * ── `selling_continues` IS ALWAYS TRUE, AND IT IS STILL A FIELD ───────────
+ * Nothing about a lapsed subscription stops a shop trading — a till that
+ * refused a sale over a late invoice would put a queue at the counter with
+ * no way out of it from behind the till. The server says so explicitly
+ * rather than leaving a client to infer it from the state, because a client
+ * that infers it can infer it wrong and render "suspended" over a working
+ * till.
+ *
+ * Null for a subscriber with no business yet. `known: false` means the
+ * tenant predates subscriptions and is unrestricted — NOT that it is unpaid.
+ */
+export type SubscriptionState =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "suspended"
+  | "cancelled";
+
+export type SubscriptionSummary = {
+  known: boolean;
+  state: SubscriptionState;
+  state_label?: string;
+  plan?: string | null;
+  plan_name?: string | null;
+  trial_ends_on?: string | null;
+  paid_until?: string | null;
+  covered_until?: string | null;
+  grace_until?: string | null;
+  /** Negative once lapsed — "overdue by 3" and "3 left" are one number. */
+  days_left?: number | null;
+  selling_continues?: boolean;
+  limits?: Record<string, { limit: number | null; in_use: number }>;
+};
+
 export type Membership = {
   id: number;
   name: string;
@@ -33,6 +70,7 @@ export type Subscriber = {
    */
   branches: number[] | null;
   permissions: string[];
+  subscription: SubscriptionSummary | null;
 };
 
 export type Staff = {
@@ -62,6 +100,13 @@ export type Staff = {
    * Any screen that knows which branch it is on uses `may(me, perm, branch)`.
    */
   permissions_by_branch: Record<string, string[]>;
+  /**
+   * The state, never the price. A cashier is not told what the shop pays,
+   * but is told that it has lapsed — a shop whose staff are the last to know
+   * is one where the owner hears it from somebody asking why a button has
+   * gone.
+   */
+  subscription: SubscriptionSummary | null;
 };
 
 export type Me = Subscriber | Staff;
