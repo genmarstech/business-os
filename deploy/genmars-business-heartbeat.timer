@@ -1,0 +1,28 @@
+# ── EVERY FIVE MINUTES, AND THE INTERVAL IS THE WHOLE DESIGN ───────────────
+#
+# A heartbeat's only job is to make "last seen" mean something, so the
+# interval decides how long an outage can hide. Five minutes is short enough
+# that a dashboard is worth looking at and long enough that it is 288 rows a
+# day rather than 1,440.
+#
+# It is NOT a replacement for Caddy's ten-second health poll. A poll proves
+# Genmars can reach this host; a heartbeat proves the application is running
+# even when Genmars cannot reach it. Both present is how a network problem is
+# told apart from an outage — gen-portal's HeartbeatView says so in its own
+# docstring.
+
+[Unit]
+Description=Business Platform — heartbeat to Genmars
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Persistent=false on purpose, unlike the backup. A missed heartbeat is
+# information: catching up after a reboot would post a stale "I am well" for
+# a window during which this application was not running at all.
+Persistent=false
+# Spread, so every system on the host does not report in the same second.
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

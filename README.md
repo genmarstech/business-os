@@ -636,6 +636,51 @@ The one rule most easily lost: **Ignition `#db7b51` is 2.75:1 on the light
 ground** and must never carry small text there — accent text on light is
 Mahogany at 6.02:1. On dark, Ignition reaches 5.78:1 and the tokens flip.
 
+## Being visible to Genmars
+
+Until this existed, business-os appeared **nowhere in the ops dashboard**. It
+talked to gen-portal for sign-on and nothing else, so the one application
+Genmars sells to other businesses was the one the company could not see
+running. `ops.genmars.co.ke/systems` has always been there; this was simply
+never on it.
+
+`Business_Platform/parent.py` POSTs a heartbeat to the system registry every
+five minutes, driven by `deploy/genmars-business-heartbeat.timer`.
+
+**The direction of trust is inward only.** CLAUDE.md: *"a child reports its
+health and events, the parent reads them. There is deliberately no 'run
+command' and no stored deployment credential."* This module POSTs upward and
+accepts nothing downward — no endpoint gen-portal can call, no instruction it
+will obey. If it ever grows one, that rule has gone and the registry's shape
+with it.
+
+**It reports a considered health, not "the process started."** `/healthz`
+answers without touching the database on purpose, which is right for a
+liveness probe and useless as a claim about the application. The heartbeat
+checks the database, the migration state, and the things that fail silently.
+
+Only two things make it **degraded**, and both silently break a promise
+somebody has already been made:
+
+| | |
+|---|---|
+| unapplied migrations | the code and the schema disagree; the symptom is a 500 on whichever page touches the new column |
+| no mail configured | a cashier's password reset and a staff invitation both report success and send nothing |
+
+A feature being switched off is **not** degradation — M-Pesa with no
+`MPESA_CREDENTIAL_KEY` is reported in the detail and nowhere else. Amber that
+is always on is green.
+
+To turn it on: issue a `SystemKey` in ops under Settings → Engineering against
+a System for this application, put it in `.env` as `GENMARS_SYSTEM_KEY`, and
+install the timer. Absent, it reports nothing and nothing breaks — which is
+the right behaviour for a laptop.
+
+```bash
+# What it would say, without sending anything:
+DEBUG=1 virtual/bin/python manage.py report_health --dry-run
+```
+
 ## Backups
 
 ```bash

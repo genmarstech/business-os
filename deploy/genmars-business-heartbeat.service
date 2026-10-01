@@ -1,0 +1,40 @@
+# "This installation is alive, and here is what it thinks of itself."
+#
+#   sudo cp deploy/genmars-business-heartbeat.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now genmars-business-heartbeat.timer
+#
+# Verify it is actually firing — an enabled timer that never fires is the
+# usual way "we are monitoring it" turns out to be false:
+#   systemctl list-timers genmars-business-heartbeat.timer
+#   journalctl -u genmars-business-heartbeat.service -n 20
+#
+# ── IT NEEDS GENMARS_SYSTEM_KEY IN .env ────────────────────────────────────
+# Issued in ops under Settings → Engineering, against a System whose slug is
+# this application. Without it the command reports nothing and exits
+# non-zero, which fires OnFailure below — deliberately, because a heartbeat
+# that is quietly not configured looks identical on the dashboard to an
+# application that has stopped.
+
+[Unit]
+Description=Business Platform — heartbeat to the Genmars system registry
+Documentation=file:///opt/business-os/README.md
+# Nothing to report if the application is not up.
+Requires=docker.service
+After=docker.service network-online.target
+
+# The same handler the backups use, installed system-wide. %N names this unit
+# so the mail says which job failed.
+OnFailure=genmars-alert@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/business-os
+ExecStart=/usr/bin/docker compose exec -T api python manage.py report_health
+
+# GENMARS_SYSTEM_KEY and APP_VERSION live here, beside everything else the
+# container reads.
+EnvironmentFile=/opt/business-os/.env
+
+[Install]
+WantedBy=multi-user.target
