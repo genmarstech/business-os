@@ -492,3 +492,82 @@ class StaffPasswordReset(models.Model):
             or self.attempts >= self.MAX_ATTEMPTS
             or timezone.now() >= self.expires_at
         )
+
+
+class AdminTotp(models.Model):
+    """
+    A second factor for a Django superuser.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THIS GUARDS THE WIDEST DOOR IN THE PRODUCT.
+
+    Everything else in this file is about tenant principals: a PlatformAccount
+    scoped by TenantMembership, a StaffCredential scoped by assignment. A
+    Django superuser is scoped by nothing. /admin/ reaches every shop's
+    takings, every staff record, every supplier and every M-Pesa
+    configuration, and business.genmars.co.ke/admin/ answers from anywhere on
+    the internet.
+
+    It was stock Django auth: Argon2 and password validators, but no lockout,
+    no rate limit and no second factor. Weaker than the door gen-portal had
+    before it got the same treatment, guarding considerably more.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── IT HANGS OFF django.contrib.auth.User, NOT PlatformAccount ──────────
+    Deliberately, and it is the one place in this application that touches
+    that model. A subscriber is not an administrator of the platform and must
+    never become one by acquiring a row here — CLAUDE.md's two-tier rule runs
+    the other way too. The only accounts this can apply to are the ones
+    `createsuperuser` makes, which are Genmars'.
+
+    Enforcement is per account until ADMIN_REQUIRE_TOTP is set: nobody is
+    enrolled on the day this deploys, enrolling needs a shell, and demanding
+    one first locks out the person who would run it.
+    """
+
+    user = models.OneToOneField(
+        "auth.User", on_delete=models.CASCADE, related_name="admin_totp"
+    )
+
+    secret = models.CharField(max_length=64, editable=False)
+
+    # The highest time step this account has spent. A code at or below it is
+    # refused however correct it is, so one read over a shoulder or phished
+    # beside the password cannot be used again inside its own window.
+    last_step = models.BigIntegerField(default=0)
+
+    # Null until the person types a code back. A half-finished enrolment must
+    # never be able to lock somebody out.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "admin second factor"
+        verbose_name_plural = "admin second factors"
+
+    def __str__(self) -> str:
+        return f"{self.user.username} — {'confirmed' if self.is_confirmed else 'not finished'}"
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.confirmed_at is not None
+
+    def check_code(self, code: str) -> bool:
+        """
+        Verify and spend a code. Writes `last_step` on success.
+
+        The write happens here rather than in the caller, because a caller
+        that forgets is a caller that has quietly turned the replay guard off.
+        """
+        from . import totp
+
+        step = totp.verify(self.secret, code, after_step=self.last_step)
+        if step is None:
+            return False
+
+        self.last_step = step
+        self.last_used_at = timezone.now()
+        self.save(update_fields=["last_step", "last_used_at"])
+        return True

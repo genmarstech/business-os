@@ -18,7 +18,21 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
 
+from identity.admin_forms import AdminTotpLoginForm
 from identity.views import LandingView
+
+# ── THE ADMIN LOGIN ASKS FOR A SECOND FACTOR ────────────────────────────────
+#
+# Set BEFORE `admin.site.urls` is evaluated below, because that is what builds
+# the login view and reads this attribute. Assigning it afterwards changes a
+# value nothing looks at again, which is a protection that silently is not
+# there.
+#
+# A Django superuser here is scoped by nothing: /admin/ reaches every tenant's
+# takings, staff, suppliers and M-Pesa configuration, and this host answers
+# from anywhere on the internet. It was stock Django auth — no lockout, no
+# rate limit, no second factor.
+admin.site.login_form = AdminTotpLoginForm
 
 # ── LIVENESS, NOT READINESS ─────────────────────────────────────────────────
 #
