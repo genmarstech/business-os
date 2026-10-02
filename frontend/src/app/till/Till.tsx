@@ -214,7 +214,6 @@ function Signed({
   if (doing === "count" || (mayCount && !maySell)) {
     return (
       <Count
-        session={session}
         permissions={permissions}
         onLeave={maySell ? () => setDoing(null) : onSignOut}
       />

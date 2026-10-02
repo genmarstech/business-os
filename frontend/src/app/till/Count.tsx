@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { call, type TillSession } from "./session";
+import { call } from "./session";
 import styles from "./count.module.css";
 
 /**
@@ -89,11 +89,9 @@ function message(error: unknown): string {
 }
 
 export function Count({
-  session,
   permissions,
   onLeave,
 }: {
-  session: TillSession;
   permissions: string[];
   onLeave: () => void;
 }) {
@@ -138,7 +136,10 @@ export function Count({
     try {
       await call<Count>("/invt/stock-counts/open/", {
         method: "POST",
-        body: { branch: branchId, opened_by: session.staff.id },
+        // No `opened_by`. The server signs every one of these with the
+        // session the request arrived on — a till saying who is counting is
+        // a till that can say somebody else. See inventory/services._actor.
+        body: { branch: branchId },
       });
       await load();
     } catch (err) {
@@ -192,17 +193,11 @@ export function Count({
           </nav>
 
           {tab === "count" ? (
-            <Counting
-              count={count}
-              stock={stock}
-              session={session}
-              onCounted={load}
-            />
+            <Counting count={count} stock={stock} onCounted={load} />
           ) : (
             <Review
               count={count}
               mayClose={mayClose}
-              session={session}
               onChanged={async () => {
                 await load();
                 setTab("count");
@@ -263,12 +258,10 @@ function StartCount({
 function Counting({
   count,
   stock,
-  session,
   onCounted,
 }: {
   count: Count;
   stock: Stock[];
-  session: TillSession;
   onCounted: () => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
@@ -315,11 +308,7 @@ function Counting({
     try {
       await call(`/invt/stock-counts/${count.id}/record/`, {
         method: "POST",
-        body: {
-          inventory: inventoryId,
-          counted: value,
-          counted_by: session.staff.id,
-        },
+        body: { inventory: inventoryId, counted: value },
       });
       setOpen(null);
       setEntry("");
@@ -430,12 +419,10 @@ function Counting({
 function Review({
   count,
   mayClose,
-  session,
   onChanged,
 }: {
   count: Count;
   mayClose: boolean;
-  session: TillSession;
   onChanged: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -542,7 +529,7 @@ function Review({
                 type="button"
                 className={styles.primary}
                 disabled={busy}
-                onClick={() => void act("close", { closed_by: session.staff.id })}
+                onClick={() => void act("close", {})}
               >
                 {busy ? "…" : "Close and book it"}
               </button>
@@ -580,7 +567,7 @@ function Review({
                 className={styles.danger}
                 disabled={busy || !reason.trim()}
                 onClick={() =>
-                  void act("abandon", { closed_by: session.staff.id, reason })
+                  void act("abandon", { reason })
                 }
               >
                 {busy ? "…" : "Abandon it"}

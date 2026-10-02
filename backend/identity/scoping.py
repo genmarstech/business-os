@@ -12,6 +12,25 @@ same reason gen-portal keeps `portal/selectors.py` as one file: isolation you
 can audit in an afternoon is isolation somebody actually audits.
 ═══════════════════════════════════════════════════════════════════════════════
 
+── ⚠ IT DOES NOT GUARD A CUSTOM @action, AND NEVER HAS ─────────────────────────
+
+`refuse_out_of_scope` is called from `create()` and `update()` — nowhere else.
+A `@action` that resolves a foreign key from a serialiser gets no check at all,
+because `PrimaryKeyRelatedField` queries unfiltered and nothing downstream
+asks whose row came back.
+
+Every such endpoint in this codebase does the check by hand, and the ones that
+do say so at the point they do it: `sales.checkout` scopes the shift and the
+cashier, `payments.request_payment` scopes the branch and then asks about the
+branch separately. `inventory.StockCountViewSet.open` shipped without either
+and let one shop open a stock count inside another — so the pattern is written
+down here rather than left to be rediscovered.
+
+A `detail=True` action is usually safe for a different reason: the object
+comes from `get_object()`, which is scoped. "Usually" is doing work in that
+sentence — any OTHER reference in the body is as unchecked as it would be on a
+`detail=False` one.
+
 ── IT GUARDS READS **AND** WRITES, WHICH ARE DIFFERENT PROBLEMS ────────────────
 
 Scoping `get_queryset` stops Shop A reading Shop B's rows. On its own it does
