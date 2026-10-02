@@ -172,6 +172,10 @@ export const PERM = {
   inventoryView: "inventory.view",
   inventoryAdjust: "inventory.adjust",
   inventoryTransfer: "inventory.transfer",
+  // Two, deliberately — counting a shelf and signing off what the count
+  // found are different authorities. identity/access.py has the argument.
+  inventoryCount: "inventory.count",
+  inventoryCountClose: "inventory.count.close",
   catalogView: "catalog.view",
   catalogManage: "catalog.manage",
   customerView: "customer.view",

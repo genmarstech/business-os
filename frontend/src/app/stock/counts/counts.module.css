@@ -1,0 +1,392 @@
+/* Stock takes: the sheet, the tallies and the two ways a count ends. */
+
+.page {
+  max-width: 68rem;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 3vw, 32px) 80px;
+}
+
+.head {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 3.2vw, 1.95rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+  margin-bottom: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.panelLede {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.aside {
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  max-width: 64ch;
+}
+
+.aside strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.form {
+  margin-top: 6px;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.meta {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+/* ── one count ──────────────────────────────────────────────────────────── */
+
+.countHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.openBadge {
+  color: var(--accent-text);
+}
+
+.doneBadge {
+  color: var(--ok);
+}
+
+.abandonedBadge {
+  color: var(--ink-faint);
+}
+
+.closed {
+  opacity: 0.72;
+}
+
+/*
+  ── THE TALLY IS FOUR FACTS, NOT FOUR BIG NUMBERS ────────────────────────
+  Lead-with-the-huge-figure is for a screen whose job is one measurement.
+  Here the four only mean anything together — "12 counted, 9 agreed, 2 short,
+  1 over" is the sentence — so they are sized to be read across, and only
+  short and over take a colour, because those are the two that ask for
+  something to be done.
+*/
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.tally li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.tallyNumber {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.tallyLabel {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.bad {
+  color: var(--danger);
+}
+
+.odd {
+  color: var(--warn);
+}
+
+/* ── the sheet ──────────────────────────────────────────────────────────── */
+
+.sheet {
+  margin-top: 4px;
+}
+
+.scroll {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Space on the LEFT, where the previous column's text ends — see the long
+     note in stock.module.css about MARGINTAX. */
+  padding-left: 22px;
+}
+
+.table thead th.num {
+  text-align: right;
+}
+
+.right {
+  text-align: right;
+}
+
+/* ── shelves not yet counted ────────────────────────────────────────────── */
+
+.more {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+}
+
+.summary:hover {
+  color: var(--ink);
+}
+
+.shelves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shelves li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.shelves li:last-child {
+  border-bottom: 0;
+}
+
+/* The button goes to the end of the row, and the SKU gives way first. */
+.shelves li > :last-child {
+  margin-left: auto;
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.quiet {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+
+.quiet:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+/*
+  An inline link in a sentence, NOT the bordered button above. These shared
+  one class and the link came out wearing a button's border and padding,
+  sitting in the middle of a paragraph — which is what a `.quiet:is(a)`
+  override that only changed the colour left behind.
+*/
+.link {
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.link:hover {
+  color: var(--ink);
+}
+
+.primary {
+  background: var(--accent-wash);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+
+.ghost {
+  background: none;
+  border: 0;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ghost:hover {
+  color: var(--ink);
+}
+
+.waiting {
+  color: var(--warn);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+/*
+  The confirmation takes the whole row rather than sitting beside the button
+  that opened it. Closing a count is irreversible and the sentence explaining
+  that is the point of the step; wrapped into a column beside a button it
+  reads as a tooltip somebody can skip.
+*/
+.confirm {
+  width: 100%;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+}
+
+/*
+  `flex-basis`, not `width`. A flex item with `width: 100%` still shrinks —
+  default `flex-shrink: 1` — so the sentence sat beside the buttons instead
+  of above them, which is the one layout this step exists to avoid: the
+  explanation of an irreversible action reading as a label on a button.
+*/
+.confirm p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+  max-width: 62ch;
+}
+
+.inlineForm {
+  width: 100%;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.formLede {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0 0 14px;
+  max-width: 62ch;
+}
