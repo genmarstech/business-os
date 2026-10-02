@@ -61,6 +61,20 @@ business.genmars.co.ke {
 	# Django owns these prefixes and only these. Everything else is the web
 	# application below.
 	#
+	# ⚠ THIS LIST IS Business_Platform/urls.py. KEEP IT DIFFABLE AGAINST IT.
+	#   /pay/, /sub/ and /prc/ were registered in Django and never added
+	#   here, so three of the nine app prefixes fell through to Next, which
+	#   has no such routes and answered 404. The till posts to
+	#   /pay/mpesa/pushes/request/ from the BROWSER — server components read
+	#   API_ORIGIN directly and never touch this — so taking an M-Pesa
+	#   payment at a register was the one that was actually broken, on the
+	#   screen this product is bought for.
+	#
+	#   It is the same failure the CSP list below records: a path forgotten
+	#   in one of two lists that have to agree. Adding a Django app without
+	#   adding it to BOTH of these and to frontend/next.config.ts is a
+	#   feature that works everywhere except production.
+	#
 	# ⚠ ONE HOST, NOT TWO, AND THAT IS LOAD-BEARING.
 	#   /auth/callback sets a Django session cookie on business.genmars.co.ke
 	#   with NO Domain attribute, so the browser scopes it to this exact host
@@ -73,7 +87,7 @@ business.genmars.co.ke {
 	# read to tell one caller from another. Without it every request arrives
 	# from the proxy and a per-address limit becomes one shared budget —
 	# exactly the bug gen-portal shipped and had to fix.
-	@api path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /healthz
+	@api path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /admin/* /healthz
 	handle @api {
 		reverse_proxy 127.0.0.1:8020 {
 			header_up X-Real-IP {remote_host}
@@ -178,7 +192,7 @@ business.genmars.co.ke {
 	# but a policy with a hole in it invites the next reader to wonder which
 	# other paths were forgotten. Keep the two lists diffable: this one is that
 	# one, plus /static/*.
-	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /admin/* /healthz /static/*
+	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /admin/* /healthz /static/*
 	header @django Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
 
 	# ── LOGGING ──────────────────────────────────────────────────────────────
