@@ -65,6 +65,21 @@ INVENTORY_VIEW = "inventory.view"
 INVENTORY_ADJUST = "inventory.adjust"
 INVENTORY_TRANSFER = "inventory.transfer"
 
+# ── COUNTING AND WRITING OFF ARE TWO PERMISSIONS, FOR ONE REASON ───────────
+#
+# A stock take ends by booking the difference between the shelf and the
+# system. That write-off is where a shortfall stops being a question, and the
+# person who counted the shelf is the last one who should settle it alone.
+#
+# It is the split PURCHASING_APPROVE makes below and the one SALES_VOID makes
+# at the till: the second person is a permission the first does not hold. An
+# inventory clerk counts; somebody else signs off what the count found.
+#
+#   · INVENTORY_COUNT       — open a count, and write down what is on a shelf
+#   · INVENTORY_COUNT_CLOSE — book every variance it found, irreversibly
+INVENTORY_COUNT = "inventory.count"
+INVENTORY_COUNT_CLOSE = "inventory.count.close"
+
 CATALOG_VIEW = "catalog.view"
 CATALOG_MANAGE = "catalog.manage"
 
@@ -141,6 +156,7 @@ KNOWN = frozenset(
         SALES_CHECKOUT, SALES_VIEW, SALES_VOID, SALES_REFUND, SALES_REPRINT,
         SHIFT_OPEN, SHIFT_CLOSE,
         INVENTORY_VIEW, INVENTORY_ADJUST, INVENTORY_TRANSFER,
+        INVENTORY_COUNT, INVENTORY_COUNT_CLOSE,
         CATALOG_VIEW, CATALOG_MANAGE,
         CUSTOMER_VIEW, CUSTOMER_MANAGE,
         PURCHASING_VIEW, PURCHASING_MANAGE, PURCHASING_APPROVE,
@@ -229,6 +245,7 @@ _BRANCH_MANAGER = frozenset(
         SALES_CHECKOUT, SALES_VIEW, SALES_VOID, SALES_REFUND, SALES_REPRINT,
         SHIFT_OPEN, SHIFT_CLOSE,
         INVENTORY_VIEW, INVENTORY_ADJUST, INVENTORY_TRANSFER,
+        INVENTORY_COUNT, INVENTORY_COUNT_CLOSE,
         CATALOG_VIEW,
         CUSTOMER_VIEW, CUSTOMER_MANAGE,
         # Their branch's numbers, never the organisation's — §5 says a branch
@@ -250,6 +267,9 @@ _BRANCH_MANAGER = frozenset(
 _INVENTORY = frozenset(
     {
         INVENTORY_VIEW, INVENTORY_ADJUST, INVENTORY_TRANSFER,
+        # Counts the shelves, and does not sign off what the count found
+        # — see the note beside INVENTORY_COUNT_CLOSE.
+        INVENTORY_COUNT,
         CATALOG_VIEW,
         # They are the person at the door when the lorry arrives. Receiving
         # without being able to raise or approve an order is the whole shape
