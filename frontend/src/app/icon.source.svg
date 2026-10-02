@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!--
+    The Business Platform app icon. NOT the same artwork as the mark in
+    src/components/BusinessMark.tsx, and NOT the bare company mark in
+    public/genmars-mark.svg.
+
+    ══════════════════════════════════════════════════════════════════════
+    THE GROUND CARRIES THE HUE HERE. IN THE APP, THE STROKES DO.
+
+    BusinessMark draws the G in #2E7D57 because it sits on the application's
+    own surface, which is near-white in one theme and near-black in the
+    other, and a mid-green holds on both. An icon has no such surface — it
+    is composited onto a browser tab strip, a home screen wallpaper or a
+    dock, so it brings its own.
+
+    Putting BusinessMark's palette on the family's plum does not work and
+    the numbers say so: #2E7D57 on #2E2B34 is 2.77:1, a dark green G on a
+    dark plum square, which at 32px is a plum square. So the ground becomes
+    the Business Platform's own deep green and the G becomes cream, exactly
+    as the Genmars icon does it:
+
+        cream G    #F4EFEC on #0E4A36   8.97:1
+        orbit      #5FB98A on #0E4A36   4.29:1
+
+    The company icon's own figures are 12.18 and 4.61 on plum. The orbit is
+    a shade behind it; that is the cost of using BusinessMark's own orbit
+    colour rather than inventing a brighter one for this file alone, and
+    one artwork in two greens would be the worse trade.
+
+    What is shared with gen-website, internals-tm and gen-portal: the 180
+    box, the 40 radius, the 26 units of padding, the scale, the cream
+    letterform, the G's geometry. What differs is one hue. A sub-brand that
+    shares a silhouette and changes hue reads as a member of a family —
+    which, in a dock beside the other three, is the whole job.
+    ══════════════════════════════════════════════════════════════════════
+
+    ⚠ icon.png AND apple-icon.png ARE RENDERED FROM THIS FILE. Editing them
+      directly, or regenerating them from the bare mark, loses the ground
+      and the padding and produces a transparent smudge — iOS composites a
+      transparent home-screen icon onto BLACK. gen-website's icon.source.svg
+      carries the same warning and says it has been done once already.
+
+          rsvg-convert -w 180 -h 180 icon.source.svg -o apple-icon.png
+          rsvg-convert -w  32 -h  32 icon.source.svg -o icon.png
+
+    The G's arc is the corrected ±42° path — see the banner in
+    src/components/Mark.tsx.
+  -->
+  <rect width="180" height="180" rx="40" fill="#0E4A36"/>
+  <g transform="translate(26 26) scale(1.066667)">
+    <path d="M85.27 37.25 A34 34 0 1 0 85.27 82.75" fill="none" stroke="#F4EFEC" stroke-width="9" stroke-linecap="round"/>
+    <path d="M74 60 H92.5" fill="none" stroke="#F4EFEC" stroke-width="9" stroke-linecap="round"/>
+    <ellipse cx="60" cy="60" rx="55" ry="17" fill="none" stroke="#5FB98A" stroke-width="4" transform="rotate(-30 60 60)"/>
+  </g>
+</svg>
