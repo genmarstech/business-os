@@ -165,9 +165,29 @@ class StockCount(models.Model):
         max_length=12, choices=Status.choices, default=Status.OPEN, db_index=True
     )
 
-    opened_by = models.ForeignKey(
+    # ── WHO DID IT: TWO COLUMNS, BECAUSE THERE ARE TWO KINDS OF PERSON ────
+    #
+    # The same pair procurement already carries, and for the same reason. A
+    # count can be taken by an inventory clerk (an `OrganizationStaff` row,
+    # signed in at a till) or by the owner (a `PlatformAccount`, signed in
+    # with their Genmars identity). Two tiers, two tables, so attribution
+    # needs one nullable key for each and a constraint saying at most one.
+    #
+    # This shipped with the staff column alone, which quietly meant a shop
+    # with no employees on the books — an owner-operated kiosk, which is most
+    # of the market this is sold into — could not take a stock count at all.
+    opened_by_staff = models.ForeignKey(
         "organisations.OrganizationStaff",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_counts_opened",
+    )
+    opened_by_account = models.ForeignKey(
+        "identity.PlatformAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="stock_counts_opened",
     )
     opened_at = models.DateTimeField(auto_now_add=True)
@@ -175,8 +195,15 @@ class StockCount(models.Model):
     # Null while open. The person who closes is recorded separately from the
     # person who counted, because they are frequently and deliberately not the
     # same person — see the permission note in identity/access.py.
-    closed_by = models.ForeignKey(
+    closed_by_staff = models.ForeignKey(
         "organisations.OrganizationStaff",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_counts_closed",
+    )
+    closed_by_account = models.ForeignKey(
+        "identity.PlatformAccount",
         on_delete=models.PROTECT,
         null=True,
         blank=True,
@@ -200,6 +227,23 @@ class StockCount(models.Model):
                 condition=models.Q(status="open"),
                 name="one_open_stockcount_per_branch",
             ),
+            # At most one actor per event. Both set would be two different
+            # people claiming to have done the same thing, which is not an
+            # attribution — it is a question.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(opened_by_staff__isnull=True)
+                    | models.Q(opened_by_account__isnull=True)
+                ),
+                name="stock_count_opened_by_one_actor",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(closed_by_staff__isnull=True)
+                    | models.Q(closed_by_account__isnull=True)
+                ),
+                name="stock_count_closed_by_one_actor",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -208,6 +252,24 @@ class StockCount(models.Model):
     @property
     def is_open(self) -> bool:
         return self.status == self.Status.OPEN
+
+    @property
+    def opened_by_name(self) -> str:
+        if self.opened_by_staff_id:
+            return self.opened_by_staff.full_name
+        if self.opened_by_account_id:
+            account = self.opened_by_account
+            return account.full_name or account.email
+        return ""
+
+    @property
+    def closed_by_name(self) -> str:
+        if self.closed_by_staff_id:
+            return self.closed_by_staff.full_name
+        if self.closed_by_account_id:
+            account = self.closed_by_account
+            return account.full_name or account.email
+        return ""
 
 
 class StockCountLine(models.Model):
@@ -242,9 +304,19 @@ class StockCountLine(models.Model):
     expected_quantity = models.DecimalField(max_digits=12, decimal_places=2)
     counted_quantity = models.DecimalField(max_digits=12, decimal_places=2)
 
-    counted_by = models.ForeignKey(
+    # Two columns, for the reason StockCount carries at length above.
+    counted_by_staff = models.ForeignKey(
         "organisations.OrganizationStaff",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_lines",
+    )
+    counted_by_account = models.ForeignKey(
+        "identity.PlatformAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="stock_count_lines",
     )
     counted_at = models.DateTimeField(auto_now=True)
@@ -269,10 +341,26 @@ class StockCountLine(models.Model):
             models.UniqueConstraint(
                 fields=["count", "inventory"], name="one_line_per_product_per_count"
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(counted_by_staff__isnull=True)
+                    | models.Q(counted_by_account__isnull=True)
+                ),
+                name="stock_count_line_counted_by_one_actor",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.inventory_id}: counted {self.counted_quantity}"
+
+    @property
+    def counted_by_name(self) -> str:
+        if self.counted_by_staff_id:
+            return self.counted_by_staff.full_name
+        if self.counted_by_account_id:
+            account = self.counted_by_account
+            return account.full_name or account.email
+        return ""
 
     @property
     def variance(self):

@@ -34,6 +34,9 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from identity.models import PlatformAccount
+from organisations.models import OrganizationStaff
+
 from .models import (
     BranchInventory,
     StockAdjustment,
@@ -187,8 +190,40 @@ def _next_count_number(organization_id: int) -> int:
     return 1 if highest is None else highest + 1
 
 
+def _actor(prefix: str, actor) -> dict:
+    """
+    Attribution, as whichever of the two columns fits.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE ACTOR IS THE AUTHENTICATED PRINCIPAL, NEVER A FIELD IN THE REQUEST.
+
+    It used to be a field in the request — `opened_by`, `counted_by`,
+    `closed_by`, each resolved from an UNFILTERED queryset — and that was two
+    bugs wearing one coat. Within a shop, a clerk could sign a count in a
+    colleague's name. Across shops, the id was just an integer: a count could
+    be attributed to another tenant's employee, whose row is PROTECTed by it
+    ever afterwards.
+
+    An attribution a client can state is not an attribution. procurement's
+    `_actor` is the twin of this; `_acting` in each app's views.py is where
+    the principal becomes a row.
+    ══════════════════════════════════════════════════════════════════════════
+
+    Unlike procurement's, this refuses an actor it cannot name. Raising a
+    draft order attributed to nobody is survivable — a stock take is a
+    control, and a control nobody signed is decoration.
+    """
+    if isinstance(actor, OrganizationStaff):
+        return {f"{prefix}_staff": actor}
+    if isinstance(actor, PlatformAccount):
+        return {f"{prefix}_account": actor}
+    raise ValidationError(
+        {"detail": "A count has to be signed by somebody. Sign in again."}
+    )
+
+
 @transaction.atomic
-def open_count(*, branch, staff, note: str = ""):
+def open_count(*, branch, actor, note: str = ""):
     """
     Begin counting a branch.
 
@@ -196,6 +231,8 @@ def open_count(*, branch, staff, note: str = ""):
     — see the partial constraint on StockCount — and this exists so the
     refusal is a sentence rather than an IntegrityError.
     """
+    signature = _actor("opened_by", actor)
+
     existing = StockCount.objects.filter(
         branch=branch, status=StockCount.Status.OPEN
     ).first()
@@ -213,13 +250,13 @@ def open_count(*, branch, staff, note: str = ""):
         organization_id=branch.organization_id,
         branch=branch,
         number=_next_count_number(branch.organization_id),
-        opened_by=staff,
         note=(note or "").strip(),
+        **signature,
     )
 
 
 @transaction.atomic
-def record_count(*, count, inventory, counted, staff, note: str = ""):
+def record_count(*, count, inventory, counted, actor, note: str = ""):
     """
     Write down what is actually on one shelf.
 
@@ -253,15 +290,20 @@ def record_count(*, count, inventory, counted, staff, note: str = ""):
         defaults={
             "expected_quantity": locked.quantity,
             "counted_quantity": quantity,
-            "counted_by": staff,
             "note": (note or "").strip(),
+            # Both columns, so recounting a shelf cannot leave the previous
+            # counter's name beside the new figure. `update_or_create`
+            # defaults only overwrite what they name.
+            "counted_by_staff": None,
+            "counted_by_account": None,
+            **_actor("counted_by", actor),
         },
     )
     return line
 
 
 @transaction.atomic
-def close_count(*, count, staff):
+def close_count(*, count, actor):
     """
     Book every variance, and close the count for good.
 
@@ -284,6 +326,12 @@ def close_count(*, count, staff):
     real and have already moved the stock; re-deriving the difference here
     would undo them.
     """
+    # Resolved first, before a single movement is written. Refusing an
+    # unsignable close half way through would leave some variances booked and
+    # the count still open — the one state this whole module is built to
+    # prevent.
+    signature = _actor("closed_by", actor)
+
     locked = StockCount.objects.select_for_update().get(pk=count.pk)
     if locked.status != StockCount.Status.OPEN:
         raise ValidationError({"detail": "That count has already been closed."})
@@ -311,14 +359,19 @@ def close_count(*, count, staff):
         applied += 1
 
     locked.status = StockCount.Status.CLOSED
-    locked.closed_by = staff
+    for field, value in signature.items():
+        setattr(locked, field, value)
     locked.closed_at = timezone.now()
-    locked.save(update_fields=["status", "closed_by", "closed_at"])
+    locked.save(
+        update_fields=[
+            "status", "closed_by_staff", "closed_by_account", "closed_at",
+        ]
+    )
     return locked, applied
 
 
 @transaction.atomic
-def abandon_count(*, count, staff, reason: str):
+def abandon_count(*, count, actor, reason: str):
     """
     Stop a count without booking anything.
 
@@ -326,6 +379,8 @@ def abandon_count(*, count, staff, reason: str):
     about — half the shop counted and then nothing happened — and "no reason
     given" is the answer that makes them ask again.
     """
+    signature = _actor("closed_by", actor)
+
     reason = (reason or "").strip()
     if not reason:
         raise ValidationError({"reason": "Say why this count is being abandoned."})
@@ -335,10 +390,15 @@ def abandon_count(*, count, staff, reason: str):
         raise ValidationError({"detail": "That count is not open."})
 
     locked.status = StockCount.Status.ABANDONED
-    locked.closed_by = staff
+    for field, value in signature.items():
+        setattr(locked, field, value)
     locked.closed_at = timezone.now()
     locked.note = (locked.note + "\n" if locked.note else "") + f"Abandoned: {reason}"
-    locked.save(update_fields=["status", "closed_by", "closed_at", "note"])
+    locked.save(
+        update_fields=[
+            "status", "closed_by_staff", "closed_by_account", "closed_at", "note",
+        ]
+    )
     return locked
 
 
