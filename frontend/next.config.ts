@@ -35,7 +35,25 @@ import type { NextConfig } from "next";
  *   the runtime environment. Both, deliberately, for two different consumers.
  */
 
-const API_PREFIXES = ["auth", "org", "brn", "ctl", "invt", "sls"];
+/**
+ * Every prefix Business_Platform/urls.py gives Django, and the third list
+ * that has to agree with it — deploy/business.caddy carries the other two.
+ *
+ * `pay`, `sub` and `prc` were missing from all three. A server component
+ * never notices, because src/lib/api.ts reaches API_ORIGIN directly; the
+ * browser does, and the till pays by M-Pesa from the browser.
+ */
+const API_PREFIXES = [
+  "auth",
+  "org",
+  "brn",
+  "ctl",
+  "invt",
+  "sls",
+  "pay",
+  "sub",
+  "prc",
+];
 
 const nextConfig: NextConfig = {
   output: "standalone",
