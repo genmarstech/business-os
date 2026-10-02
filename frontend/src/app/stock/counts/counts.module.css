@@ -33,10 +33,6 @@
   max-width: 64ch;
 }
 
-.quiet:is(a) {
-  color: var(--accent-text);
-}
-
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -298,6 +294,22 @@
   border-color: var(--ink-faint);
 }
 
+/*
+  An inline link in a sentence, NOT the bordered button above. These shared
+  one class and the link came out wearing a button's border and padding,
+  sitting in the middle of a paragraph — which is what a `.quiet:is(a)`
+  override that only changed the colour left behind.
+*/
+.link {
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.link:hover {
+  color: var(--ink);
+}
+
 .primary {
   background: var(--accent-wash);
   border: 1px solid var(--accent);
@@ -350,8 +362,14 @@
   align-items: center;
 }
 
+/*
+  `flex-basis`, not `width`. A flex item with `width: 100%` still shrinks —
+  default `flex-shrink: 1` — so the sentence sat beside the buttons instead
+  of above them, which is the one layout this step exists to avoid: the
+  explanation of an irreversible action reading as a label on a button.
+*/
 .confirm p {
-  width: 100%;
+  flex-basis: 100%;
   margin: 0;
   font-size: 13px;
   color: var(--ink-muted);

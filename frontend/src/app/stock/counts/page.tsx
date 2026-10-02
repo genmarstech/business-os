@@ -93,7 +93,7 @@ export default async function StockCountsPage() {
             Counting a shelf and writing down what is on it. Nothing moves
             while a count is open — the lines record a disagreement, and the
             difference is booked as{" "}
-            <Link className={styles.quiet} href="/stock/history">
+            <Link className={styles.link} href="/stock/history">
               movements
             </Link>{" "}
             all at once when the count is closed, so a shortfall is reviewed
@@ -108,7 +108,7 @@ export default async function StockCountsPage() {
             <p className={styles.panelLede}>
               A stock take is the only thing that tells you whether the
               figures on{" "}
-              <Link className={styles.quiet} href="/stock">
+              <Link className={styles.link} href="/stock">
                 Stock
               </Link>{" "}
               are true. Everything else in this system describes what{" "}

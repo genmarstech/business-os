@@ -146,8 +146,8 @@ export function CountSheet({
       {canCount && remaining.length > 0 ? (
         <details className={styles.more}>
           <summary className={styles.summary}>
-            {remaining.length} shelf
-            {remaining.length === 1 ? "" : "s"} not counted
+            {remaining.length}{" "}
+            {remaining.length === 1 ? "shelf" : "shelves"} not counted
           </summary>
           <p className={styles.panelLede}>
             Counting part of a branch is normal. Only what is listed above
