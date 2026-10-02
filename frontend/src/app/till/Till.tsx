@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BusinessMark } from "@/components/BusinessMark";
 import { Calculator } from "./Calculator";
+import { Count } from "./Count";
 import { ChangePassword } from "./ChangePassword";
 import { ShiftNote } from "./ShiftNote";
 import { SignIn } from "./SignIn";
@@ -152,13 +153,96 @@ export function Till() {
   }
 
   return (
-    <Shifted
+    <Signed
       session={session}
       onSignOut={() => {
         forget();
         setSession(null);
       }}
     />
+  );
+}
+
+/**
+ * Selling, or counting the shelves.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE TILL ASKS WHAT THIS PRINCIPAL MAY DO. IT NEVER USED TO HAVE TO.
+ *
+ * Every other screen in this application is server-rendered and gets the
+ * permission list with the page. The till is a client application and never
+ * needed one: a cashier always holds sales.checkout, so there was exactly
+ * one thing to draw.
+ *
+ * There are two now. An inventory clerk holds inventory.count and NOT
+ * sales.checkout — they cannot open a drawer and must not be shown one —
+ * while a branch manager holds both and has to choose. So the till asks
+ * /auth/me on boot, which the endpoint's own docstring says every client
+ * does anyway.
+ *
+ * Failing to answer is treated as "sell", which is what the till did before
+ * this existed. A stock count can wait for the network; a queue cannot.
+ * ══════════════════════════════════════════════════════════════════════════
+ */
+function Signed({
+  session,
+  onSignOut,
+}: {
+  session: TillSession;
+  onSignOut: () => void;
+}) {
+  const [permissions, setPermissions] = useState<string[] | null>(null);
+  const [doing, setDoing] = useState<"sell" | "count" | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    call<{ permissions?: string[] }>("/auth/me")
+      .then((me) => live && setPermissions(me.permissions ?? []))
+      .catch(() => live && setPermissions([]));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (permissions === null) {
+    return <div className={styles.boot}>Starting the till…</div>;
+  }
+
+  const maySell = permissions.includes("sales.checkout");
+  const mayCount = permissions.includes("inventory.count");
+
+  if (doing === "count" || (mayCount && !maySell)) {
+    return (
+      <Count
+        session={session}
+        permissions={permissions}
+        onLeave={maySell ? () => setDoing(null) : onSignOut}
+      />
+    );
+  }
+
+  if (doing === "sell" || !mayCount) {
+    return <Shifted session={session} onSignOut={onSignOut} />;
+  }
+
+  return (
+    <div className={styles.choose}>
+      <p className={styles.chooseName}>{session.staff.name}</p>
+      <h1 className={styles.chooseTitle}>What are you here to do?</h1>
+      <div className={styles.chooseRow}>
+        <button type="button" className={styles.chooseOne} onClick={() => setDoing("sell")}>
+          <strong>Sell</strong>
+          <span>Open a register and serve customers</span>
+        </button>
+        <button type="button" className={styles.chooseOne} onClick={() => setDoing("count")}>
+          <strong>Count stock</strong>
+          <span>Walk the shelves and record what is there</span>
+        </button>
+      </div>
+      <button type="button" className={styles.chooseOut} onClick={onSignOut}>
+        Sign out
+      </button>
+    </div>
   );
 }
 

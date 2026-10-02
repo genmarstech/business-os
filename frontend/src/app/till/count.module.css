@@ -1,0 +1,351 @@
+/*
+ * The counting screen.
+ *
+ * Built for a phone held in one hand in an aisle, not for the till's own
+ * touchscreen — the person counting is walking, and the other hand is on the
+ * shelf. Tap targets are 44px or more, the number pad is asked for
+ * explicitly, and nothing needs a second hand to reach.
+ *
+ * Tokens only, from till.module.css's set. No literal colours: the till is
+ * themed and a hard-coded one here would be the row that reads wrong on
+ * whichever theme the shop is not using.
+ */
+
+.wrap {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 16px 96px;
+  color: var(--ink);
+}
+
+.boot {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--ink-faint);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 0 16px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.lede, .note, .empty {
+  margin: 0 0 14px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
+
+.note {
+  padding: 12px 14px;
+  background: var(--accent-wash);
+  border-radius: var(--r-md);
+}
+
+.error {
+  margin: 0 0 12px;
+  padding: 11px 13px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--r-md);
+}
+
+.dim { color: var(--ink-faint); }
+
+/* ── starting ─────────────────────────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.input, .search, .number {
+  width: 100%;
+  padding: 12px 13px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--app);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  min-height: 46px;
+}
+
+.input:focus-visible,
+.search:focus-visible,
+.number:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.search { margin: 0 0 14px; }
+
+/* ── tabs ─────────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 4px;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 12px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 500;
+}
+
+/* ── progress ─────────────────────────────────────────────────────────── */
+
+.progress {
+  margin: 0 0 12px;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+.progress strong { color: var(--ink); font-size: 1.1rem; }
+
+/* ── the aisle ────────────────────────────────────────────────────────── */
+
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.row {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* Counted rows recede rather than disappear: somebody needs to find one
+   again to correct it, and a list that hides finished work makes a
+   miscount unreachable. */
+.done { border-color: var(--line); opacity: 0.72; }
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  min-height: 52px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.name { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 0.9375rem; }
+
+.sku {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.tally, .todo {
+  flex: none;
+  padding: 5px 11px;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+}
+
+.tally { color: var(--on-fill); background: var(--ok); font-weight: 600; }
+
+.todo {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--sunken);
+}
+
+.entry {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.number { flex: 1; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+
+.primary, .ghost, .danger {
+  padding: 12px 18px;
+  min-height: 46px;
+  font: inherit;
+  font-size: 0.9375rem;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  flex: none;
+}
+
+.primary { color: var(--on-fill); background: var(--accent-fill); border: 0; font-weight: 500; }
+.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ghost { color: var(--ink-muted); background: none; border: 1px solid var(--line-firm); }
+
+.danger { color: var(--on-fill); background: var(--danger); border: 0; font-weight: 500; }
+.danger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.linkQuiet {
+  align-self: flex-start;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.linkQuiet:hover { color: var(--danger); }
+
+/* ── the sheet ────────────────────────────────────────────────────────── */
+
+.review { display: flex; flex-direction: column; gap: 16px; }
+
+.tallies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.tallies > div {
+  padding: 11px 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.tallies dt {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.tallies dd {
+  margin: 3px 0 0;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.short dd { color: var(--danger); }
+.over dd { color: var(--warn); }
+
+.tableWrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+
+.sheet { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+
+.sheet th[scope="col"] {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line-firm);
+  white-space: nowrap;
+}
+
+.sheet td, .sheet th[scope="row"] {
+  padding: 11px 12px;
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.sheet td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.sheet tr:last-child td,
+.sheet tr:last-child th { border-bottom: 0; }
+
+.shortCell { color: var(--danger); font-weight: 600; }
+.overCell { color: var(--warn); font-weight: 600; }
+
+/* ── closing ──────────────────────────────────────────────────────────── */
+
+.actions { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 14px;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+}
+
+.confirm p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
+.confirm .field { width: 100%; }
