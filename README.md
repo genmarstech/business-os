@@ -495,6 +495,81 @@ that enforces it.
 - **Tenant scope is resolved server-side, always.** A `branch` in a request
   narrows a result; it never grants access to one (§8).
 
+## Counting the shelves
+
+Five comments in this codebase justified how carefully a movement is written
+by appealing to a stock take — *"a stock take six months later can walk every
+unit back"*, *"the ones a stock take is reconciled against"* — and there was
+no stock take. `REASONS` in `inventory/services.py` has carried
+`COUNT: "A count disagreed with the system"` the whole time with nothing
+producing it. The discipline was being paid for and never cashed in.
+
+A count is opened on a branch, lines are recorded, and it is closed. It is the
+inventory half of what `branches/services.py` already does for cash: count the
+thing, compare it with what the system believed, record the variance, close it
+so the number means something afterwards.
+
+### Expected is read when the line is counted
+
+Not when the count opens, and not at close. **A shop keeps trading while
+somebody counts it.** Reading the expected figure at close folds every sale
+made during the count into the variance, and the stock take reports the
+afternoon's trade as missing stock — which is the error that makes a shop
+distrust its own counts and stop doing them. Snapshotting at open is wrong
+from the other end.
+
+Taken at the instant of counting, the pair is true: this is what was on the
+shelf and this is what the system believed, both at one moment. Sales after
+that are real movements and apply on top. It is the same rule as every price
+on a document line here — a copy, never a join.
+
+The test that pins it counts 48 against a system saying 50, sells ten more
+while the count is open, and asserts the shelf ends at 38. It also asserts the
+two wrong answers: **48**, from overwriting the quantity with the counted
+figure, and **32**, from deriving the variance at close against the live
+quantity.
+
+### Closing books the difference through `adjust`
+
+Stock only ever moves through a `StockMovement`. A stock take is the operation
+most tempted to break that rule, because it already knows the number it wants
+the quantity to be — and a count that assigned `quantity = counted` would
+leave the one movement nobody can explain sitting in the middle of the trail
+every other movement was written to preserve.
+
+Each line with a variance books a delta with reason `COUNT`, exactly as a
+manager correcting one shelf by hand would. A line that agreed books nothing
+and points at no movement.
+
+Closing is **not reversible**, for the reason `close_shift` is not: a count
+that can be reopened and recounted is a count whose variance means nothing,
+because the second number is always the one that agrees. A miscount is
+corrected by a new count, which is its own record.
+
+### Counting and closing are two permissions
+
+`INVENTORY_COUNT` opens a count and writes down what is on a shelf.
+`INVENTORY_COUNT_CLOSE` books what it found.
+
+The write-off is where a shortfall stops being a question, and the person who
+counted the shelf is the last one who should settle it alone. It is the split
+`PURCHASING_APPROVE` makes and the one `SALES_VOID` makes at the till: the
+second person is a permission the first does not hold. An inventory clerk
+holds `COUNT` and not `CLOSE`; a branch manager holds both.
+
+### Three smaller decisions
+
+- **One open count per branch**, enforced by a partial unique constraint as
+  well as a sentence in the service. Two people counting the same shelves
+  produce two contradictory truths and no way to say which was first. Closed
+  and abandoned counts do not block the next one.
+- **Abandoning requires a reason.** An abandoned count is the one somebody
+  will ask about later — half the shop counted and then nothing happened —
+  and "no reason given" is the answer that makes them ask again.
+- **The summary counts lines, not the catalogue.** A partial count is the
+  ordinary case, one aisle on a Tuesday, and reporting it against every
+  product the branch stocks would make every count look unfinished.
+
 ## Starting somebody on a till
 
 A manager creates the login; `POST /auth/staff/credentials/{id}/invite/`

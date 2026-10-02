@@ -31,8 +31,16 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Max
+from django.utils import timezone
 
-from .models import BranchInventory, StockAdjustment, StockMovement
+from .models import (
+    BranchInventory,
+    StockAdjustment,
+    StockCount,
+    StockCountLine,
+    StockMovement,
+)
 
 # Which of the movement kinds an adjustment may claim. PURCHASE, SALE and the
 # transfer pair are excluded on purpose: those are produced by the operations
@@ -157,3 +165,200 @@ def adjust(*, inventory: BranchInventory, delta: Decimal, reason: str, note: str
     )
 
     return adjustment
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# COUNTING THE SHELVES
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _next_count_number(organization_id: int) -> int:
+    """
+    The next number in this organisation's sequence.
+
+    The same four lines as `sales.services._next_number`, and deliberately not
+    imported from there for the reason procurement gives: inventory does not
+    depend on sales, and neither should learn about the other to share an
+    aggregate.
+    """
+    highest = StockCount.objects.filter(organization_id=organization_id).aggregate(
+        top=Max("number")
+    )["top"]
+    return 1 if highest is None else highest + 1
+
+
+@transaction.atomic
+def open_count(*, branch, staff, note: str = ""):
+    """
+    Begin counting a branch.
+
+    Refuses a second open count at the same branch. The database says so too
+    — see the partial constraint on StockCount — and this exists so the
+    refusal is a sentence rather than an IntegrityError.
+    """
+    existing = StockCount.objects.filter(
+        branch=branch, status=StockCount.Status.OPEN
+    ).first()
+    if existing is not None:
+        raise ValidationError(
+            {
+                "detail": (
+                    f"Count {existing.number} is already open at this branch. "
+                    "Close or abandon it before starting another."
+                )
+            }
+        )
+
+    return StockCount.objects.create(
+        organization_id=branch.organization_id,
+        branch=branch,
+        number=_next_count_number(branch.organization_id),
+        opened_by=staff,
+        note=(note or "").strip(),
+    )
+
+
+@transaction.atomic
+def record_count(*, count, inventory, counted, staff, note: str = ""):
+    """
+    Write down what is actually on one shelf.
+
+    ⚠ NOTHING MOVES HERE. The line records a disagreement; the stock is not
+      corrected until the count closes. That gap is the point: a manager
+      reviews the variances together, as a sheet, before anything is written
+      off. Applying each line as it was counted would make a stock take a
+      stream of silent adjustments nobody ever saw as a whole.
+    """
+    if not count.is_open:
+        raise ValidationError({"detail": "That count is closed."})
+    if inventory.branch_id != count.branch_id:
+        # Not a 403: this is an invalid line, not a forbidden one, and the
+        # distinction matters because the caller can fix one of them.
+        raise ValidationError(
+            {"inventory": "That product is not stocked at the branch being counted."}
+        )
+
+    quantity = as_quantity(counted)
+    if quantity < 0:
+        raise ValidationError({"counted": "A shelf cannot hold less than nothing."})
+
+    # Read the system figure under a lock, at this instant. See the banner on
+    # StockCountLine: the pair has to be true at one moment, and the lock is
+    # what stops a sale landing between the read and the write.
+    locked = BranchInventory.objects.select_for_update().get(pk=inventory.pk)
+
+    line, _ = StockCountLine.objects.update_or_create(
+        count=count,
+        inventory=locked,
+        defaults={
+            "expected_quantity": locked.quantity,
+            "counted_quantity": quantity,
+            "counted_by": staff,
+            "note": (note or "").strip(),
+        },
+    )
+    return line
+
+
+@transaction.atomic
+def close_count(*, count, staff):
+    """
+    Book every variance, and close the count for good.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE DIFFERENCE IS APPLIED THROUGH `adjust`, NOT WRITTEN TO THE QUANTITY.
+
+    Stock only ever moves through a StockMovement — the rule the whole of this
+    module exists to hold. A stock take is the single operation most tempted
+    to break it, because it already knows the answer it wants the quantity to
+    be, and a count that set `quantity = counted` directly would leave the
+    one movement nobody can explain afterwards sitting in the middle of the
+    trail every other movement was written to preserve.
+
+    So each line with a variance books a delta, with reason COUNT, exactly as
+    a manager correcting one shelf by hand would.
+    ══════════════════════════════════════════════════════════════════════════
+
+    The delta is `counted − expected` as recorded on the LINE, not against
+    whatever the quantity is now. Sales made since that line was counted are
+    real and have already moved the stock; re-deriving the difference here
+    would undo them.
+    """
+    locked = StockCount.objects.select_for_update().get(pk=count.pk)
+    if locked.status != StockCount.Status.OPEN:
+        raise ValidationError({"detail": "That count has already been closed."})
+
+    applied = 0
+    for line in locked.lines.select_related("inventory").all():
+        delta = line.counted_quantity - line.expected_quantity
+        if delta == 0:
+            continue
+        adjust(
+            inventory=line.inventory,
+            delta=delta,
+            reason="COUNT",
+            note=f"Count {locked.number}" + (f": {line.note}" if line.note else ""),
+        )
+        # The movement `adjust` just wrote, linked so a line can be traced to
+        # the stock it moved. Latest by id rather than by time: two movements
+        # in the same transaction can share a timestamp.
+        line.movement = (
+            StockMovement.objects.filter(inventory=line.inventory)
+            .order_by("-id")
+            .first()
+        )
+        line.save(update_fields=["movement"])
+        applied += 1
+
+    locked.status = StockCount.Status.CLOSED
+    locked.closed_by = staff
+    locked.closed_at = timezone.now()
+    locked.save(update_fields=["status", "closed_by", "closed_at"])
+    return locked, applied
+
+
+@transaction.atomic
+def abandon_count(*, count, staff, reason: str):
+    """
+    Stop a count without booking anything.
+
+    A reason is required. An abandoned count is the one somebody will ask
+    about — half the shop counted and then nothing happened — and "no reason
+    given" is the answer that makes them ask again.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": "Say why this count is being abandoned."})
+
+    locked = StockCount.objects.select_for_update().get(pk=count.pk)
+    if locked.status != StockCount.Status.OPEN:
+        raise ValidationError({"detail": "That count is not open."})
+
+    locked.status = StockCount.Status.ABANDONED
+    locked.closed_by = staff
+    locked.closed_at = timezone.now()
+    locked.note = (locked.note + "\n" if locked.note else "") + f"Abandoned: {reason}"
+    locked.save(update_fields=["status", "closed_by", "closed_at", "note"])
+    return locked
+
+
+def count_summary(count) -> dict:
+    """
+    The sheet a manager signs off, in one query.
+
+    `counted` is how many lines were entered, never how many products the
+    branch stocks. A partial count is the ordinary case — one aisle on a
+    Tuesday — and reporting it against the full catalogue would make every
+    count look unfinished.
+    """
+    lines = list(count.lines.select_related("inventory__product").all())
+    short = [l for l in lines if l.counted_quantity < l.expected_quantity]
+    over = [l for l in lines if l.counted_quantity > l.expected_quantity]
+    return {
+        "counted": len(lines),
+        "agreed": len(lines) - len(short) - len(over),
+        "short": len(short),
+        "over": len(over),
+        "units_short": sum((l.expected_quantity - l.counted_quantity for l in short), Decimal("0")),
+        "units_over": sum((l.counted_quantity - l.expected_quantity for l in over), Decimal("0")),
+    }

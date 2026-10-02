@@ -1,4 +1,14 @@
-from .models import BranchInventory, StockMovement, StockTransfer, StockAdjustment, StockLevel
+from .models import (
+    BranchInventory,
+    StockAdjustment,
+    StockCount,
+    StockCountLine,
+    StockLevel,
+    StockMovement,
+    StockTransfer,
+)
+from branches.models import Branches
+from organisations.models import OrganizationStaff
 from rest_framework import serializers
 
 # relevant serializers
@@ -251,3 +261,85 @@ class StockLevelSerializer(serializers.ModelSerializer):
             "quantity",
             "recorded_at",
         ]
+
+# ── counting the shelves ─────────────────────────────────────────────────────
+
+
+class StockCountLineSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="inventory.product.name", read_only=True)
+    product_sku = serializers.CharField(source="inventory.product.sku", read_only=True)
+    counted_by_name = serializers.CharField(source="counted_by.full_name", read_only=True)
+    # Derived, never stored and never writable. A variance a client could
+    # state is a variance a client could state wrongly.
+    variance = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = StockCountLine
+        fields = [
+            "id", "inventory", "product_name", "product_sku",
+            "expected_quantity", "counted_quantity", "variance",
+            "counted_by", "counted_by_name", "counted_at", "note", "movement",
+        ]
+        read_only_fields = fields
+
+
+class StockCountSerializer(serializers.ModelSerializer):
+    branch_name = serializers.CharField(source="branch.branch_name", read_only=True)
+    opened_by_name = serializers.CharField(source="opened_by.full_name", read_only=True)
+    closed_by_name = serializers.CharField(
+        source="closed_by.full_name", read_only=True, default=None
+    )
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    lines = StockCountLineSerializer(many=True, read_only=True)
+    summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockCount
+        fields = [
+            "id", "number", "organization", "branch", "branch_name",
+            "status", "status_label",
+            "opened_by", "opened_by_name", "opened_at",
+            "closed_by", "closed_by_name", "closed_at",
+            "note", "lines", "summary",
+        ]
+        read_only_fields = fields
+
+    def get_summary(self, count) -> dict:
+        from . import services
+
+        return services.count_summary(count)
+
+
+class OpenCountSerializer(serializers.Serializer):
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branches.objects.all())
+    opened_by = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all()
+    )
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class RecordCountSerializer(serializers.Serializer):
+    inventory = serializers.PrimaryKeyRelatedField(
+        queryset=BranchInventory.objects.all()
+    )
+    counted = serializers.DecimalField(max_digits=12, decimal_places=2)
+    counted_by = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all()
+    )
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class CloseCountSerializer(serializers.Serializer):
+    closed_by = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all()
+    )
+
+
+class AbandonCountSerializer(serializers.Serializer):
+    closed_by = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationStaff.objects.all()
+    )
+    # Required, unlike the note on a close. See services.abandon_count.
+    reason = serializers.CharField(max_length=300)
