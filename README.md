@@ -689,10 +689,43 @@ on a phone somebody holds for a whole shift — and it looks exactly like a
 shop's own software watching its staff, which is a thing nobody will ask us
 about before deciding.
 
+## Telling somebody something happened
+
+`backend/notifications/` — a feed, an unread count, and a bell at the bottom of
+the sidebar. `notifications/README.md` has the reasoning; the three things worth
+knowing from out here:
+
+**A notification is addressed to a permission and a scope, never to a person.**
+Two kinds of principal and an audience that changes after the event make a
+recipient column unworkable: a row naming somebody keeps notifying them after
+they leave the rota and never reaches whoever was promoted this morning.
+
+**Stock is written in three places and the sale is the one that matters.** Stock
+runs low *because of selling*, so a low-stock notification wired only to the
+adjustment screen fires for corrections and stays silent for the shop actually
+running out. All three paths are tested through their real service functions.
+
+**It is polled, because gunicorn runs three synchronous workers.** A held-open
+SSE connection occupies one for its life, so three tills and a laptop would
+exhaust the pool and the API would stop answering mid-sale. Charter 03 §I over
+an async worker class and a fan-out dependency; `/ntf/unread` is a COUNT over an
+index, and the browser stops asking while the tab is hidden.
+
+⚠ Every raise is wrapped so it **cannot fail a sale** — which means a broken
+notification is invisible to the person who should have received it. That is why
+every test in that app asserts a row exists rather than that nothing threw.
+
 ## Known gaps
 
 These are written down rather than left to be rediscovered.
 
+- **Only the office sees notifications.** The feed, the permissions and the API
+  are tier-agnostic and a staff bearer token reads `/ntf/` correctly — but the
+  bell lives in the Shell, which a tenant-local principal cannot reach, and
+  `/till` has none on purpose (a terminal, not a dashboard; a payment's outcome
+  is already on the screen the cashier is watching). It becomes a gap the day
+  the purchasing officer and finance clerk get the till workspaces they are
+  still missing, below.
 - **Camera scanning does not work on iPhones.** `BarcodeDetector` is
   Chromium-only, and every iOS browser is WebKit underneath — so this is
   iPhones rather than a browser choice. Typing a code and USB wedge scanners

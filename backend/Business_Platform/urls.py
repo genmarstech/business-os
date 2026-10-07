@@ -66,5 +66,6 @@ urlpatterns = [
     path('pay/', include('payments.urls')),
     path('sub/', include('subscriptions.urls')),
     path('prc/', include('procurement.urls')),
+    path('ntf/', include('notifications.urls')),
     path('auth/', include('identity.urls')),
 ]

@@ -53,6 +53,7 @@ const API_PREFIXES = [
   "pay",
   "sub",
   "prc",
+  "ntf",
 ];
 
 const nextConfig: NextConfig = {

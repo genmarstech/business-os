@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BusinessMark } from "./BusinessMark";
+import { Notifications } from "./Notifications";
 import { SubscriptionNotice } from "./SubscriptionNotice";
 import { PERM, may, tenantName, type Me } from "@/lib/session";
 import styles from "./Shell.module.css";
@@ -198,6 +199,13 @@ export function Shell({
         </div>
 
         <div className={styles.foot}>
+          {/*
+            Beside who you are, at the bottom of the sidebar, rather than in a
+            header this application does not have. It is the one piece of the
+            frame that changes on its own, so it sits with the other thing that
+            is about the person rather than about the page.
+          */}
+          <Notifications />
           <div className={styles.who}>
             {me.kind === "subscriber" ? me.email : `${me.name} · ${me.username}`}
           </div>

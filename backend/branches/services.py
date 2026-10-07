@@ -34,6 +34,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
+from notifications import services as notifications
 
 ZERO = Decimal("0.00")
 CENTS = Decimal("0.01")
@@ -123,5 +124,15 @@ def close_shift(*, shift, counted_cash):
     locked.closed_at = timezone.now()
     locked.status = "CLOSED"
     locked.save(update_fields=["closing_cash", "closed_at", "status"])
+
+    # ── THE VARIANCE IS RECOMPUTED, NOT CARRIED ─────────────────────────────
+    #
+    # `drawer()` is the one place that knows what a till should be holding, and
+    # it is read AFTER the close so the figure in the notification is the
+    # figure the reports will show. Working it out here from `counted` would be
+    # a second implementation of the same arithmetic, and the day they disagree
+    # is the day a manager is told one number and shown another.
+    counts = drawer(locked)
+    notifications.shift_closed(shift=locked, variance=counts.get("variance"))
 
     return locked
