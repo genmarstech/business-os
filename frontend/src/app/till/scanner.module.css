@@ -1,0 +1,161 @@
+/*
+ * The camera sheet, shared by the till and the stock take.
+ *
+ * Built for one hand on a phone, pointed at a shelf. The preview takes the
+ * top of the screen because that is where a phone's back camera points when
+ * the hand is comfortable, and every control sits in the bottom bar inside
+ * thumb reach — somebody's other hand is holding stock.
+ *
+ * Tokens only, from till.module.css's set. No literal colours: the till is
+ * themed and a hard-coded one here is the row that reads wrong on whichever
+ * theme the shop is not using. The two exceptions are commented where they
+ * are, and both are about a camera image rather than about the interface.
+ */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--app);
+}
+
+.frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /*
+   * Black, not a token. This is the area a camera image fills, and the
+   * letterboxing either side of it should read as "no picture there" in both
+   * themes rather than as a panel the interface has drawn.
+   */
+  background: #000;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  /* Fill rather than fit: a letterboxed preview makes the barcode smaller,
+     and a smaller barcode is a slower read. */
+  object-fit: cover;
+  display: block;
+}
+
+/*
+ * Where to point. Not a scan region — the detector reads the whole frame —
+ * but somebody holding a phone needs to be told where to aim, and a frame
+ * drawn in the middle is the convention every scanner app has taught them.
+ */
+.reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(78%, 22rem);
+  aspect-ratio: 5 / 3;
+  border: 2px solid var(--accent-fill);
+  border-radius: var(--r-md);
+  /* A hole punched in a wash, so the aiming area is brighter than around it.
+     rgb(0 0 0 / …) rather than a token for the reason given on .frame. */
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.42);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reticle {
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.hint,
+.hit,
+.miss,
+.error {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.hint { color: var(--ink-muted); }
+.hit { color: var(--ok); font-family: var(--font-mono); }
+.miss { color: var(--warn); }
+.error { color: var(--danger); }
+
+.buttons {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.light,
+.done {
+  /* 44px, because this is operated with a thumb while holding something
+     else. The count screen's own note says the same thing. */
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.light {
+  background: var(--sunken);
+  border: 1px solid var(--line-firm);
+  color: var(--ink);
+}
+
+.light[aria-pressed="true"] {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.done {
+  background: var(--accent-fill);
+  border: 1px solid var(--accent-fill);
+  color: var(--on-fill);
+}
+
+.light:focus-visible,
+.done:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Landscape on a phone leaves almost no height, so the preview gives way to
+   the controls rather than the controls being pushed off screen. */
+@media (max-height: 30rem) {
+  .reticle { width: min(60%, 18rem); }
+  .bar { padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+}

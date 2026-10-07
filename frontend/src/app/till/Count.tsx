@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Scanner } from "./Scanner";
+import { scanning } from "./barcode";
 import { call } from "./session";
 import styles from "./count.module.css";
 
@@ -66,6 +68,14 @@ type Stock = {
   branch: number;
   product_name: string;
   product_sku: string;
+  /**
+   * The product's barcode, read through the join on BranchInventory.
+   *
+   * Optional because most shops have products without one — loose goods,
+   * anything sold by weight — and because a count screen served by an API
+   * that predates the field must not break.
+   */
+  product_barcode?: string;
   is_active: boolean;
 };
 
@@ -269,7 +279,14 @@ function Counting({
   const [entry, setEntry] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [camera, setCamera] = useState(false);
   const search = useRef<HTMLInputElement>(null);
+
+  // Asked after mount: `scanning()` reads `window`, and calling it during
+  // render would disagree with the server's render and throw a hydration
+  // error.
+  const [canScan, setCanScan] = useState(false);
+  useEffect(() => setCanScan(scanning()), []);
 
   // What has been counted already, by inventory id. The quantity is shown
   // back so somebody can see their own work; the EXPECTED figure in the same
@@ -285,7 +302,11 @@ function Counting({
       ? stock.filter(
           (s) =>
             s.product_name.toLowerCase().includes(needle) ||
-            s.product_sku.toLowerCase().includes(needle),
+            s.product_sku.toLowerCase().includes(needle) ||
+            // Exact, unlike the two above. A partial match on thirteen digits
+            // is a different product, and the point of a code is that it
+            // either is this row's or is not.
+            s.product_barcode?.toLowerCase() === needle,
         )
       : stock;
     // Uncounted first: the job is finding what has not been done yet, and a
@@ -296,6 +317,40 @@ function Counting({
       return done !== 0 ? done : a.product_name.localeCompare(b.product_name);
     });
   }, [stock, query, counted]);
+
+  /**
+   * A scanned code opens that shelf row with the number pad focused.
+   *
+   * ══════════════════════════════════════════════════════════════════════
+   * THE CAMERA CLOSES ON A HIT, UNLIKE THE TILL'S.
+   *
+   * At a register the next thing after a scan is another scan. In an aisle
+   * the next thing is TYPING — how many are on the shelf — so a camera that
+   * stayed open would cover the number pad with a live preview. Scan, type,
+   * Enter, scan the next: the phone is held in one hand and the other is on
+   * the shelf.
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * The search box is cleared rather than set to the code, so the row is
+   * found in the full list and `autoFocus` on the entry field scrolls it into
+   * view. Leaving a filter behind would hide everything else the moment the
+   * count was saved.
+   */
+  const scanned = useCallback(
+    (code: string): boolean => {
+      const needle = code.trim().toLowerCase();
+      const row = stock.find(
+        (s) => s.product_barcode?.toLowerCase() === needle,
+      );
+      if (!row) return false;
+      setQuery("");
+      setError("");
+      setOpen(row.id);
+      setEntry(counted.get(row.id) ?? "");
+      return true;
+    },
+    [stock, counted],
+  );
 
   async function save(inventoryId: number) {
     const value = entry.trim();
@@ -331,16 +386,44 @@ function Counting({
         </span>
       </div>
 
-      <input
-        ref={search}
-        className={styles.search}
-        type="search"
-        inputMode="search"
-        placeholder="Product name or SKU"
-        aria-label="Find a product"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      {camera ? (
+        <Scanner
+          title="Scan a shelf label"
+          hint="Point at the barcode. It opens that product so you can type the count."
+          // Closes on a hit — see the banner on `scanned`.
+          continuous={false}
+          onScan={scanned}
+          onClose={() => setCamera(false)}
+        />
+      ) : null}
+
+      <div className={styles.findRow}>
+        <input
+          ref={search}
+          className={styles.search}
+          type="search"
+          inputMode="search"
+          placeholder="Barcode, product name or SKU"
+          aria-label="Find a product"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {/*
+          Only where the browser can do it — see the banner on barcode.ts.
+          Absent rather than disabled: on an iPhone a dead button invites
+          somebody to keep pressing it, and the field beside it still takes a
+          typed or wedge-scanned code on every device.
+        */}
+        {canScan ? (
+          <button
+            type="button"
+            className={styles.scan}
+            onClick={() => setCamera(true)}
+          >
+            Scan
+          </button>
+        ) : null}
+      </div>
 
       {error && <p className={styles.error}>{error}</p>}
 

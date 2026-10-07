@@ -572,17 +572,40 @@ holds `COUNT` and not `CLOSE`; a branch manager holds both.
 
 ## Starting somebody on a till
 
-A manager creates the login; `POST /auth/staff/credentials/{id}/invite/`
-emails the person their username and a six-digit code, and they choose a
-password at the till.
+A manager creates the login and **does not create a password for it**:
 
-**The email carries no password, and that is the whole design.** The
+```
+POST /auth/staff/credentials/  {"staff": 12, "username": "jmwangi"}
+```
+
+With no `password` the credential is saved with an unusable one — nobody can
+sign in as them, including the manager who just made it — and the same request
+emails the person their username, the **business number** and a setup code.
+They tap "First time here?" at the till, choose a password, and are **signed
+straight in to their workspace**. `POST /auth/staff/credentials/{id}/invite/`
+sends it again, for a bounce or somebody who never got round to it.
+
+A first-time code lasts **72 hours** where a forgotten-password code lasts
+fifteen minutes, because a manager sets somebody up on Friday for a Monday
+shift. The window is bounded by state rather than the clock: the purpose is
+read off the credential in `services.request_password_reset` and is never a
+parameter, so a long-lived code cannot be minted against a live login, and
+choosing a password closes the setup state. Guessing stays bounded by
+`MAX_ATTEMPTS` per code.
+
+Passing a `password` still works, because an employee with no email address on
+file still has to get on a till — and that path also works on a login already
+awaiting setup, which is what stops mail trouble from keeping somebody off a
+register at seven in the morning.
+
+**No email ever carries a password, and that is the whole design.** The
 alternative a manager reaches for is to type one and send it over WhatsApp,
 at which point two people know it and nothing that cashier rings up is solely
 theirs until they change it — and `must_change_password` is *asked, not
-required*, so "later" is a button people press. The invitation reuses the
-same single-use code the forgotten-password flow mints, so the password is
-chosen by the person who will type it and seen by nobody else. There is a
+required*, so "later" is a button people press. The invitation uses the same
+single-use code machinery as the forgotten-password flow — the same table and
+the same attempt ceiling, differing only in the window above — so the password
+is chosen by the person who will type it and seen by nobody else. There is a
 test asserting the message contains no password.
 
 It also **says why it could not send**, unlike `StaffPasswordResetView`,
@@ -596,10 +619,88 @@ The hourly ceiling on reset codes applies, so a mistyped address cannot be
 turned into a hundred emails at a stranger — reported as a 429 rather than
 silently swallowed.
 
+## Scanning a barcode
+
+`CatalogCategoryProduct.barcode` is unique per organisation, with empties
+excluded from the constraint — loose goods and anything sold by weight have no
+barcode, and that is ordinary rather than exceptional.
+
+Three ways in, and they resolve a code identically because the till shares one
+`resolve()` between them:
+
+| | needs | works on |
+|---|---|---|
+| **wedge scanner** | nothing — it is a keyboard that types fast and presses Enter | every device |
+| **typing** | nothing | every device |
+| **phone camera** | `BarcodeDetector` + a secure context | see below |
+
+**A barcode is matched exactly; the SKU is the fallback.** A partial match on
+thirteen digits is a different product, and the wrong line in a basket is
+money. The SKU is tried second because a shop printing its own labels for
+loose goods prints the SKU on them, in Code 128 rather than EAN.
+
+### The camera is Chromium-only, and it is never a silent failure
+
+`BarcodeDetector` is built into Chromium, so camera scanning costs the bundle
+nothing — Charter 03 §I, and the alternative is a few hundred kilobytes of
+WebAssembly in a till that exists to keep up with a queue.
+
+> ⚠ **Safari cannot do this, and that means every browser on iOS.** Every iOS
+> browser is WebKit underneath, Chrome for iOS included, so this is not "install
+> Chrome" — it is iPhones, full stop. Android Chrome is the overwhelming
+> majority of phones in this market, which is why the trade is this way round
+> today.
+
+`barcode.ts` answers the capability question in one place, and it is asked
+before a Scan button is drawn — so where the answer is no the **button is
+absent rather than disabled**, because a permanently dead control invites
+somebody to keep pressing it. Typing and wedge scanners still work there, and
+the field beside it says so. If iPhones start mattering, the fix is a lazily
+imported wasm decoder behind that same function and nothing above it changes.
+
+It also checks `window.isSecureContext`, because `getUserMedia` is refused over
+plain http — a till reached by IP address on a shop's LAN would otherwise offer
+a Scan button that always fails.
+
+### Selling and counting scan the same way and end differently
+
+The register **keeps the camera open**: a basket is six things and closing
+between each would make scanning slower than typing. A stock take **closes on
+a hit**, because the next thing in an aisle is typing how many are on the
+shelf, and a live preview would cover the number pad.
+
+A stock take resolves against `BranchInventory` rather than the catalogue, so
+`product_barcode` is read through the join — one product on four branches'
+shelves is the same digits, and a duplicated column would be four places to go
+wrong the day a code is corrected. `test_barcode.py` asserts the query count
+does not grow with the row count, which is how a dropped `select_related`
+would show.
+
+Two things the camera does deliberately: the **same code is ignored for 1.5
+seconds** after it is accepted, because the detector reads the same label on
+every frame and one scanned item would otherwise become thirty; and a code
+nothing matches **says so** rather than staying silent, because silence is
+indistinguishable from a camera that did not read the label, so somebody
+rescans the same thing instead of learning the product has no barcode on file.
+
+The camera is stopped on every path out. A stream whose tracks are left running
+keeps the sensor powered, the recording indicator lit and the battery draining
+on a phone somebody holds for a whole shift — and it looks exactly like a
+shop's own software watching its staff, which is a thing nobody will ask us
+about before deciding.
+
 ## Known gaps
 
 These are written down rather than left to be rediscovered.
 
+- **Camera scanning does not work on iPhones.** `BarcodeDetector` is
+  Chromium-only, and every iOS browser is WebKit underneath — so this is
+  iPhones rather than a browser choice. Typing a code and USB wedge scanners
+  work everywhere, and the Scan button is simply absent where the camera
+  cannot be used, so it fails visibly rather than silently. The fix, if it
+  becomes worth its weight, is a lazily imported wasm decoder behind
+  `barcode.ts`'s `scanning()`; see "Scanning a barcode" above for why that
+  dependency has not been taken yet.
 - **Nothing sends mail yet, but it now can.** `Business_Platform/mail_backends.py`
   talks to Resend over HTTPS — not SMTP, because Hetzner blocks outbound SMTP
   on this host and the failure is a slow timeout that reads as "provider
@@ -608,7 +709,11 @@ These are written down rather than left to be rediscovered.
   `check --deploy` reports `mail.E001` truthfully. There is deliberately no
   second variable to forget, because a key set with the backend still on the
   console is a configuration that looks complete and drops every message.
-  It is used by the cashier password reset below.
+  ⚠ It is now load-bearing for ONBOARDING, not only for recovery: a till login
+  created without a password can only be opened with the setup code it emails.
+  A host without working mail can still put somebody on a till — the manager
+  types a password — but a shop doing that has lost the property the whole
+  flow exists for.
 - **The tests run on SQLite locally.** CI now runs them against Postgres 17,
   matching compose.yaml, so the claim "the suite passes" is about the database
   the application actually ships on. A local `manage.py test` still uses

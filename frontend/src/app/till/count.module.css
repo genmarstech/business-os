@@ -115,7 +115,42 @@
   outline-offset: 1px;
 }
 
-.search { margin: 0 0 14px; }
+/*
+ * The find field and the Scan button share a row. The margin that used to sit
+ * on .search lives here, so the gap below the pair is one rule rather than
+ * two that drift — the till's picker does the same thing for the same reason.
+ */
+.findRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 0 0 14px;
+}
+
+.search { margin: 0; min-width: 0; }
+
+.scan {
+  flex: none;
+  /* 46px to match the field beside it, and over the 44px this screen's own
+     header note sets as the floor for a thumb in an aisle. */
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scan:hover { border-color: var(--accent-fill); }
+
+.scan:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
 
 /* ── tabs ─────────────────────────────────────────────────────────────── */
 
