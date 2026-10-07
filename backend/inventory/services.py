@@ -410,6 +410,21 @@ def count_summary(count) -> dict:
     branch stocks. A partial count is the ordinary case — one aisle on a
     Tuesday — and reporting it against the full catalogue would make every
     count look unfinished.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE TWO UNIT FIGURES ARE STRINGS. THEY WERE DECIMALS, AND THAT WAS A BUG.
+
+    This dict goes out through a SerializerMethodField, which means no field
+    coerces anything in it — DRF's encoder sees a Decimal and does float(obj).
+    So a count short by 0.1 + 0.2 litres reported 0.30000000000000004, and
+    every other quantity in this application crossed the wire as a string
+    precisely to avoid that. The rule is written out at length in
+    frontend/src/lib/money.ts and was being broken by the one endpoint that
+    did its own serialising.
+
+    The four counts above stay integers. They are counts of lines, not
+    quantities, and an integer survives JSON intact.
+    ══════════════════════════════════════════════════════════════════════════
     """
     lines = list(count.lines.select_related("inventory__product").all())
     short = [l for l in lines if l.counted_quantity < l.expected_quantity]
@@ -419,6 +434,10 @@ def count_summary(count) -> dict:
         "agreed": len(lines) - len(short) - len(over),
         "short": len(short),
         "over": len(over),
-        "units_short": sum((l.expected_quantity - l.counted_quantity for l in short), Decimal("0")),
-        "units_over": sum((l.counted_quantity - l.expected_quantity for l in over), Decimal("0")),
+        "units_short": str(
+            sum((l.expected_quantity - l.counted_quantity for l in short), Decimal("0"))
+        ),
+        "units_over": str(
+            sum((l.counted_quantity - l.expected_quantity for l in over), Decimal("0"))
+        ),
     }
