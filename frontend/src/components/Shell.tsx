@@ -49,6 +49,17 @@ const GROUPS: Group[] = [
         long time only the first had a screen.
       */
       { href: "/stock/history", label: "Stock history", permission: PERM.inventoryView },
+      /*
+        Gated on `inventory.count`, not on `inventory.view`. An accountant
+        and an auditor can both read stock and neither takes a count; a
+        screen whose only content is "you cannot do anything here" is worse
+        than no link at all.
+      */
+      {
+        href: "/stock/counts",
+        label: "Stock takes",
+        permission: PERM.inventoryCount,
+      },
       { href: "/catalogue", label: "Catalogue", permission: PERM.catalogView },
       /*
         Separate from Catalogue because it answers a different question.
