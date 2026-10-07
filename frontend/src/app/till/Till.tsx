@@ -164,24 +164,24 @@ export function Till() {
 }
 
 /**
- * Selling, or counting the shelves.
+ * Sending somebody to their work.
  *
  * ══════════════════════════════════════════════════════════════════════════
- * THE TILL ASKS WHAT THIS PRINCIPAL MAY DO. IT NEVER USED TO HAVE TO.
+ * THE SERVER SAYS WHERE. THIS SCREEN USED TO GUESS, AND GUESSED WRONG.
  *
- * Every other screen in this application is server-rendered and gets the
- * permission list with the page. The till is a client application and never
- * needed one: a cashier always holds sales.checkout, so there was exactly
- * one thing to draw.
+ * It read `sales.checkout` and `inventory.count` off /auth/me and chose
+ * between two screens. That was right for the two roles it was written for
+ * and silently broken for the rest: a purchasing officer, a finance clerk and
+ * a branch auditor hold neither, so the second condition sent them to the
+ * register chooser, which asks for registers and shifts — both held at
+ * `sales.view`, which a purchasing officer also lacks. The 403 came back as
+ * "Could not reach the shop's records", which reads as a broken network and
+ * never stopped being true.
  *
- * There are two now. An inventory clerk holds inventory.count and NOT
- * sales.checkout — they cannot open a drawer and must not be shown one —
- * while a branch manager holds both and has to choose. So the till asks
- * /auth/me on boot, which the endpoint's own docstring says every client
- * does anyway.
- *
- * Failing to answer is treated as "sell", which is what the till did before
- * this existed. A stock count can wait for the network; a queue cannot.
+ * `workspaces` is identity/access.py's answer, ordered, and it arrives both
+ * with the sign-in and from /auth/me. One entry means go; several mean ask;
+ * none means we have not built their screen, which is said plainly instead of
+ * being rendered as a fault in the shop's wifi.
  * ══════════════════════════════════════════════════════════════════════════
  */
 function Signed({
@@ -191,36 +191,109 @@ function Signed({
   session: TillSession;
   onSignOut: () => void;
 }) {
-  const [permissions, setPermissions] = useState<string[] | null>(null);
-  const [doing, setDoing] = useState<"sell" | "count" | null>(null);
+  /*
+   * ── TWO DIFFERENT QUESTIONS, BOTH ANSWERED BY /auth/me ──────────────────
+   *
+   *   workspaces   WHERE to send them. Ordered, and the server's answer.
+   *   permissions  what to draw once they are there — `Count` reads
+   *                `inventory.count.close` off it, because counting a shelf
+   *                and signing off what the count found are deliberately
+   *                different authorities.
+   *
+   * Asked on boot even though the stored session carries `workspaces`,
+   * because the permission list is not stored and must not be: an assignment
+   * ended mid-shift has to take effect on the next screen, not at the next
+   * sign-in.
+   */
+  const [me, setMe] = useState<{
+    workspaces: string[];
+    permissions: string[];
+  } | null>(null);
+  const [doing, setDoing] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    call<{ permissions?: string[] }>("/auth/me")
-      .then((me) => live && setPermissions(me.permissions ?? []))
-      .catch(() => live && setPermissions([]));
+    /*
+     * A failure falls back to what the sign-in stored, and to selling when
+     * there is nothing stored either — which is what the till did before any
+     * of this existed. A stock count can wait for the network; a queue
+     * cannot, and every endpoint checks again anyway, so the worst case is a
+     * register that refuses somebody rather than a till that will not start.
+     *
+     * Permissions fall back to NONE, not to the stored list. Fail-closed on
+     * what somebody may DO, fail-open on where they are sent.
+     */
+    const stored = session.workspaces?.length ? session.workspaces : ["sell"];
+
+    call<{ workspaces?: string[]; permissions?: string[] }>("/auth/me")
+      .then(
+        (answer) =>
+          live &&
+          setMe({
+            workspaces: answer.workspaces ?? stored,
+            permissions: answer.permissions ?? [],
+          }),
+      )
+      .catch(() => live && setMe({ workspaces: stored, permissions: [] }));
     return () => {
       live = false;
     };
-  }, []);
+  }, [session.workspaces]);
 
-  if (permissions === null) {
+  if (me === null) {
     return <div className={styles.boot}>Starting the till…</div>;
   }
 
-  const maySell = permissions.includes("sales.checkout");
-  const mayCount = permissions.includes("inventory.count");
+  const places = me.workspaces;
+  const going = doing ?? (places.length === 1 ? places[0] : null);
 
-  if (doing === "count" || (mayCount && !maySell)) {
+  /*
+   * ⚠ NO SCREEN YET, AND NOT A REFUSAL.
+   *
+   * Their login works and the API answers them — what is missing is a till
+   * workspace for their role. Saying so, and naming the roles, is the
+   * difference between an employee telling their manager "my login is
+   * broken" and the manager knowing to put them on something else. Charter
+   * 04 §IV: nothing untrue on a Genmars surface, and "sign-in failed" would
+   * be untrue.
+   */
+  if (places.length === 0) {
+    return (
+      <div className={styles.gate}>
+        <div className={styles.gateCard}>
+          <h1 className={styles.gateTitle}>You are signed in</h1>
+          <p className={styles.gateLede}>
+            Your login works, {session.staff.name}. Your role does not work a
+            register or count stock, and the till has no screen for it yet —
+            buying, figures and audit are done from the office system by
+            somebody with a Genmars sign-in.
+          </p>
+          <p className={styles.gateNote}>
+            Nothing is wrong with your sign-in. Tell your manager you have
+            reached this screen and they will know what to put you on.
+          </p>
+          <button
+            type="button"
+            className={styles.gateButton}
+            onClick={onSignOut}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (going === "count") {
     return (
       <Count
-        permissions={permissions}
-        onLeave={maySell ? () => setDoing(null) : onSignOut}
+        permissions={me.permissions}
+        onLeave={places.length > 1 ? () => setDoing(null) : onSignOut}
       />
     );
   }
 
-  if (doing === "sell" || !mayCount) {
+  if (going === "sell") {
     return <Shifted session={session} onSignOut={onSignOut} />;
   }
 
@@ -229,14 +302,18 @@ function Signed({
       <p className={styles.chooseName}>{session.staff.name}</p>
       <h1 className={styles.chooseTitle}>What are you here to do?</h1>
       <div className={styles.chooseRow}>
-        <button type="button" className={styles.chooseOne} onClick={() => setDoing("sell")}>
-          <strong>Sell</strong>
-          <span>Open a register and serve customers</span>
-        </button>
-        <button type="button" className={styles.chooseOne} onClick={() => setDoing("count")}>
-          <strong>Count stock</strong>
-          <span>Walk the shelves and record what is there</span>
-        </button>
+        {places.includes("sell") ? (
+          <button type="button" className={styles.chooseOne} onClick={() => setDoing("sell")}>
+            <strong>Sell</strong>
+            <span>Open a register and serve customers</span>
+          </button>
+        ) : null}
+        {places.includes("count") ? (
+          <button type="button" className={styles.chooseOne} onClick={() => setDoing("count")}>
+            <strong>Count stock</strong>
+            <span>Walk the shelves and record what is there</span>
+          </button>
+        ) : null}
       </div>
       <button type="button" className={styles.chooseOut} onClick={onSignOut}>
         Sign out

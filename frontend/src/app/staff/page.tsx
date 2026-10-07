@@ -185,7 +185,14 @@ function Login({ login }: { login?: Credential }) {
   return (
     <>
       <span className={styles.mono}>{login.username}</span>
-      {login.must_change_password ? (
+      {/*
+        `needs_setup` first, because it is the good state and the other
+        sentence would be untrue of it: a login created without a password is
+        not "using the password you set" — you set none, which is the point.
+      */}
+      {login.needs_setup ? (
+        <div className={styles.meta}>Waiting for them to set it up</div>
+      ) : login.must_change_password ? (
         <div className={styles.meta}>
           Still using the password you set for them
         </div>

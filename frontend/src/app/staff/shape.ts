@@ -33,6 +33,16 @@ export type Credential = {
   staff: number;
   username: string;
   must_change_password: boolean;
+  /**
+   * Nobody has ever chosen a password for this login.
+   *
+   * The question `must_change_password` cannot answer: that flag is true both
+   * for a login whose password the manager typed and for one that has no
+   * password at all. They need different sentences and different buttons —
+   * "they are still on the password you typed" against "they have not set
+   * theirs up yet" — so the server reports them apart.
+   */
+  needs_setup: boolean;
   is_active: boolean;
   is_locked: boolean;
 };

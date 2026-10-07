@@ -152,7 +152,11 @@ export default async function PersonPage({
                     never reach Genmars, so nobody here can recover them for
                     you — you reset them yourself, below, once this exists.
                   </p>
-                  <IssueLoginForm staffId={staffId} suggestion={suggestion} />
+                  <IssueLoginForm
+                    staffId={staffId}
+                    suggestion={suggestion}
+                    email={person.email ?? ""}
+                  />
                 </>
               ) : (
                 <>
@@ -165,7 +169,25 @@ export default async function PersonPage({
                     .
                   </p>
 
-                  {login.must_change_password ? (
+                  {/*
+                    Two different states, and they were one sentence.
+                    `must_change_password` is true both for a login whose
+                    password the manager typed and for one that has no
+                    password at all — and the second is the good outcome,
+                    not a warning. Telling a manager they are "still on the
+                    password you typed" about a login they deliberately never
+                    set one for is simply untrue (Charter 04 §IV), and it
+                    pushes them towards resetting it, which would undo the
+                    thing worth having.
+                  */}
+                  {login.needs_setup ? (
+                    <div className={styles.note}>
+                      <strong>Waiting for them to set it up.</strong> Nobody
+                      can sign in as {person.full_name} yet — not even you.
+                      When they spend the code, they choose a password you
+                      will never see, and go straight to their work.
+                    </div>
+                  ) : login.must_change_password ? (
                     <div className={styles.note}>
                       <strong>They are still on the password you typed.</strong>{" "}
                       Until they choose their own, anything rung up under this
@@ -184,6 +206,7 @@ export default async function PersonPage({
                     credentialId={login.id}
                     staffId={staffId}
                     email={person.email ?? ""}
+                    needsSetup={login.needs_setup}
                   />
 
                   <div className={styles.divide} />
@@ -191,6 +214,7 @@ export default async function PersonPage({
                   <ResetPasswordForm
                     credentialId={login.id}
                     staffId={staffId}
+                    needsSetup={login.needs_setup}
                   />
 
                   <div className={styles.divide} />

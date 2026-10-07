@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.hashers import check_password, is_password_usable, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -64,6 +64,23 @@ INVITATION_LIFETIME = timedelta(days=14)
 # that distinguishes "no such user" from "wrong password" tells somebody
 # standing at a till which usernames exist in this shop.
 GENERIC_SIGN_IN_FAILURE = "That username and password do not match."
+
+# ── HOW LONG A FIRST-DAY SETUP CODE LASTS, AND WHY IT IS NOT FIFTEEN MINUTES ─
+#
+# A forgotten-password code is typed by somebody standing at the till with
+# their phone in their hand, so fifteen minutes is generous. A FIRST-TIME code
+# is not that at all: a manager sets somebody up on Friday for a shift that
+# starts Monday, and a code that died over the weekend is a code that sends
+# them back to the manager on their first morning — which is the moment the
+# manager types a password and reads it out, which is the habit this whole
+# path exists to replace.
+#
+# Three days, and the exposure is bounded by state rather than by the clock:
+# a setup code is only ever MINTED for a credential that has no usable
+# password, and the moment one is chosen the credential leaves setup state, so
+# nothing can mint another. Compare the alternative honestly — a password the
+# manager typed and sent over WhatsApp lives in that chat for ever.
+SETUP_CODE_LIFETIME = timedelta(hours=72)
 
 
 class PlatformAccount(models.Model):
@@ -354,6 +371,40 @@ class StaffCredential(models.Model):
         """Hashes with whatever PASSWORD_HASHERS says — Argon2 in this project."""
         self.password = make_password(raw)
 
+    def set_unusable_password(self) -> None:
+        """
+        Create the login without creating a password for it.
+
+        ══════════════════════════════════════════════════════════════════════
+        A CREDENTIAL IN THIS STATE IS THE ONE A MANAGER SHOULD BE MAKING.
+
+        The alternative — the manager invents a first password — is a working
+        credential that two people know, and `must_change_password` exists
+        only to flag how unsatisfactory that is. A login with NO password
+        cannot be signed into by anybody, including the manager who made it,
+        and the only way in is the setup code sent to the employee's own
+        address. The password that results has been seen by one person.
+
+        Django writes `!` followed by random characters, and
+        `check_password` refuses everything against it — including that
+        string itself, which is the case worth stating because the hash is
+        the one value an attacker reading the database would have.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        self.password = make_password(None)
+
+    @property
+    def needs_setup(self) -> bool:
+        """
+        Nobody has ever chosen a password for this login.
+
+        The question `must_change_password` cannot answer: that flag is True
+        both for a login whose password the manager typed and for one that has
+        no password at all, and those need different screens, different code
+        lifetimes and different words in an email.
+        """
+        return not is_password_usable(self.password)
+
     def check_password(self, raw: str) -> bool:
         return check_password(raw or "", self.password)
 
@@ -446,6 +497,25 @@ class StaffPasswordReset(models.Model):
 
     LIFETIME = timedelta(minutes=15)
 
+    # ── TWO PURPOSES, AND THE DIFFERENCE IS NOT COSMETIC ────────────────────
+    #
+    # The row is the same shape either way, so this is one table rather than
+    # two. What the purpose decides is everything around it:
+    #
+    #   · how long it lasts — SETUP_CODE_LIFETIME, three days, against
+    #     fifteen minutes for a reset. The argument is at the top of this
+    #     module.
+    #   · what the email says. "You have been set up to work here" and "you
+    #     asked to reset your password" are not the same message, and a
+    #     cashier who gets the second one on their first morning does not
+    #     know what to do with it.
+    #
+    # It does NOT decide authority. Either code, spent correctly, sets a
+    # password on one credential and nothing else.
+    class Purpose(models.TextChoices):
+        SETUP = "setup", "First-time setup"
+        RESET = "reset", "Forgotten password"
+
     # Enough that guessing six digits inside fifteen minutes is not a strategy,
     # and few enough that a cashier who fat-fingers it twice on a touchscreen
     # is not locked out of their own reset.
@@ -468,6 +538,14 @@ class StaffPasswordReset(models.Model):
 
     code_hashed = models.CharField(max_length=255)
     expires_at = models.DateTimeField()
+
+    # RESET is the default so that an existing row — every row that predates
+    # this field — reads as what it actually was. A migration cannot know that
+    # a code minted last week was somebody's first day, and guessing SETUP
+    # would retroactively describe a reset as an invitation.
+    purpose = models.CharField(
+        max_length=8, choices=Purpose.choices, default=Purpose.RESET
+    )
 
     attempts = models.PositiveSmallIntegerField(default=0)
 

@@ -10,6 +10,7 @@ import logging
 
 from django.db import IntegrityError
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -220,6 +221,127 @@ class SignOnCallbackView(APIView):
         )
 
 
+def _mail_login_details(credential) -> tuple[int, str]:
+    """
+    Mint a code for this login and email it. Returns a status and a sentence.
+
+    ── IT SAYS WHY IT COULD NOT, UNLIKE THE PUBLIC RESET ───────────────────
+    `RequestPasswordResetView` answers identically whatever happens, because
+    an anonymous caller must not learn whether a username exists. That
+    reasoning does not apply to a manager: they hold staff.manage over their
+    own organisation and are asking about their own employee, whose record
+    they are looking at. Telling them "Jane has no email address on file"
+    costs nothing and saves them staring at a screen that claims to have sent
+    something.
+
+    Shared by the two doors that send one — creating the login, and sending
+    it again — so a fix to either reaches both.
+    """
+    if not credential.is_active:
+        return (
+            status.HTTP_400_BAD_REQUEST,
+            "That login is switched off. Turn it back on first.",
+        )
+
+    if not (credential.staff and credential.staff.email):
+        who = credential.staff.full_name if credential.staff else "They"
+        return (
+            status.HTTP_400_BAD_REQUEST,
+            f"{who} has no email address on file, so there is nowhere to send "
+            "it. Add one on their staff record.",
+        )
+
+    first_time = credential.needs_setup
+
+    minted = services.request_password_reset(
+        organization_id=credential.organization_id,
+        username=credential.username,
+    )
+    if not minted:
+        # The only remaining cause is the hourly ceiling, which exists so a
+        # mistyped address cannot be used to post a hundred codes at somebody.
+        # Said plainly, because a manager can act on it.
+        return (
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "That has been sent several times in the last hour. Wait a while "
+            "before trying again.",
+        )
+
+    try:
+        emails.send_staff_invitation(
+            to=credential.staff.email,
+            username=credential.username,
+            code=minted.code,
+            organisation=credential.organization.name,
+            organisation_id=credential.organization_id,
+            hours=int((minted.expires_at - timezone.now()).total_seconds() // 3600),
+            first_time=first_time,
+        )
+    except Exception:
+        # The recipient and the fact, never the code. exc_info is off for the
+        # reason given on the reset view: a traceback from an HTTP client can
+        # carry the request body, and the body is the email.
+        log.error("staff invitation email failed for credential id=%s", credential.pk)
+        return (
+            status.HTTP_502_BAD_GATEWAY,
+            "The code was created but the email did not go out. Try again in "
+            "a moment.",
+        )
+
+    return (status.HTTP_202_ACCEPTED, f"Sent to {credential.staff.email}.")
+
+
+def _staff_session_payload(credential, session, token: str) -> dict:
+    """
+    What a newly-signed-in till is told about itself.
+
+    ── ONE SHAPE, TWO DOORS ────────────────────────────────────────────────
+    Sign-in and the end of a first-time setup both put somebody at work, so
+    they answer identically. Written once because the till reads the result
+    of both into the same stored session, and two hand-built dictionaries
+    drift: the field a new screen needs gets added to the door that was
+    being worked on, and the other door starts sending somebody to a page
+    with half its data.
+    """
+    return {
+        # Shown once. Nothing stored here can reproduce it.
+        "token": token,
+        "expires_at": session.expires_at,
+        "must_change_password": credential.must_change_password,
+        # ── WHERE TO SEND THEM, ANSWERED BY THE SERVER ──────────────────
+        #
+        # The till used to work this out from the permission list, and got it
+        # wrong for every role it was not written for — see the banner on
+        # access.workspaces. Ordered: the first is where a client with one
+        # answer should go without asking.
+        #
+        # ⚠ AN EMPTY LIST IS A REAL ANSWER. It means this person holds
+        #   permissions the API honours and has no till screen yet, which is
+        #   true of a purchasing officer, a finance clerk and a branch
+        #   auditor today. A client that renders it as a failed sign-in tells
+        #   them their login is broken when it is not.
+        "workspaces": access.workspaces(StaffPrincipal(session)),
+        "staff": {
+            # Its own personnel record. A till needs it to open a
+            # shift and to attribute a sale, and there is no other way
+            # for it to learn its own id: /org/staff/ is held at
+            # staff.manage, which no cashier holds. Without this the
+            # register could sign in and then do nothing.
+            #
+            # It confers nothing. Checkout pins the cashier to the
+            # authenticated principal regardless of what is sent —
+            # see sales/views.py.
+            "id": credential.staff_id,
+            "name": credential.staff.full_name,
+            "username": credential.username,
+        },
+        "organisation": {
+            "id": credential.organization_id,
+            "name": credential.organization.name,
+        },
+    }
+
+
 class StaffSignInView(APIView):
     """
     A till signing in, against ONE named organisation.
@@ -259,30 +381,7 @@ class StaffSignInView(APIView):
         session, token = services.open_staff_session(credential)
 
         return Response(
-            {
-                # Shown once. Nothing stored here can reproduce it.
-                "token": token,
-                "expires_at": session.expires_at,
-                "must_change_password": credential.must_change_password,
-                "staff": {
-                    # Its own personnel record. A till needs it to open a
-                    # shift and to attribute a sale, and there is no other way
-                    # for it to learn its own id: /org/staff/ is held at
-                    # staff.manage, which no cashier holds. Without this the
-                    # register could sign in and then do nothing.
-                    #
-                    # It confers nothing. Checkout pins the cashier to the
-                    # authenticated principal regardless of what is sent —
-                    # see sales/views.py.
-                    "id": credential.staff_id,
-                    "name": credential.staff.full_name,
-                    "username": credential.username,
-                },
-                "organisation": {
-                    "id": credential.organization_id,
-                    "name": credential.organization.name,
-                },
-            },
+            _staff_session_payload(credential, session, token),
             status=status.HTTP_201_CREATED,
         )
 
@@ -360,6 +459,12 @@ class WhoAmIView(APIView):
                     "scope": tenant_scope(principal),
                     "branches": access.branch_scope(principal),
                     "permissions": sorted(access.granted(principal)),
+                    # The same answer the sign-in response carries, so a till
+                    # that is reloaded mid-shift lands where it was rather
+                    # than re-deriving it from the permission list — which is
+                    # what it used to do, and what sent three roles to a
+                    # screen that 403s. See access.workspaces.
+                    "workspaces": access.workspaces(principal),
                     # Per branch as well as overall, because a cashier at one
                     # branch and a manager at another holds different
                     # permissions in each — and a screen drawn from the union
@@ -460,12 +565,46 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        Issue a login.
+        Issue a login, and by default email the employee a code to set it up.
 
         The serializer validates shape and, through TenantScoped, that the
         staff record is the caller's own. Everything else — uniqueness, the
         password floor, the derived organisation — belongs to
         services.issue_credential, so a second caller cannot skip it.
+
+        ══════════════════════════════════════════════════════════════════════
+        OMITTING `password` IS THE PATH A MANAGER SHOULD BE TAKING.
+
+        Send no password and the login is created with none: nobody can sign
+        in as them, including the manager who just made it, and a setup code
+        goes to the employee's own address. The password that comes out of
+        that has been seen by exactly one person, which is the state
+        `must_change_password` was invented to say was MISSING.
+
+        Sending one still works, because an employee with no email address on
+        file still has to be able to get on a till.
+
+        ── AND IT CANNOT STRAND SOMEBODY AT SEVEN IN THE MORNING ───────────
+        The objection to a login that cannot be opened until an email arrives
+        is the one `subscriptions/entitlement.py` already settled in another
+        costume: a POS that will not open is a shop that cannot sell, and
+        refusing to trade is the worse failure.
+
+        It does not arise here, for two reasons. This is ONBOARDING rather
+        than a shift start — a credential nobody has ever used is a new
+        employee not yet set up, not a till that has stopped working. And the
+        manager keeps two ways out at any hour: send the code again, or set a
+        password on the login directly through `reset-password`, which works
+        on a credential in setup state exactly as it does on a live one.
+
+        ── THE EMAIL IS SENT AFTER THE COMMIT, NOT INSIDE IT ───────────────
+        A mail failure must not undo the login. The manager would be looking
+        at an error with no credential, no obvious next step, and a username
+        that is now free again — whereas a created login whose email bounced
+        is one "Email their login details" away from being fine. So the
+        outcome is reported in the response instead of raised, and the screen
+        says which happened.
+        ══════════════════════════════════════════════════════════════════════
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -475,11 +614,13 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
         # is run here by hand — without it, `staff` could be anybody's.
         self.refuse_out_of_scope(serializer.validated_data)
 
+        password = serializer.validated_data.get("password") or ""
+
         try:
             credential = services.issue_credential(
                 staff=serializer.validated_data["staff"],
                 username=serializer.validated_data["username"],
-                password=serializer.validated_data["password"],
+                password=password,
             )
         except services.CredentialError as error:
             return Response(
@@ -494,9 +635,16 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        return Response(
-            self.get_serializer(credential).data, status=status.HTTP_201_CREATED
-        )
+        body = self.get_serializer(credential).data
+
+        if not password:
+            sent, detail = _mail_login_details(credential)
+            body["invitation"] = {
+                "sent": sent == status.HTTP_202_ACCEPTED,
+                "detail": detail,
+            }
+
+        return Response(body, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="reset-password")
     def reset_password(self, request, pk=None):
@@ -539,91 +687,26 @@ class StaffCredentialViewSet(TenantScoped, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def invite(self, request, pk=None):
         """
-        Email somebody their username and a code to choose a password with.
+        Email somebody their username and a code to set a password with.
 
         ── IT SENDS NO PASSWORD ────────────────────────────────────────────
         See `emails.send_staff_invitation`. A temporary password in an inbox
         is a working credential for as long as the inbox exists, and it is
         one the manager also knows — so nothing the cashier does is solely
         theirs until they change it, and "later" is a button people press.
-        The code is the same single-use one the forgotten-password flow
-        mints, so the password is chosen by the person who will type it.
+        The code is single-use, so the password is chosen by the person who
+        will type it.
 
-        ── AND IT SAYS WHY IT COULD NOT, UNLIKE THE PUBLIC RESET ──────────
-        `StaffPasswordResetView` answers identically whatever happens,
-        because an anonymous caller must not learn whether a username
-        exists. That reasoning does not apply here: the caller holds
-        staff.manage over their own organisation and is asking about their
-        own employee, whose record they are looking at. Telling a manager
-        "Jane has no email address on file" costs nothing and saves them
-        staring at a screen that claims to have sent something.
+        The same door `create` uses when no password is sent, kept as its own
+        action for the two cases that come later: an email that bounced, and
+        somebody who never got round to using the first one.
+
+        How long the code lasts, and what the letter says, follow from whether
+        this login has ever had a password — decided in
+        services.request_password_reset, not here.
         """
-        credential = self.get_object()
-
-        if not credential.is_active:
-            return Response(
-                {"detail": "That login is switched off. Turn it back on first."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not (credential.staff and credential.staff.email):
-            return Response(
-                {
-                    "detail": (
-                        f"{credential.staff.full_name if credential.staff else 'They'} "
-                        "has no email address on file, so there is nowhere to "
-                        "send it. Add one on their staff record."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        code = services.request_password_reset(
-            organization_id=credential.organization_id,
-            username=credential.username,
-        )
-        if not code:
-            # The only remaining cause is the hourly ceiling, which exists so
-            # a mistyped address cannot be used to post a hundred codes at
-            # somebody. Said plainly, because a manager can act on it.
-            return Response(
-                {
-                    "detail": (
-                        "That has been sent several times in the last hour. "
-                        "Wait a while before trying again."
-                    )
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        try:
-            emails.send_staff_invitation(
-                to=credential.staff.email,
-                username=credential.username,
-                code=code,
-                organisation=credential.organization.name,
-                minutes=int(services.RESET_CODE_LIFETIME.total_seconds() // 60),
-            )
-        except Exception:
-            # The recipient and the fact, never the code. exc_info is off for
-            # the reason given on the reset view: a traceback from an HTTP
-            # client can carry the request body, and the body is the email.
-            log.error(
-                "staff invitation email failed for credential id=%s", credential.pk
-            )
-            return Response(
-                {
-                    "detail": (
-                        "The code was created but the email did not go out. "
-                        "Try again in a moment."
-                    )
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(
-            {"detail": f"Sent to {credential.staff.email}."},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        sent, detail = _mail_login_details(self.get_object())
+        return Response({"detail": detail}, status=sent)
 
 
 class ChangeOwnPasswordView(APIView):
@@ -694,9 +777,16 @@ class RequestPasswordResetView(APIView):
 
     # Said in the future conditional on purpose: "if that username exists".
     # It promises nothing about whether anything was sent.
+    #
+    # ⚠ IT NO LONGER NAMES THE WINDOW, AND THAT IS THE ORACLE THIS AVOIDS.
+    #   A first-day code lasts three days and a forgotten-password one fifteen
+    #   minutes, so a response that stated the window would say which kind of
+    #   credential the username belongs to — whether it has ever been signed
+    #   into — to anybody who typed a guess. The email states it instead, and
+    #   the email goes to the person it concerns.
     ACCEPTED = (
         "If that username exists and has an email address on file, a code is "
-        "on its way. It expires in 15 minutes."
+        "on its way. How long it lasts is in the email."
     )
 
     def post(self, request):
@@ -708,21 +798,41 @@ class RequestPasswordResetView(APIView):
             )
 
         username = request.data.get("username", "")
-        code = services.request_password_reset(
+        minted = services.request_password_reset(
             organization_id=organization_id, username=username
         )
 
-        if code:
+        if minted:
             credential = StaffCredential.objects.select_related(
                 "staff", "organization"
             ).get(organization_id=organization_id, username__iexact=username.strip())
             try:
-                emails.send_password_reset(
-                    to=credential.staff.email,
-                    code=code,
-                    organisation=credential.organization.name,
-                    minutes=int(services.RESET_CODE_LIFETIME.total_seconds() // 60),
-                )
+                if minted.is_setup:
+                    # Somebody who has never had a password is not somebody
+                    # who has forgotten one, and "you asked to reset your
+                    # password" is a message they cannot act on. Same screen,
+                    # same endpoint, different letter.
+                    emails.send_staff_invitation(
+                        to=credential.staff.email,
+                        username=credential.username,
+                        code=minted.code,
+                        organisation=credential.organization.name,
+                        organisation_id=credential.organization_id,
+                        hours=int(
+                            (minted.expires_at - timezone.now()).total_seconds()
+                            // 3600
+                        ),
+                        first_time=True,
+                    )
+                else:
+                    emails.send_password_reset(
+                        to=credential.staff.email,
+                        code=minted.code,
+                        organisation=credential.organization.name,
+                        minutes=int(
+                            services.RESET_CODE_LIFETIME.total_seconds() // 60
+                        ),
+                    )
             except Exception:
                 # The recipient and the fact, never the code. exc_info is off
                 # deliberately: a traceback from deep in an HTTP client can
@@ -746,6 +856,29 @@ class CompletePasswordResetView(APIView):
     The password quality message is the exception and is allowed through: it is
     about what the caller just typed, reveals nothing about anybody else, and
     withholding it leaves somebody retyping passwords until one sticks.
+
+    ══════════════════════════════════════════════════════════════════════════
+    A FIRST-TIME SETUP IS SIGNED IN; A FORGOTTEN PASSWORD IS NOT.
+
+    The two look like one endpoint and differ here deliberately.
+
+    A RESET gets no session, and the reason it was written down still holds:
+    they sign in with the password they just chose, which proves it is the one
+    they think it is before they are standing at a till in front of a
+    customer. There is a password they used to know, and re-typing the new one
+    is how they find out they have replaced it.
+
+    A SETUP has no such prior. The credential had no usable password at all,
+    so there is nothing for the new one to disagree with — and this is
+    somebody's first morning, on a terminal in a shop, having been told in
+    writing that they would go straight to their work. Sending them back to a
+    sign-in form to retype what they typed twenty seconds ago, twice, is a
+    hoop that proves nothing.
+
+    It grants nothing extra either: whoever held that code could already set
+    the password and sign in with it. The session is the step, not the
+    authority.
+    ══════════════════════════════════════════════════════════════════════════
     """
 
     permission_classes = [AllowAny]
@@ -761,7 +894,7 @@ class CompletePasswordResetView(APIView):
             )
 
         try:
-            services.complete_password_reset(
+            done = services.complete_password_reset(
                 organization_id=organization_id,
                 username=request.data.get("username", ""),
                 code=request.data.get("code", ""),
@@ -772,10 +905,14 @@ class CompletePasswordResetView(APIView):
                 {"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # No session is issued. They sign in with the password they just chose,
-        # which proves it is the one they think it is before they are standing
-        # at a till in front of a customer.
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if not done.was_setup:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        session, token = services.open_staff_session(done.credential)
+        return Response(
+            _staff_session_payload(done.credential, session, token),
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TenantInvitationViewSet(TenantScoped, viewsets.ModelViewSet):

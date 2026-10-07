@@ -31,8 +31,70 @@ GET  /auth/start             → redirects to app.genmars.co.ke/sign-on
 GET  /auth/callback          ← Genmars sends the person back with a code
 POST /auth/staff/sign-in     {organization, username, password} → token
 POST /auth/staff/sign-out
-GET  /auth/me                what the caller is, and what it may touch
+GET  /auth/me                what the caller is, what it may touch, where it works
+
+POST /auth/staff/credentials/            {staff, username} → login + emailed code
+POST /auth/staff/credentials/{id}/invite/  send that email again
+POST /auth/staff/password/reset          {organization, username} → a code, maybe
+POST /auth/staff/password/reset/confirm  spend it; 201 + session on a first setup
 ```
+
+## Somebody's first day
+
+A manager creates the login and **does not create a password for it**.
+
+```
+POST /auth/staff/credentials/  {"staff": 12, "username": "jmwangi"}
+```
+
+With no `password`, the credential is saved with an unusable one — nobody can
+sign in as them, including the manager who just made it — and the employee is
+emailed their username, the **business number** and a setup code. They tap
+"First time here?" at the till, spend the code, choose a password nobody else
+has ever seen, and are **signed straight in to their workspace**.
+
+Passing a `password` still works, because an employee with no email address on
+file still has to be able to get on a till. That is the case
+`must_change_password` was written for, and it is now the exception rather than
+the default.
+
+| | first-time setup | forgotten password |
+|---|---|---|
+| minted when | the login has no usable password | it has one |
+| lasts | 72 hours (`SETUP_CODE_LIFETIME`) | 15 minutes |
+| the email says | "you have been set up to work at…" | "someone asked to reset…" |
+| on success | 201 with a session — straight to work | 204; they sign in with it |
+| `must_change_password` after | false — they chose it | false |
+
+The purpose is read off the credential in `services.request_password_reset`
+and is **never a parameter**. That is what makes 72 hours defensible: a
+long-lived code cannot be minted against a live login, and choosing a password
+closes the setup state so nothing can mint a second one. Guessing is bounded by
+`MAX_ATTEMPTS` per code, not by the window.
+
+> ⚠ The public endpoints answer identically whatever happened, and that now
+> includes **not naming the window** — a response that said "15 minutes" would
+> tell anybody who typed a guess whether that username has ever been signed
+> into. The email states it, and the email goes to the person it concerns.
+
+## Where a signed-in person is sent
+
+`access.workspaces(principal)` is the one answer, ordered, returned by both
+`/auth/staff/sign-in` and `/auth/me`. The till used to derive it from the
+permission list and got it wrong for every role it was not written for.
+
+| role | lands on |
+|---|---|
+| cashier, sales associate | `["sell"]` |
+| assistant manager | `["sell", "count"]` — asked which |
+| inventory clerk | `["count"]` |
+| purchasing officer, finance clerk, branch auditor | `[]` |
+
+**Empty is a real answer and not a refusal.** Those three hold permissions the
+API honours — `purchasing.receive`, `reports.branch` — and have no till screen
+yet. The till says so plainly; it must never render empty as a failed sign-in.
+Every name in `WORKSPACES` must have a screen behind it, and
+`test_first_login.py` fails if a role is added without a decided landing.
 
 ## Configuration
 
@@ -120,10 +182,23 @@ neither does.
 ## Still to build
 
 - Inviting another subscriber
-- A manager issuing and resetting a `StaffCredential`; `must_change_password`
-  is written but nothing enforces it yet
+- **A till workspace for the purchasing officer, the finance clerk and the
+  branch auditor.** All three sign in correctly and land on a screen that says
+  we have not built theirs — which is honest, and is not a workspace. Their
+  work exists in the office system (`/buying`, `/reports`) and that is
+  server-rendered behind a subscriber session, so a tenant-local principal
+  cannot reach it: closing this means either those screens in the till client
+  or a staff-readable server surface.
 - Binding a `StaffSession` to a `Register`, for blueprint §11 offline work
 - Entitlement: this application must not take money. See the architecture note.
+
+### No longer outstanding
+
+`must_change_password` said "nothing enforces it yet", and the answer turned
+out not to be enforcement. A login created with no password at all cannot be
+used until its holder sets one, so the flag has nothing to enforce on the
+default path — it now marks only the exception, where a manager typed a
+password because there was no address to email.
 
 ## Running it
 

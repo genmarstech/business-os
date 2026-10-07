@@ -12,7 +12,8 @@ Views call the functions here and do no reasoning of their own.
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import NamedTuple
 
 from django.db import transaction
 from django.db.models import F
@@ -21,6 +22,7 @@ from django.utils import timezone
 from .models import (
     GENERIC_SIGN_IN_FAILURE,
     INVITATION_LIFETIME,
+    SETUP_CODE_LIFETIME,
     STAFF_SESSION_LIFETIME,
     PlatformAccount,
     StaffCredential,
@@ -403,7 +405,9 @@ class CredentialError(Exception):
 
 
 @transaction.atomic
-def issue_credential(*, staff, username: str, password: str) -> StaffCredential:
+def issue_credential(
+    *, staff, username: str, password: str | None = None
+) -> StaffCredential:
     """
     Give an employee a way into a till.
 
@@ -414,12 +418,27 @@ def issue_credential(*, staff, username: str, password: str) -> StaffCredential:
     the organisation as a parameter, that credential would then WORK there.
     `staff` has already been scoped to the caller's tenant by the time it
     reaches here; deriving from it is what keeps that scoping meaningful.
+
+    ── `password` IS OPTIONAL, AND LEAVING IT OUT IS THE BETTER CALL ────────
+    Omit it and the login is created with NO password: nobody can sign in as
+    them, including the manager who just made it, until the employee spends a
+    setup code sent to their own address and chooses one. See
+    `StaffCredential.set_unusable_password` for why that is the path a
+    manager should be taking, and `request_password_reset` for the code.
+
+    Passing one stays supported, because a shop with an employee who has no
+    email address on file still has to be able to put them on a till — and
+    that is the case `must_change_password` was written for.
     """
     username = (username or "").strip()
     if not username:
         raise CredentialError("Choose a username for them.")
 
-    _check_password_quality(password, username)
+    # Quality is only a question when there IS a password. Running the floor
+    # over an empty string would refuse the invitation path for being too
+    # short, which is the opposite of what it is for.
+    if password:
+        _check_password_quality(password, username)
 
     # Per tenant, never globally — see the banner on StaffCredential. Checked
     # here as well as by the constraint so the answer is a sentence rather than
@@ -448,7 +467,10 @@ def issue_credential(*, staff, username: str, password: str) -> StaffCredential:
         # solely attributable to them until they change it.
         must_change_password=True,
     )
-    credential.set_password(password)
+    if password:
+        credential.set_password(password)
+    else:
+        credential.set_unusable_password()
     credential.full_clean(exclude=["password"])
     credential.save()
     return credential
@@ -578,20 +600,50 @@ def _check_password_quality(password: str, username: str) -> None:
 
 RESET_CODE_LIFETIME = StaffPasswordReset.LIFETIME
 
+
+class MintedCode(NamedTuple):
+    """
+    A code that was created, and the two facts a caller needs about it.
+
+    The purpose and the expiry are returned rather than recomputed, because
+    the email has to state the window and a caller that works it out for
+    itself will eventually state a different one from the row. A message that
+    promises three days about a fifteen-minute code sends somebody to the
+    till with something already dead.
+    """
+
+    code: str
+    purpose: str
+    expires_at: datetime
+
+    @property
+    def is_setup(self) -> bool:
+        return self.purpose == StaffPasswordReset.Purpose.SETUP
+
 # One message for every way a code can be refused: wrong, expired, already
 # used, too many attempts. A caller learning WHICH is learning whether the
 # username exists and whether a reset is in flight for it.
 RESET_REFUSED = "That code is not valid. Ask for a new one."
 
 
-def request_password_reset(*, organization_id: int, username: str) -> str | None:
+def request_password_reset(
+    *, organization_id: int, username: str
+) -> MintedCode | None:
     """
-    Mint a reset code, or decide not to. Returns the code, or None.
+    Mint a code, or decide not to. Returns a `MintedCode`, or None.
 
     Returning the code rather than sending it keeps this function free of
     email: the caller sends it. That is what lets the tests assert on the code
     without a mail backend, and what stops a transport failure rolling back a
     row that was correctly created.
+
+    ── THE PURPOSE IS READ OFF THE CREDENTIAL, NEVER PASSED IN ─────────────
+    A login with no usable password gets a SETUP code and three days; one that
+    has been signed into gets a RESET code and fifteen minutes. Deciding it
+    here rather than taking a parameter means no caller can ask for the long
+    window on a live credential — which is the whole of what makes three days
+    defensible. The state is also self-closing: spending a setup code gives
+    the credential a usable password, so the next code for it is a reset.
     """
     username = (username or "").strip()
 
@@ -619,9 +671,17 @@ def request_password_reset(*, organization_id: int, username: str) -> str | None
     ):
         return None
 
-    # Six digits, from secrets rather than random: this is a credential for the
-    # next fifteen minutes, and it is typed on a touchscreen by somebody
-    # standing at a counter, which is why it is not a long opaque string.
+    # Six digits, from secrets rather than random: this is a live credential
+    # and it is typed on a touchscreen by somebody standing at a counter,
+    # which is why it is not a long opaque string.
+    #
+    # ⚠ SIX DIGITS FOR THREE DAYS IS THE OBVIOUS OBJECTION, AND THE WINDOW IS
+    #   NOT WHAT BOUNDS IT. `MAX_ATTEMPTS` is five guesses PER CODE, counted
+    #   outside any transaction so a rollback cannot discard the count — see
+    #   the banner on complete_password_reset, which is the bug that made that
+    #   limit real. Five tries at one in a million does not improve by being
+    #   given longer, and asking for a fresh code burns the old one rather
+    #   than adding a second target.
     code = f"{secrets.randbelow(1_000_000):06d}"
 
     # Any earlier live code for this credential stops working. Two valid codes
@@ -631,17 +691,42 @@ def request_password_reset(*, organization_id: int, username: str) -> str | None
         credential=credential, used_at__isnull=True
     ).update(used_at=timezone.now())
 
-    StaffPasswordReset.objects.create(
+    purpose = (
+        StaffPasswordReset.Purpose.SETUP
+        if credential.needs_setup
+        else StaffPasswordReset.Purpose.RESET
+    )
+    lifetime = (
+        SETUP_CODE_LIFETIME
+        if credential.needs_setup
+        else StaffPasswordReset.LIFETIME
+    )
+
+    row = StaffPasswordReset.objects.create(
         credential=credential,
         code_hashed=_hash(code),
-        expires_at=timezone.now() + StaffPasswordReset.LIFETIME,
+        expires_at=timezone.now() + lifetime,
+        purpose=purpose,
     )
-    return code
+    return MintedCode(code=code, purpose=purpose, expires_at=row.expires_at)
+
+
+class CompletedReset(NamedTuple):
+    """
+    The credential, and whether the code that was spent was a first-time one.
+
+    The caller needs the second fact and cannot recover it afterwards: setting
+    the password is exactly what stops `needs_setup` being true, so by the time
+    this returns, the evidence that it ever was has gone.
+    """
+
+    credential: StaffCredential
+    was_setup: bool
 
 
 def complete_password_reset(
     *, organization_id: int, username: str, code: str, new_password: str
-) -> StaffCredential:
+) -> CompletedReset:
     """
     Spend a code and set the password. Raises CredentialError on any refusal.
 
@@ -682,6 +767,10 @@ def complete_password_reset(
     )
     if reset is None or reset.is_spent:
         raise CredentialError(RESET_REFUSED)
+
+    # Read before the password is written. Setting one is what makes
+    # `needs_setup` false, so asking afterwards always answers no.
+    was_setup = reset.purpose == StaffPasswordReset.Purpose.SETUP
 
     # F() rather than read-modify-write: two attempts arriving together would
     # otherwise each read the same number and write the same number, and the
@@ -737,7 +826,7 @@ def complete_password_reset(
         # nothing.
         revoke_all_sessions(credential)
 
-    return credential
+    return CompletedReset(credential=credential, was_setup=was_setup)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

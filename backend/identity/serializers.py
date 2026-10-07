@@ -37,7 +37,28 @@ class StaffCredentialSerializer(serializers.ModelSerializer):
         queryset=OrganizationStaff.objects.all()
     )
     staff_name = serializers.CharField(source="staff.full_name", read_only=True)
-    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    # ── OPTIONAL, AND LEAVING IT OUT IS THE BETTER CALL ────────────────────
+    #
+    # Omitted, the login is created with no usable password and the employee
+    # is emailed a setup code — so the password that ends up on the account
+    # has been seen by one person. Required, this field forced every manager
+    # to invent a password they would then know, which is the state
+    # `must_change_password` exists to flag rather than to bless.
+    #
+    # `allow_blank` as well as `required=False`: an HTML form posts an empty
+    # string for a field somebody left alone, and a serialiser that accepted
+    # the absent case but refused the empty one would reject exactly the
+    # request the screen sends. Both mean the same thing here, and
+    # services.issue_credential treats them the same.
+    password = serializers.CharField(
+        write_only=True, trim_whitespace=False, required=False, allow_blank=True
+    )
+
+    # The model property, not a column. Read-only in the strongest sense
+    # available: it is derived from the hash, so there is no value a request
+    # could send that would change it other than setting a password.
+    needs_setup = serializers.BooleanField(read_only=True)
 
     # Derived, and more useful to a screen than `locked_until` — "locked"
     # is the question a manager is asking when somebody cannot get in.
@@ -52,6 +73,12 @@ class StaffCredentialSerializer(serializers.ModelSerializer):
             "username",
             "password",
             "must_change_password",
+            # The question `must_change_password` cannot answer: True both for
+            # a login whose password a manager typed and for one that has no
+            # password at all. A screen needs them apart — "they are still on
+            # the password you typed" and "they have not set theirs up yet"
+            # are different sentences with different buttons under them.
+            "needs_setup",
             "is_active",
             "is_locked",
             "created_at",
@@ -60,6 +87,7 @@ class StaffCredentialSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "staff_name",
+            "needs_setup",
             # Set by the services, never by a request: `must_change_password`
             # is an answer to "has the person themselves chosen this password",
             # which a manager cannot truthfully change by sending a field.

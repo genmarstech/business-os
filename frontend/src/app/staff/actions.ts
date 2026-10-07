@@ -111,15 +111,25 @@ export async function endAssignment(
 }
 
 /**
- * Issue a till login.
+ * Issue a till login, and by default let the employee set its password.
  *
- * ⚠ THE PASSWORD IS TYPED BY THE MANAGER AND IS THEREFORE KNOWN TO THEM.
+ * ══════════════════════════════════════════════════════════════════════════
+ * SENDING NO PASSWORD IS THE PATH A MANAGER SHOULD BE TAKING.
  *
- * That is why the backend sets `must_change_password` and why the screen says
- * so: until the cashier changes it, nothing rung up under it is solely
- * attributable to them. This is also the reason the password is not generated
- * and shown — a manager who has to read it out has to remember it, and a
- * generated one ends up written down beside the till.
+ * This used to require one, so a shop's first act was to invent a credential
+ * two people held — and `must_change_password` existed to flag how
+ * unsatisfactory that is rather than to fix it. Worse, the habit it produced
+ * is the one actually worth stopping: type a password, send it over
+ * WhatsApp, where it stays for ever.
+ *
+ * Leave the field empty and the login is created with NO password. Nobody can
+ * sign in as them, including the manager who just made it, and a setup code
+ * goes to the employee's own address. The password that comes out of that has
+ * been seen by one person.
+ *
+ * Typing one still works, because an employee with no email address on file
+ * still has to be able to get on a till.
+ * ══════════════════════════════════════════════════════════════════════════
  */
 export async function issueLogin(
   _previous: State,
@@ -128,11 +138,18 @@ export async function issueLogin(
   const staff = Number(text(form, "staff_member"));
   if (!staff) return { field: {}, general: ["No one to issue a login to."] };
 
+  const password = text(form, "password");
+
+  let created: { invitation?: { sent: boolean; detail: string } };
   try {
-    await post("/auth/staff/credentials/", {
+    created = await post<{
+      invitation?: { sent: boolean; detail: string };
+    }>("/auth/staff/credentials/", {
       staff,
       username: text(form, "username"),
-      password: text(form, "password"),
+      // Omitted rather than sent empty, so the intent is legible in the
+      // request as well as in the result.
+      ...(password ? { password } : {}),
     });
   } catch (error) {
     return asFormErrors(error);
@@ -140,7 +157,31 @@ export async function issueLogin(
 
   revalidatePath(`/staff/${staff}`);
   revalidatePath("/");
-  return { field: {}, general: [] };
+
+  /*
+   * The email is sent after the login is committed, so a bounce is reported
+   * rather than raised — see the banner on the create view. Saying which
+   * happened matters: a created login whose email failed is one button away
+   * from being fine, and a manager who is not told will wait for an email
+   * that is not coming.
+   */
+  if (created?.invitation) {
+    return {
+      field: {},
+      general: [
+        created.invitation.sent
+          ? `Created. ${created.invitation.detail} They choose their own password — you will never know it.`
+          : `Created, but the setup code did not go out. ${created.invitation.detail}`,
+      ],
+    };
+  }
+
+  return {
+    field: {},
+    general: [
+      "Created with the password you typed. They will be asked to change it — until they do, anything rung up under it is something you could also have done.",
+    ],
+  };
 }
 
 /**

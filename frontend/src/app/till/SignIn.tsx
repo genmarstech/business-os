@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ForgotPassword } from "./ForgotPassword";
+import { ChooseAPassword } from "./ChooseAPassword";
 
 import { call, rememberedOrganisation, readError, save, type TillSession } from "./session";
 import styles from "./till.module.css";
@@ -27,7 +27,10 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [forgot, setForgot] = useState(false);
+  // Which door, or none. "First time here?" exists because a new employee is
+  // told by email to press something, and the only button there was described
+  // a problem they do not have — see the banner on ChooseAPassword.
+  const [coding, setCoding] = useState<"setup" | "forgot" | null>(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -64,13 +67,17 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
    * typed them does not type them again. A till is a touchscreen and the
    * organisation is a number nobody remembers.
    */
-  if (forgot) {
+  if (coding) {
     return (
-      <ForgotPassword
+      <ChooseAPassword
+        mode={coding}
         organisation={organisation}
         username={username}
-        onDone={() => setForgot(false)}
-        onCancel={() => setForgot(false)}
+        // A completed first-time setup comes back with a session, so this
+        // goes straight to work rather than back to a form.
+        onSignedIn={onSignedIn}
+        onDone={() => setCoding(null)}
+        onCancel={() => setCoding(null)}
       />
     );
   }
@@ -81,8 +88,9 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
         <h1 className={styles.gateTitle}>Open the till</h1>
         <p className={styles.gateLede}>
           Your sign-in belongs to the business you work for. It is not a
-          Genmars account and your password never reaches Genmars — if you
-          have forgotten it, your manager sets you a new one.
+          Genmars account and your password never reaches Genmars. If you have
+          just been set up, or have forgotten it, the two buttons below the
+          sign-in will email you a code.
         </p>
 
         {error ? (
@@ -137,15 +145,30 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: TillSession) => void })
         </button>
 
         {/*
-          Below the sign-in button, not beside the password field. A cashier
-          reaches for this after a failed attempt, and the alternative — a
-          manager walking over to reset it — is the thing this replaces.
+          Below the sign-in button, not beside the password field. Somebody
+          reaches for either of these after the form has not worked, and the
+          alternative — a manager walking over to type a password — is the
+          thing both of them replace.
+
+          First time above forgotten, because the person who needs it has
+          never seen this screen before and is looking for permission to be
+          here. The wording is the whole point: the invitation email tells
+          them to tap these exact words.
         */}
         <button
           type="button"
           className={styles.gateQuiet}
           disabled={busy}
-          onClick={() => setForgot(true)}
+          onClick={() => setCoding("setup")}
+        >
+          First time here?
+        </button>
+
+        <button
+          type="button"
+          className={styles.gateQuiet}
+          disabled={busy}
+          onClick={() => setCoding("forgot")}
         >
           Forgotten your password?
         </button>
