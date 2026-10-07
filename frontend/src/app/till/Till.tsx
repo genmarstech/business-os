@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BusinessMark } from "@/components/BusinessMark";
 import { Calculator } from "./Calculator";
 import { Count } from "./Count";
+import { Scanner } from "./Scanner";
+import { scanning } from "./barcode";
 import { ChangePassword } from "./ChangePassword";
 import { ShiftNote } from "./ShiftNote";
 import { SignIn } from "./SignIn";
@@ -491,6 +493,15 @@ function Selling({
   const [push, setPush] = useState<Push | null>(null);
   const [sale, setSale] = useState<Sale | null>(null);
   const [tool, setTool] = useState<"calculator" | "note" | null>(null);
+  const [camera, setCamera] = useState(false);
+  /*
+   * Asked once, after mount. `scanning()` reads `window`, so calling it
+   * during render would disagree with the server's render and throw a
+   * hydration error — the same reason the stored session is read in an
+   * effect rather than inline.
+   */
+  const [canScan, setCanScan] = useState(false);
+  useEffect(() => setCanScan(scanning()), []);
   const [note, setNote] = useState(shift.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -578,18 +589,53 @@ function Selling({
     [rules],
   );
 
+  /**
+   * Resolve scanned digits to a product, or decide nothing matched.
+   *
+   * ── THE BARCODE IS MATCHED EXACTLY; THE SKU IS THE FALLBACK ─────────────
+   * A barcode either is the product's or is not — a partial match on thirteen
+   * digits is a different product, and adding the wrong line to a basket is
+   * money. The SKU is tried second because a shop that prints its own labels
+   * for loose goods prints the SKU on them, and those labels are Code 128
+   * rather than EAN.
+   *
+   * Shared by the camera and by the wedge scanner below, so the two cannot
+   * resolve a code differently — which they would, eventually, as one of them
+   * gained a case the other did not.
+   */
+  const resolve = useCallback(
+    (code: string): Product | undefined => {
+      const q = code.trim().toLowerCase();
+      if (!q) return undefined;
+      return (
+        products.find((p) => p.barcode && p.barcode.toLowerCase() === q) ??
+        products.find((p) => p.sku.toLowerCase() === q)
+      );
+    },
+    [products],
+  );
+
+  /** What the camera calls. False means "nothing matched", and it says so. */
+  const scanned = useCallback(
+    (code: string): boolean => {
+      const found = resolve(code);
+      if (!found) return false;
+      add(found);
+      return true;
+    },
+    [resolve, add],
+  );
+
   /*
-   * A barcode scanner is a keyboard that types fast and presses Enter. An
-   * exact barcode match on Enter adds it without the cashier touching
-   * anything — which is the whole difference between scanning and typing.
+   * A wedge scanner is a keyboard that types fast and presses Enter — the
+   * cheap USB kind on a counter, and it needs no camera and no permission.
+   * An exact match on Enter adds it without the cashier touching anything,
+   * which is the whole difference between scanning and typing.
    */
   function onSearchKey(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return;
     event.preventDefault();
-    const q = query.trim().toLowerCase();
-    const exact =
-      products.find((p) => p.barcode && p.barcode.toLowerCase() === q) ??
-      products.find((p) => p.sku.toLowerCase() === q);
+    const exact = resolve(query);
     if (exact) add(exact);
     else if (matches.length === 1) add(matches[0]!);
   }
@@ -807,17 +853,50 @@ function Selling({
         />
       ) : null}
 
+      {camera ? (
+        <Scanner
+          title="Scan to add"
+          hint="Point at the barcode. Keep going for the whole basket."
+          // The camera stays open: a basket is six things, and closing
+          // between each would make scanning slower than typing.
+          continuous
+          onScan={scanned}
+          onClose={() => {
+            setCamera(false);
+            search.current?.focus();
+          }}
+        />
+      ) : null}
+
       <div className={styles.floor}>
         <section className={styles.picker}>
-          <input
-            ref={search}
-            className={styles.search}
-            placeholder="Scan a barcode, or type a name or code"
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onSearchKey}
-          />
+          <div className={styles.searchRow}>
+            <input
+              ref={search}
+              className={styles.search}
+              placeholder="Scan a barcode, or type a name or code"
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKey}
+            />
+            {/*
+              Only where the browser can actually do it — see the banner on
+              barcode.ts. Absent rather than disabled: a permanently dead
+              button on an iPhone invites somebody to keep pressing it, and
+              the input beside it already says a barcode can be scanned,
+              which remains true with a wedge scanner on every device.
+            */}
+            {canScan ? (
+              <button
+                type="button"
+                className={styles.scan}
+                onClick={() => setCamera(true)}
+              >
+                Scan
+              </button>
+            ) : null}
+          </div>
 
           {products.length === 0 ? (
             <p className={styles.note}>

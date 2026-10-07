@@ -28,6 +28,22 @@ class BranchInventorySerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    # ── WHAT A STOCK TAKE SCANS ─────────────────────────────────────────────
+    #
+    # The till resolves a scan against the catalogue it holds; a stock take
+    # holds BranchInventory rows instead, so without this the count screen
+    # could not tell which shelf row a scanned code belongs to and the only
+    # way through an aisle was typing names.
+    #
+    # It is the product's own barcode, read through the join rather than
+    # copied onto the inventory row — one product scanned at four branches is
+    # the same digits, and a duplicate would be four places to go wrong when
+    # a code is corrected.
+    product_barcode = serializers.CharField(
+        source="product.barcode",
+        read_only=True
+    )
+
     class Meta:
         model = BranchInventory
         fields = [
@@ -37,6 +53,7 @@ class BranchInventorySerializer(serializers.ModelSerializer):
             "product",
             "product_name",
             "product_sku",
+            "product_barcode",
             "quantity",
             "reorder_level",
             "is_active",
@@ -49,6 +66,7 @@ class BranchInventorySerializer(serializers.ModelSerializer):
             "branch_name",
             "product_name",
             "product_sku",
+            "product_barcode",
             "created_at",
             "updated_at",
         ]

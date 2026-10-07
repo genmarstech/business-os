@@ -271,17 +271,54 @@
   padding: clamp(12px, 2vw, 20px);
 }
 
+/*
+ * The search field and the Scan button share a row.
+ *
+ * The margin that used to sit on .search moved here, so the gap below the
+ * pair is one rule rather than two that drift. A wedge scanner types into the
+ * input and a camera fills the button; both end up in the same basket.
+ */
+.searchRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
 .search {
   font: inherit;
+  /* 16px exactly. Anything smaller and iOS Safari zooms the page on focus,
+     which on a till leaves the basket off screen mid-sale. */
   font-size: 16px;
   width: 100%;
+  min-width: 0;
   min-height: 48px;
   padding: 11px 14px;
   border: 1px solid var(--line-firm);
   border-radius: var(--r-md);
   background: var(--panel);
   color: var(--ink);
-  margin-bottom: 14px;
+}
+
+.scan {
+  flex: none;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scan:hover { border-color: var(--accent-fill); }
+
+.scan:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .search:focus-visible {
