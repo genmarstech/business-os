@@ -393,6 +393,64 @@ def may(principal, permission: str, branch_id: int | None = None) -> bool:
     return permission in granted(principal, branch_id)
 
 
+# ── WHERE THIS PRINCIPAL ACTUALLY WORKS ─────────────────────────────────────
+#
+# ════════════════════════════════════════════════════════════════════════════
+# A PERMISSION LIST IS NOT A DESTINATION, AND THE TILL WAS DERIVING ONE.
+#
+# `Till.tsx` read `sales.checkout` and `inventory.count` off /auth/me and
+# decided between two screens from them. That worked for the two roles it was
+# written for and silently failed for the rest: a purchasing officer holds
+# neither, fell through to the register chooser, and was shown "could not
+# reach the shop's records" — which is a 403 on a screen they should never
+# have been sent to, reported as a network fault, for ever.
+#
+# So the question is answered HERE, once, beside the role table it depends on,
+# and the client is told the answer rather than inferring it. The same instinct
+# as `branch_scope` above: one place to audit, and a view never re-derives
+# authority from a role name.
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ⚠ EVERY NAME IN THIS TUPLE MUST HAVE A SCREEN BEHIND IT.
+#
+#   Shell.tsx carries the same rule for navigation — "a link in a product's own
+#   navigation that 404s reads as a broken product, not an unfinished one" —
+#   and it applies harder here, because this list is not a menu somebody
+#   chooses from. The FIRST entry a principal matches is where they are SENT.
+#   A name added here before its screen exists sends somebody to nothing.
+#
+# The order is the order of the till's own answer to "what are you here to
+# do": selling comes first because a queue cannot wait and counting can.
+WORKSPACES: tuple[tuple[str, str], ...] = (
+    ("sell", SALES_CHECKOUT),
+    ("count", INVENTORY_COUNT),
+)
+
+
+def workspaces(principal, branch_id: int | None = None) -> list[str]:
+    """
+    The till screens this principal may work, in landing order.
+
+    One entry means send them straight there — nobody should be asked to
+    choose between one thing. Several means ask. **Empty means the till has
+    no screen for this person**, which is a real answer and not an error:
+    a finance clerk and a branch auditor read figures and never touch a
+    register, and a purchasing officer's work is a delivery note.
+
+    ⚠ EMPTY IS NOT "NO AUTHORITY". Those three roles hold real permissions —
+      `reports.branch`, `purchasing.receive` — against endpoints that answer
+      them correctly. What they do not yet have is a till workspace. A client
+      that reads empty as "signed in but refused" tells somebody their login
+      is broken when the truth is that we have not built their screen.
+
+    `branch_id` narrows it for the same reason `granted` takes one: a cashier
+    at Westlands and a manager at Karen is one person with two landings, and
+    the union would offer the Karen one at a Westlands terminal.
+    """
+    held = granted(principal, branch_id)
+    return [name for name, permission in WORKSPACES if permission in held]
+
+
 def branch_scope(principal) -> list[int] | None:
     """
     The branches this principal is confined to, or **None** for none.

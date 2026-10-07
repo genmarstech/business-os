@@ -477,6 +477,27 @@ GENMARS_PORTAL_ORIGIN = os.environ.get(
 GENMARS_API_ORIGIN = os.environ.get(
     "GENMARS_API_ORIGIN", "https://api.genmars.co.ke"
 )
+# ── WHERE STAFF ARE TOLD TO GO, AND WHY IT IS A SETTING ────────────────────
+#
+# A first-day email has to name the address a cashier types into a browser.
+# Nothing else in this application needs to know its own public name — Caddy
+# terminates in front of it and every other response is relative — so there
+# was no setting to read, and the invitation was sent without one: it told
+# somebody to "tap Forgotten your password?" on a screen it never said how to
+# reach, and without the business number they could not have signed in once
+# they got there.
+#
+# ⚠ WRONG HERE IS WORSE THAN ABSENT. This string is read by somebody who has
+#   just been told it is where they work, so a stale value is a shop's staff
+#   typing a Genmars address that is not ours into a phone. It is not derived
+#   from GENMARS_SIGN_ON_REDIRECT_URI, tempting as that is, because that value
+#   exists to be compared byte-for-byte with what ops has registered and
+#   quietly reusing it for a second purpose is how one of the two ends up
+#   changed for the other's sake.
+TILL_SIGN_IN_URL = os.environ.get(
+    "TILL_SIGN_IN_URL", "https://business.genmars.co.ke/till"
+)
+
 GENMARS_SIGN_ON_CLIENT_ID = os.environ.get("GENMARS_SIGN_ON_CLIENT_ID", "")
 GENMARS_SIGN_ON_CLIENT_SECRET = os.environ.get("GENMARS_SIGN_ON_CLIENT_SECRET", "")
 GENMARS_SIGN_ON_REDIRECT_URI = os.environ.get("GENMARS_SIGN_ON_REDIRECT_URI", "")

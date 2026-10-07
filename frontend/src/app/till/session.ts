@@ -47,6 +47,27 @@ export type TillSession = {
    */
   staff: { id: number; name: string; username: string };
   organisation: { id: number; name: string };
+  /**
+   * The till screens this person may work, in landing order.
+   *
+   * ── THE SERVER'S ANSWER, NOT A PERMISSION LIST TO INTERPRET ────────────
+   * This screen used to derive its destination from `sales.checkout` and
+   * `inventory.count`, which worked for the two roles it was written for and
+   * sent every other one to the register chooser — where a purchasing
+   * officer got a 403 rendered as "could not reach the shop's records",
+   * permanently. identity/access.py answers it now, beside the role table it
+   * depends on.
+   *
+   * ⚠ EMPTY IS A REAL ANSWER AND NOT A REFUSAL. A finance clerk, a branch
+   *   auditor and a purchasing officer hold permissions the API honours and
+   *   have no till screen yet. Rendering empty as a failed sign-in tells
+   *   them their login is broken when it is not.
+   *
+   * Optional because a session saved by a build that predates this field is
+   * still in somebody's localStorage. `Signed` re-asks /auth/me when it is
+   * missing rather than guessing.
+   */
+  workspaces?: string[];
 };
 
 function safe<T>(read: () => T, fallback: T): T {
