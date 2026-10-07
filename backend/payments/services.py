@@ -34,6 +34,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from notifications import services as notifications
+
 from . import daraja
 from .crypto import NotConfigured
 from .models import MpesaTill, StkPush, token_digest
@@ -260,6 +262,12 @@ def _settle(push, status, code, receipt, description) -> StkPush:
     push.settled_at = timezone.now()
     push.save(update_fields=["status", "result_code", "mpesa_receipt",
                              "result_description", "settled_at", "updated_at"])
+
+    # Every outcome passes through here, which is why the notification hangs
+    # off this and not off the three callers that decide what the outcome is.
+    # It cannot fail the settlement — see notifications.services._safely.
+    notifications.payment_settled(push=push)
+
     return push
 
 

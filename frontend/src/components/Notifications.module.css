@@ -1,0 +1,202 @@
+/*
+ * The bell and its panel.
+ *
+ * Tokens only, from the set globals.css derives — a literal colour here is the
+ * row that reads wrong on whichever theme the shop is not using, which is the
+ * failure scripts/check-theme-tokens.mjs exists to catch.
+ *
+ * The three urgency pips are the one place semantic colour is used, and it is
+ * separate from the accent on purpose: "needs you now" must not be the same
+ * hue as "this is a button".
+ */
+
+.wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.bell:hover {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.bell[aria-expanded="true"] {
+  background: var(--sunken);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.bell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.glyph {
+  display: inline-flex;
+}
+
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--on-fill);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel {
+  position: absolute;
+  z-index: 40;
+  /* Anchored to the bell's bottom-left so it opens into the page rather than
+     off the edge of a sidebar. */
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(23rem, calc(100vw - 32px));
+  max-height: min(28rem, 70vh);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 6px;
+}
+
+.title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.clear {
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+.clear:hover { color: var(--ink); background: var(--sunken); }
+.clear:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.quiet,
+.stale {
+  margin: 0;
+  padding: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.stale { color: var(--warn); }
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.row:first-child { border-top: none; }
+
+/* The urgency, as a mark rather than as a colour on the text — coloured text
+   at 13px is the thing that fails contrast first. */
+.pip {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--ink-faint);
+}
+
+.inform { background: var(--ink-faint); }
+.attend { background: var(--warn); }
+.urgent { background: var(--danger); }
+
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.subject {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  /* Wraps. A subject naming a product and a branch is longer than this panel,
+     and truncating it hides the half that says which shelf. */
+  overflow-wrap: anywhere;
+}
+
+.subject:hover { text-decoration: underline; }
+.subject:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.body {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+.meta {
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+}
+
+.tick {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  padding: 3px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.tick:hover { color: var(--ink); border-color: var(--ink-faint); }
+.tick:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }

@@ -87,7 +87,7 @@ business.genmars.co.ke {
 	# read to tell one caller from another. Without it every request arrives
 	# from the proxy and a per-address limit becomes one shared budget —
 	# exactly the bug gen-portal shipped and had to fix.
-	@api path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /admin/* /healthz
+	@api path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /ntf/* /admin/* /healthz
 	handle @api {
 		reverse_proxy 127.0.0.1:8020 {
 			header_up X-Real-IP {remote_host}
@@ -192,7 +192,7 @@ business.genmars.co.ke {
 	# but a policy with a hole in it invites the next reader to wonder which
 	# other paths were forgotten. Keep the two lists diffable: this one is that
 	# one, plus /static/*.
-	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /admin/* /healthz /static/*
+	@django path /auth/* /org/* /brn/* /ctl/* /invt/* /sls/* /pay/* /sub/* /prc/* /ntf/* /admin/* /healthz /static/*
 	header @django Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
 
 	# ── LOGGING ──────────────────────────────────────────────────────────────

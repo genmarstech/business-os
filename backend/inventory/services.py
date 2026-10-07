@@ -36,6 +36,7 @@ from django.utils import timezone
 
 from identity.models import PlatformAccount
 from organisations.models import OrganizationStaff
+from notifications import services as notifications
 
 from .models import (
     BranchInventory,
@@ -165,6 +166,13 @@ def adjust(*, inventory: BranchInventory, delta: Decimal, reason: str, note: str
         quantity_before=before,
         quantity_after=after,
         reason=note or REASONS[reason][1],
+    )
+
+    # One of three places stock is written. The others are sales/services.py
+    # (a sale) and procurement/services.py (a delivery), and all three call
+    # this — see the banner on stock_level_changed.
+    notifications.stock_level_changed(
+        inventory=locked, before=before, after=after
     )
 
     return adjustment
@@ -299,6 +307,25 @@ def record_count(*, count, inventory, counted, actor, note: str = ""):
             **_actor("counted_by", actor),
         },
     )
+
+    # ── IS THE COUNT FINISHED? ──────────────────────────────────────────────
+    #
+    # There is no "awaiting sign-off" status to transition into — a count is
+    # open, closed or abandoned — so finishing is simply the moment the last
+    # shelf row gets a figure, and this is where that moment is. Adding a
+    # status for it would be a product change, and not one a notification
+    # feature should make on the way past.
+    #
+    # Counted against the ACTIVE rows, because an inactive product is not on
+    # the shelf to be counted and a count could otherwise never be finishable.
+    total = BranchInventory.objects.filter(
+        branch_id=count.branch_id, is_active=True
+    ).count()
+    done = StockCountLine.objects.filter(count=count).count()
+    notifications.count_fully_counted(
+        count=count, counted=done, total=total, actor=actor
+    )
+
     return line
 
 
@@ -367,6 +394,9 @@ def close_count(*, count, actor):
             "status", "closed_by_staff", "closed_by_account", "closed_at",
         ]
     )
+    # Somebody acted, so it is no longer waiting for them.
+    notifications.count_signed_off(count=locked)
+
     return locked, applied
 
 
@@ -399,6 +429,12 @@ def abandon_count(*, count, actor, reason: str):
             "status", "closed_by_staff", "closed_by_account", "closed_at", "note",
         ]
     )
+
+    # The other way a count stops waiting, and the one that would have been
+    # forgotten: signing off is the path people think about, so an abandoned
+    # count would have sat in somebody's list asking to be signed off for ever.
+    notifications.count_signed_off(count=locked)
+
     return locked
 
 

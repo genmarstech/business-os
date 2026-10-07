@@ -40,6 +40,7 @@ from identity.models import PlatformAccount
 from inventory.models import BranchInventory, StockMovement
 from inventory.services import stock_product
 from organisations.models import BusinessOrganization, OrganizationStaff
+from notifications import services as notifications
 
 from .models import (
     GoodsReceipt,
@@ -316,6 +317,13 @@ def submit_order(order: PurchaseOrder) -> PurchaseOrder:
 
     locked.status = PurchaseOrder.Status.SUBMITTED
     locked.save(update_fields=["status", "updated_at"])
+
+    # The notification the access model implies. `purchasing.manage` and
+    # `purchasing.approve` are held by different people on purpose, and until
+    # now the approver had no way to learn an order was waiting — so a control
+    # that separates two people depended on one of them remembering to look.
+    notifications.order_awaiting_approval(order=locked)
+
     return locked
 
 
@@ -356,6 +364,11 @@ def approve_order(order: PurchaseOrder, *, actor) -> PurchaseOrder:
             "updated_at",
         ]
     )
+
+    # It is no longer waiting, so the notification stops being true and leaves
+    # the feed. A list of approvals that keeps approved orders in it is a list
+    # nobody trusts after the first week.
+    notifications.order_approved(order=locked)
     return locked
 
 
@@ -380,6 +393,14 @@ def cancel_order(order: PurchaseOrder, *, reason: str = "") -> PurchaseOrder:
     locked.save(
         update_fields=["status", "cancelled_at", "cancelled_reason", "updated_at"]
     )
+
+    # Cancelling is the OTHER way an order stops waiting, and it is the one
+    # that would have been forgotten: approval is the happy path people think
+    # about, so a cancelled order would have sat in the approver's list for
+    # ever asking to be approved. Same resolution, because "no longer waiting"
+    # is the same fact however it was reached.
+    notifications.order_approved(order=locked)
+
     return locked
 
 
@@ -409,6 +430,12 @@ def _book_in(branch, product, quantity: Decimal, reference: str) -> None:
         quantity_before=before,
         quantity_after=locked.quantity,
         reference=reference,
+    )
+
+    # The other direction: a delivery is what makes a low-stock notification
+    # stop being true, so this is where it gets resolved.
+    notifications.stock_level_changed(
+        inventory=locked, before=before, after=locked.quantity
     )
 
 

@@ -44,6 +44,7 @@ from branches.models import RegisterShift
 from catalog import pricing
 from catalog.models import CatalogCategoryProduct, TaxRule
 from inventory.models import BranchInventory, StockMovement
+from notifications import services as notifications
 
 from .models import Customer, Payment, Receipt, Refund, RefundItem, Sale, SaleItem
 
@@ -164,6 +165,14 @@ def _move_stock(inventory: BranchInventory, delta: Decimal, kind: str, reference
         quantity_before=before,
         quantity_after=inventory.quantity,
         reference=reference,
+    )
+
+    # ⚠ THE MOST IMPORTANT OF THE THREE CALL SITES. Stock runs low BECAUSE OF
+    #   SELLING; a low-stock notification wired only to the manual adjustment
+    #   screen would be silent for the shop that is actually running out. It
+    #   cannot fail a sale — see notifications.services._safely.
+    notifications.stock_level_changed(
+        inventory=inventory, before=before, after=inventory.quantity
     )
 
 
