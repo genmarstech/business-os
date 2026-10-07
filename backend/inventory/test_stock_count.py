@@ -324,8 +324,46 @@ class StockCountTests(TestCase):
         self.assertEqual(summary["short"], 1)
         self.assertEqual(summary["over"], 1)
         self.assertEqual(summary["agreed"], 0)
-        self.assertEqual(summary["units_short"], Decimal("3.00"))
-        self.assertEqual(summary["units_over"], Decimal("2.00"))
+        self.assertEqual(summary["units_short"], "3.00")
+        self.assertEqual(summary["units_over"], "2.00")
+
+    def test_the_unit_figures_cross_the_wire_as_strings(self):
+        """
+        ══════════════════════════════════════════════════════════════════════
+        A SerializerMethodField COERCES NOTHING, SO THIS DICT HAS TO.
+
+        Every other quantity in this application is a string on the wire
+        because DRF's encoder does float(obj) on a Decimal, and
+        frontend/src/lib/money.ts refuses to parse one back. These two were
+        Decimals in a plain dict, so they left as floats — the one endpoint
+        that did its own serialising was the one that broke the rule.
+
+        The assertion is on the RENDERED JSON rather than on the dict,
+        because the dict was never the problem: `Decimal("0.3")` is exact
+        and `0.1 + 0.2` is where it stops being.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        import json
+
+        from rest_framework.renderers import JSONRenderer
+
+        tenth = a_product(
+            self.org, self.category, "Mafuta", "SKU-OIL", "1.00", self.branch
+        )
+        count = services.open_count(branch=self.branch, actor=self.clerk)
+        services.record_count(
+            count=count, inventory=tenth, counted="0.70", actor=self.clerk
+        )
+        services.record_count(
+            count=count, inventory=self.milk, counted="49.80", actor=self.clerk
+        )
+
+        wire = json.loads(JSONRenderer().render(services.count_summary(count)))
+        self.assertEqual(wire["units_short"], "0.50")
+        self.assertIsInstance(wire["units_short"], str)
+        # The counts stay numbers. They are lines, not quantities.
+        self.assertEqual(wire["counted"], 2)
+        self.assertIsInstance(wire["counted"], int)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
