@@ -28,6 +28,8 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from identity import access
+from identity.authentication import StaffPrincipal
+from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
 
 from . import services
@@ -51,7 +53,6 @@ from .serializers import (
     StockLevelSerializer,
     OpenCountSerializer,
     RecordCountSerializer,
-    CloseCountSerializer,
     AbandonCountSerializer,
 )
 
@@ -74,6 +75,20 @@ def _refused(error) -> dict:
         if hasattr(error, "message_dict")
         else {"detail": error.messages}
     )
+
+
+def _acting(request):
+    """
+    Who is doing this, as a row something can point at.
+
+    A till session knows its staff member; a subscriber is a PlatformAccount,
+    which is already a row. The twin of `procurement.views._acting`, and the
+    reason the count endpoints no longer take a `*_by` field — see the banner
+    on `services._actor`.
+    """
+    if isinstance(request.user, StaffPrincipal):
+        return request.user.staff
+    return request.user
 
 
 
@@ -265,20 +280,71 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         "abandon": access.INVENTORY_COUNT_CLOSE,
     }
     queryset = (
-        StockCount.objects.select_related("branch", "opened_by", "closed_by")
-        .prefetch_related("lines__inventory__product")
+        StockCount.objects.select_related(
+            "branch",
+            "opened_by_staff",
+            "opened_by_account",
+            "closed_by_staff",
+            "closed_by_account",
+        )
+        .prefetch_related(
+            "lines__inventory__product",
+            "lines__counted_by_staff",
+            "lines__counted_by_account",
+        )
         .all()
     )
     serializer_class = StockCountSerializer
 
     @action(detail=False, methods=["post"])
     def open(self, request):
+        """
+        Begin counting a branch.
+
+        ══════════════════════════════════════════════════════════════════════
+        THE ONLY WRITE HERE THAT NAMES A BRANCH, SO THE ONLY ONE THAT HAS TO
+        CHECK ONE.
+
+        `TenantScoped` guards writes in `create()` and `update()`. A custom
+        action reaches neither, and this one shipped without the check: a
+        `branch` resolved from an unfiltered queryset meant Shop A could open
+        a count inside Shop B — taking B's one permitted open count with it,
+        so B could not start their own, against a branch A cannot even read.
+        Blueprint §1 and §8, both.
+
+        `record`, `close` and `abandon` are `detail=True`: the count arrives
+        through `get_object()`, which is scoped, and `record_count` refuses
+        an inventory row from any other branch. This one had nothing.
+        ══════════════════════════════════════════════════════════════════════
+        """
         form = OpenCountSerializer(data=request.data)
         form.is_valid(raise_exception=True)
+        branch = form.validated_data["branch"]
+
+        # Tenant first, then branch — two different questions, and the order
+        # matters for the reason payments/views.py sets out at length: for a
+        # subscriber `branch_scope` is None, so `may(..., branch_id)` would
+        # happily answer yes about another business's branch. It was never
+        # asked which business.
+        if branch.organization_id not in tenant_scope(request.user):
+            return Response(
+                {"branch": "No such record, or it is not available to you."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # And now whether they may count THERE, not merely somewhere. A clerk
+        # assigned to Westlands holds `inventory.count`; that is not consent
+        # to start a stock take at Karen.
+        if not access.may(request.user, access.INVENTORY_COUNT, branch.pk):
+            return Response(
+                {"detail": "You are not assigned to that branch."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             count = services.open_count(
-                branch=form.validated_data["branch"],
-                staff=form.validated_data["opened_by"],
+                branch=branch,
+                actor=_acting(request),
                 note=form.validated_data.get("note", ""),
             )
         except DjangoValidationError as error:
@@ -298,7 +364,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                 count=count,
                 inventory=form.validated_data["inventory"],
                 counted=form.validated_data["counted"],
-                staff=form.validated_data["counted_by"],
+                actor=_acting(request),
                 note=form.validated_data.get("note", ""),
             )
         except DjangoValidationError as error:
@@ -307,12 +373,12 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):
+        """Book every variance and close the count. Nothing to validate —
+        who is signing comes from the session, not the body."""
         count = self.get_object()
-        form = CloseCountSerializer(data=request.data)
-        form.is_valid(raise_exception=True)
         try:
             closed, applied = services.close_count(
-                count=count, staff=form.validated_data["closed_by"]
+                count=count, actor=_acting(request)
             )
         except DjangoValidationError as error:
             return Response(_refused(error), status=status.HTTP_400_BAD_REQUEST)
@@ -328,7 +394,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         try:
             abandoned = services.abandon_count(
                 count=count,
-                staff=form.validated_data["closed_by"],
+                actor=_acting(request),
                 reason=form.validated_data["reason"],
             )
         except DjangoValidationError as error:
