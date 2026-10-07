@@ -46,6 +46,16 @@
  * and neither is a compromise of the other.
  */
 
+/*
+ * ── THE APP ICON IS NOT THESE TWO GREENS, AND THAT IS NOT A DRIFT ──────────
+ *
+ * src/app/icon.source.svg puts a CREAM G on a deep green ground, because an
+ * icon brings its own surface and this component does not. #2E7D57 is chosen
+ * to hold on the application's near-white and near-black canvases; on the
+ * family's plum it measures 2.77:1 and disappears. The icon's own banner has
+ * the figures. Same geometry, same family, one of them has a ground.
+ */
+
 /** Imperial Topaz's place in the family, in green. */
 const LETTER = "#2E7D57";
 /** Ignition's place, in green: lighter, more saturated, the moving part. */
