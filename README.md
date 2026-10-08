@@ -929,6 +929,29 @@ sudo systemctl enable --now genmars-business-restore-test.timer
 systemctl list-timers 'genmars-business-*'
 ```
 
+> ⚠ **The heartbeat timer is copied by that `cp` and deliberately not enabled
+> here.** `genmars-business-heartbeat.timer` needs `GENMARS_SYSTEM_KEY` in
+> `backend/.env` FIRST, because without it `report_health` exits non-zero and
+> the unit's `OnFailure` mails through `genmars-alert@` — every five minutes,
+> 288 times a day. GM-INC-2026-0001 is what that costs: alerts bounced, the
+> provider suppressed the address, and thirty-one hours of real alerts were
+> dropped in silence.
+>
+> The key is issued at **ops.genmars.co.ke/systems** → the system → *Reporting
+> keys*. Founder only, shown exactly once, cannot be read back. Then:
+>
+> ```bash
+> # add GENMARS_SYSTEM_KEY= to backend/.env — no sudo, it is mode 600 and
+> # yours; `sudo -e` refuses it because the directory is user-writable
+> docker compose up -d api    # `exec` runs in the EXISTING container, which
+>                             # read env_file at creation — this is required
+> docker compose exec -T api python manage.py report_health
+> # must print "reported — up: …". Only then:
+> sudo systemctl enable --now genmars-business-heartbeat.timer
+> ```
+>
+> The full argument is in `deploy/genmars-business-heartbeat.service`.
+
 Backup nightly at 02:45, restore test Sunday 04:15 — both offset from
 gen-portal's 02:15 and 03:30, because the two databases share a host and
 dumping them at the same moment only makes each slower. A failure raises

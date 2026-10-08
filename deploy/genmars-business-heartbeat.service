@@ -9,12 +9,49 @@
 #   systemctl list-timers genmars-business-heartbeat.timer
 #   journalctl -u genmars-business-heartbeat.service -n 20
 #
-# ── IT NEEDS GENMARS_SYSTEM_KEY IN .env ────────────────────────────────────
-# Issued in ops under Settings → Engineering, against a System whose slug is
-# this application. Without it the command reports nothing and exits
-# non-zero, which fires OnFailure below — deliberately, because a heartbeat
-# that is quietly not configured looks identical on the dashboard to an
-# application that has stopped.
+# ── IT NEEDS GENMARS_SYSTEM_KEY IN backend/.env ────────────────────────────
+#
+# ⚠ ISSUE IT FIRST. INSTALLING THIS TIMER WITHOUT THE KEY IS A MAIL FLOOD.
+#
+#   No key → parent._post returns False → heartbeat() returns False →
+#   report_health exits non-zero → OnFailure below fires genmars-alert@ →
+#   notify.sh sends mail. Every five minutes. 288 emails a day, saying the
+#   heartbeat failed.
+#
+#   The non-zero exit is deliberate and right — a heartbeat that fails
+#   silently shows the dashboard "last seen hours ago", which reads as an
+#   outage when only the reporting is broken. It just means the key has to
+#   exist before the timer does. GM-INC-2026-0001 is what the flood costs:
+#   alerts bounced, the provider suppressed the address, and thirty-one hours
+#   of real alerts were dropped in silence.
+#
+# WHERE THE KEY COMES FROM — ops.genmars.co.ke/systems → the system → the
+# "Reporting keys" panel → issue one. NOT Settings → Engineering, which is
+# where sibling SIGN-ON is configured; this comment said that and it was
+# wrong, and somebody went looking. The endpoint behind it is
+# POST /api/ops/systems/<slug>/keys, guarded by CanManageAccess — founder
+# only — and the token is shown EXACTLY ONCE. It is Argon2-hashed on the way
+# in and cannot be read back; losing it means revoke and re-issue.
+#
+# ── AND THE ORDER MATTERS, BECAUSE `exec` IS NOT `run` ─────────────────────
+# ExecStart uses `docker compose exec`, which runs inside the ALREADY-RUNNING
+# container — and that container read `env_file` when it was created. Editing
+# backend/.env is therefore not enough:
+#
+#   1. issue the key in ops
+#   2. add GENMARS_SYSTEM_KEY= to backend/.env   (no sudo: it is mode 600 and
+#      owned by the deploy user. `sudo -e` REFUSES it, because the directory
+#      is user-writable — that is sudoedit's symlink guard, not a problem to
+#      work around)
+#   3. docker compose up -d api                  ← without this the container
+#                                                  still has no key
+#   4. docker compose exec -T api python manage.py report_health
+#      ↳ it must print "reported — …". Only then install this timer.
+#
+# EnvironmentFile below is for THIS UNIT rather than for the container: the
+# `docker compose` command itself needs POSTGRES_PASSWORD to interpolate
+# compose.yaml, and without it every command in that directory fails before
+# it reaches Docker.
 
 [Unit]
 Description=Business Platform — heartbeat to the Genmars system registry
