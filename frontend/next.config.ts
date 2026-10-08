@@ -18,11 +18,36 @@ import type { NextConfig } from "next";
  *     /auth /org /brn /ctl /invt /sls /admin      → Django :8020
  *     everything else                             → this, :3030
  *
- * ── THE REWRITE BELOW IS FOR `next dev`, NOT FOR PRODUCTION ─────────────────
+ * ── THE REWRITE BELOW IS NOT DEAD IN PRODUCTION, AND THAT IS A TRAP ─────────
  *
- * With Caddy in front, those paths never reach Next at all, so the rewrite is
- * dead in production and correct anyway. Locally there is no Caddy, so it is
- * what lets the browser reach Django on loopback.
+ * This said the rewrite was "for `next dev`, not for production — with Caddy in
+ * front, those paths never reach Next at all, so the rewrite is dead in
+ * production and correct anyway".
+ *
+ * ⚠ IT IS NOT DEAD. It is a SILENT FALLBACK, and it is why a missing Caddy
+ *   prefix half-works instead of failing.
+ *
+ *   `/ntf/*` was added to this list and to deploy/business.caddy, and
+ *   deploy/business.caddy is never copied onto the host automatically — so the
+ *   live matcher still had the old list. Caddy therefore handed /ntf/ to Next,
+ *   and THIS REWRITE PROXIED IT TO DJANGO. `/ntf/unread` and `/ntf/read`
+ *   worked perfectly. Only the bare `/ntf/` broke, because Next strips the
+ *   trailing slash with a 308 before any rewrite is applied, so the panel's
+ *   own URL 308'd to `/ntf?limit=30` and then 301'd into nothing.
+ *
+ *   So the failure mode is one endpoint of three, which is the worst shape:
+ *   enough works that a smoke test passes and the Caddy step looks done.
+ *
+ * ⚠ AND test_routing_lists.py CANNOT CATCH IT. That test compares Django's
+ *   prefixes against this file and against deploy/business.caddy — all three
+ *   in the REPOSITORY. It passed throughout, correctly, because the repository
+ *   was right and the HOST was not. There is no test for the host; the only
+ *   check is probing a bare prefix after a deploy and seeing whether Django or
+ *   Next answers. Django gives DRF JSON with an `allow:` header and the
+ *   `default-src 'none'` CSP; Next gives a 308 that strips the slash.
+ *
+ * Locally there is no Caddy, so the rewrite is also what lets the browser reach
+ * Django on loopback — which is the job it was added for and still does.
  *
  * ⚠ REWRITES ARE RESOLVED AT BUILD TIME and written into routes-manifest.json.
  *   Setting API_ORIGIN in the runtime environment has NO effect on them. In a

@@ -27,6 +27,33 @@ It parses the two deployment files as TEXT on purpose. Importing them is not
 possible for the Caddyfile and not meaningful for a TypeScript module, and the
 thing being tested is what is written in the file that gets deployed — not a
 model of it that could itself drift.
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠ WHAT THIS CANNOT CATCH: THE HOST.
+
+All three lists it compares are in the REPOSITORY, and `deploy/business.caddy`
+is never copied onto the host automatically — that host also serves a live
+client site, so the block is edited into /etc/caddy/conf.d/ by hand. A prefix
+can therefore be correct in all three files here and absent in production, and
+this test will pass, correctly, while the browser cannot reach it.
+
+That happened with `/ntf/` on 2026-10-07, and the shape is worth knowing because
+it is not a clean failure. `frontend/next.config.ts`'s rewrite IS LIVE in
+production (its own comment used to claim otherwise), so Caddy handed the
+unmatched prefix to Next and the rewrite proxied it to Django — `/ntf/unread`
+and `/ntf/read` worked. Only the bare `/ntf/` broke, because Next strips the
+trailing slash before applying a rewrite. One endpoint of three, which is
+exactly enough for a smoke test to pass.
+
+THE ONLY CHECK IS PROBING THE HOST AFTER A DEPLOY. A bare prefix answered by
+Django returns DRF JSON with an `allow:` header and the `default-src 'none'`
+CSP; answered by Next it returns a 308 that strips the trailing slash:
+
+    curl -si https://business.genmars.co.ke/<prefix>/ | head -20
+
+A new prefix is therefore FOUR steps, not three: this list, the two matchers,
+and the host.
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 from __future__ import annotations
