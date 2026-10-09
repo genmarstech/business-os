@@ -32,9 +32,11 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from notifications import services as notifications
+
+from .models import CashMovement
 
 ZERO = Decimal("0.00")
 CENTS = Decimal("0.01")
@@ -79,16 +81,37 @@ def drawer(shift) -> dict:
     # Quantised, every one of them. Sum() hands back whatever the column
     # gave it, so an aggregate of one 100.00 row arrives as Decimal("100")
     # and reaches a screen showing takings as "100" beside "1,000.00".
+    # ── CASH THAT MOVED DURING THE SHIFT ────────────────────────────────────
+    #
+    # Without these the expected figure is wrong on any day somebody banked
+    # the takings or fetched change, and the till reports a shortfall for the
+    # most ordinary thing a cash business does. See CashMovement.
+    #
+    # Summed in two directions rather than as a signed column, because the
+    # sign lives in the KIND — and a report that had to remember which way
+    # round a number was is a report that will one day get it backwards.
+    moved = CashMovement.objects.filter(shift=shift).aggregate(
+        paid_in=Sum("amount", filter=Q(kind__in=CashMovement.INWARD)),
+        paid_out=Sum("amount", filter=Q(kind__in=CashMovement.OUTWARD)),
+    )
+
     opening = money(shift.opening_cash or ZERO)
     cash = money(taken["cash"] or ZERO)
     change = money(taken["change"] or ZERO)
-    expected = money(opening + cash - change)
+    paid_in = money(moved["paid_in"] or ZERO)
+    paid_out = money(moved["paid_out"] or ZERO)
+    expected = money(opening + cash - change + paid_in - paid_out)
 
     counted = money(shift.closing_cash) if shift.closing_cash is not None else None
     return {
         "opening_cash": opening,
         "cash_taken": cash,
         "change_given": change,
+        # Reported separately rather than folded into `expected_cash`, so a
+        # manager looking at a drawer that does not add up can see WHY the
+        # expected figure is what it is without opening another screen.
+        "paid_in": paid_in,
+        "paid_out": paid_out,
         "expected_cash": expected,
         "counted_cash": counted,
         # Positive is over, negative is short. Null until somebody counts —
@@ -99,6 +122,62 @@ def drawer(shift) -> dict:
 
 
 @transaction.atomic
+@transaction.atomic
+def record_cash_movement(*, shift, kind: str, amount, reason: str, actor=None):
+    """
+    Write one movement of cash in or out of an open drawer.
+
+    ⚠ ONLY WHILE THE SHIFT IS OPEN. A movement recorded against a closed
+      shift would change the expected figure AFTER somebody counted against
+      it, which rewrites a variance that has already been signed off — the
+      one number the whole close exists to produce. Correct a closed shift
+      with a note, or do not correct it.
+
+    The caller's PERMISSION is checked in the view, not here, and the split is
+    the point: a pay-in needs `shift.open` and a pay-out needs `shift.close`.
+    See the banner on CashMovement for why the arithmetic makes them different
+    authorities.
+    """
+    if kind not in CashMovement.Kind.values:
+        raise ValidationError({"kind": "Choose what kind of movement this is."})
+    if kind not in CashMovement.INWARD and kind not in CashMovement.OUTWARD:
+        # Unreachable through the choices above, and here because a new kind
+        # added to the enum and to neither set would otherwise count as
+        # nothing at all in the expected figure — silently, and only visible
+        # as a drawer that will not reconcile.
+        raise ValidationError({"kind": f"{kind} has no direction."})
+
+    amount = as_money(amount)
+    if amount <= ZERO:
+        # The direction is the kind. A negative amount would be a second way
+        # to express it, and the two would disagree.
+        raise ValidationError({"amount": "How much moved? It must be positive."})
+
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError(
+            {"reason": "Say why this money moved. That is what the row is for."}
+        )
+
+    locked = type(shift).objects.select_for_update().get(pk=shift.pk)
+    if locked.status != "OPEN":
+        raise ValidationError(
+            {"detail": "That till is closed. Cash cannot move in or out of it."}
+        )
+
+    from identity.models import PlatformAccount
+    from organisations.models import OrganizationStaff
+
+    return CashMovement.objects.create(
+        shift=locked,
+        kind=kind,
+        amount=amount,
+        reason=reason[:200],
+        recorded_by_account=actor if isinstance(actor, PlatformAccount) else None,
+        recorded_by_staff=actor if isinstance(actor, OrganizationStaff) else None,
+    )
+
+
 def close_shift(*, shift, counted_cash):
     """
     End a shift against a counted drawer.

@@ -5,8 +5,9 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from . import services
 from .serializers import RegisterSerializer, RegisterShiftSerializer, BranchesSerializer, StaffAssignmentSerializer
-from .models import Branches, Register, RegisterShift, staffAssignment
+from .models import Branches, CashMovement, Register, RegisterShift, staffAssignment
 from identity import access
+from identity.permissions import acting
 from identity.scoping import TenantScoped
 from subscriptions import entitlement
 from subscriptions.limits import GrowthLimited
@@ -93,6 +94,18 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
         # than SHIFT_CLOSE — a note only a manager could write would be a note
         # about the shift rather than from it.
         "note": access.SHIFT_OPEN,
+        # ⚠ THE WEAKER OF THE TWO THIS ACTION NEEDS, ON PURPOSE.
+        #
+        # A pay-in is a cashier's own act and `shift.open` is right for it. A
+        # pay-OUT lowers the expected figure and so needs `shift.close` — but
+        # this map is keyed by action and cannot say "depends on the body", so
+        # the stronger check is made by hand inside `cash()`.
+        #
+        # Registered rather than omitted because an action missing from here
+        # inherits `default_permission` silently, which is what the banner
+        # above is about. Leaving it out would have produced exactly the same
+        # effective permission and told nobody that a second check existed.
+        "cash": access.SHIFT_OPEN,
     }
     queryset = RegisterShift.objects.select_related('register__branch').all()
     serializer_class = RegisterShiftSerializer
@@ -108,6 +121,82 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
         """
         shift = self.get_object()
         return Response(_money(services.drawer(shift)))
+
+    @action(detail=True, methods=["post"], url_path="cash")
+    def cash(self, request, pk=None):
+        """
+        Record cash moving in or out of an open drawer.
+
+        ══════════════════════════════════════════════════════════════════════
+        THE PERMISSION DEPENDS ON THE DIRECTION, AND THAT IS THE WHOLE CONTROL.
+
+        A PAY-IN raises the expected figure, so a false one makes the drawer
+        look more short, never less. A cashier fetching change from the safe
+        records it themselves: `shift.open`, which they hold.
+
+        A PAY-OUT lowers it. A cashier who could record one could take money
+        and write the shortfall away in the same movement — which is exactly
+        what a drawer count exists to catch. So it needs `shift.close`, held
+        by a branch manager and deliberately not by a cashier. The same shape
+        as voiding a sale and approving a purchase order: the second person is
+        a permission the first one does not hold.
+
+        ⚠ `permissions` ON THE VIEWSET CANNOT EXPRESS THIS. That map is keyed
+          by action, and this one action needs two different answers depending
+          on the body. So it is registered at the WEAKER of the two and the
+          stronger one is checked here by hand — registered rather than
+          omitted, because an action missing from that map inherits
+          `default_permission` silently, which is the failure the map's own
+          banner describes.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        shift = self.get_object()
+        kind = str(request.data.get("kind", ""))
+
+        if kind in CashMovement.OUTWARD:
+            branch_id = getattr(shift.register, "branch_id", None)
+            if not access.may(request.user, access.SHIFT_CLOSE, branch_id):
+                return Response(
+                    {
+                        "detail": (
+                            "Taking cash out of a drawer needs a manager. Ask "
+                            "somebody who can close a till to record it."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        try:
+            movement = services.record_cash_movement(
+                shift=shift,
+                kind=kind,
+                amount=request.data.get("amount"),
+                reason=request.data.get("reason", ""),
+                actor=acting(request),
+            )
+        except DjangoValidationError as error:
+            return Response(
+                error.message_dict if hasattr(error, "message_dict") else
+                {"detail": error.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "movement": {
+                    "id": movement.pk,
+                    "kind": movement.kind,
+                    "kind_label": movement.get_kind_display(),
+                    "amount": str(movement.amount),
+                    "reason": movement.reason,
+                    "created_at": movement.created_at,
+                },
+                # The drawer as it now stands, so the till does not have to
+                # ask again to redraw the figure it just changed.
+                "drawer": _money(services.drawer(shift)),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"])
     def note(self, request, pk=None):

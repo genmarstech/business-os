@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BusinessMark } from "@/components/BusinessMark";
 import { Calculator } from "./Calculator";
+import { CashMovement } from "./CashMovement";
 import { Count } from "./Count";
 import { Scanner } from "./Scanner";
 import { scanning } from "./barcode";
@@ -296,7 +297,13 @@ function Signed({
   }
 
   if (going === "sell") {
-    return <Shifted session={session} onSignOut={onSignOut} />;
+    return (
+      <Shifted
+        session={session}
+        permissions={me.permissions}
+        onSignOut={onSignOut}
+      />
+    );
   }
 
   return (
@@ -327,9 +334,19 @@ function Signed({
 /** Choosing a register and opening the drawer, then selling. */
 function Shifted({
   session,
+  permissions,
   onSignOut,
 }: {
   session: TillSession;
+  /**
+   * Threaded down from `Signed` rather than re-fetched here.
+   *
+   * `Selling` needs it to know whether to offer taking cash OUT of the
+   * drawer, which needs `shift.close`. A second /auth/me call would be a
+   * second answer that can disagree with the first — and the one that
+   * decides what a cashier may do should not be the stale one.
+   */
+  permissions: string[];
   onSignOut: () => void;
 }) {
   const [shift, setShift] = useState<Shift | null>(null);
@@ -391,7 +408,12 @@ function Shifted({
 
   if (shift) {
     return (
-      <Selling session={session} shift={shift} onSignOut={onSignOut} />
+      <Selling
+        session={session}
+        shift={shift}
+        permissions={permissions}
+        onSignOut={onSignOut}
+      />
     );
   }
 
@@ -469,10 +491,14 @@ function Shifted({
 function Selling({
   session,
   shift,
+  permissions,
   onSignOut,
 }: {
   session: TillSession;
   shift: Shift;
+  /** Only to decide whether to offer taking cash OUT. Not security — the
+      server refuses a pay-out without `shift.close` whatever this says. */
+  permissions: string[];
   onSignOut: () => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -492,7 +518,7 @@ function Selling({
   const [phone, setPhone] = useState("");
   const [push, setPush] = useState<Push | null>(null);
   const [sale, setSale] = useState<Sale | null>(null);
-  const [tool, setTool] = useState<"calculator" | "note" | null>(null);
+  const [tool, setTool] = useState<"calculator" | "note" | "cash" | null>(null);
   const [camera, setCamera] = useState(false);
   /*
    * Asked once, after mount. `scanning()` reads `window`, so calling it
@@ -831,6 +857,19 @@ function Selling({
           >
             {note.trim() ? "Note ✓" : "Note"}
           </button>
+          {/*
+            Beside the note rather than in the sale flow, for the same reason:
+            needed a few times a shift and never in the way of the next
+            customer. It is what stops the drawer reading short on any day
+            somebody banks the takings — see CashMovement.
+          */}
+          <button
+            className={styles.barQuiet}
+            onClick={() => setTool(tool === "cash" ? null : "cash")}
+            aria-expanded={tool === "cash"}
+          >
+            Cash in/out
+          </button>
 
           <button className={styles.barQuiet} onClick={() => void refresh()}>
             Refresh prices
@@ -849,6 +888,17 @@ function Selling({
           shiftId={shift.id}
           note={note}
           onSaved={setNote}
+          onClose={() => setTool(null)}
+        />
+      ) : null}
+      {tool === "cash" ? (
+        <CashMovement
+          shiftId={shift.id}
+          // Drawn from the permission list, and not security: the server
+          // refuses a pay-out without shift.close whatever this says. It only
+          // lets the screen explain in advance rather than after a refusal.
+          maySendOut={permissions.includes("shift.close")}
+          onRecorded={() => setTool(null)}
           onClose={() => setTool(null)}
         />
       ) : null}

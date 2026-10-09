@@ -773,6 +773,30 @@
   margin: 0 0 10px;
 }
 
+/* Recorded, and what the drawer should now hold. Confirmation rather than an
+   error, so it reads as the good outcome it is. */
+.toolDone {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--accent-wash);
+  color: var(--accent-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* "Taking cash out needs a manager", said before the button is pressed. A
+   warning about what WILL be refused, not a report of what was. */
+.toolNote {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .toolError {
   background: var(--danger-bg);
   color: var(--danger);

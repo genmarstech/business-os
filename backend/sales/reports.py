@@ -309,12 +309,25 @@ def register_status(user, branch_id=None) -> list[dict]:
     §5 "Register status" — which tills are open, who is on them, and what has
     gone through since they opened.
 
-    `expected_cash` is opening float plus cash taken minus change given. It is
-    what should be in the drawer; comparing it to what is counted is the
-    variance in module 7, and it cannot be computed at all without the sales
-    this module now has.
+    ══════════════════════════════════════════════════════════════════════════
+    THE DRAWER FIGURE IS NOT COMPUTED HERE. IT IS ASKED FOR.
+
+    `branches.services.drawer` already carried a banner saying "ONE
+    IMPLEMENTATION, SHARED WITH THE REPORT" — and it was not shared. This
+    function held a second copy of `opening + cash taken − change given`, and
+    the two stayed in step only because nobody had changed either.
+
+    Then cash movements were added to one of them. A shop that banked its
+    takings at lunchtime would have seen the close screen expect one figure
+    and this dashboard expect another, several hundred shillings apart, with
+    no way to tell which was lying. That is the exact failure the banner
+    describes, arrived at the exact way it predicted.
+
+    So the claim is now true: one implementation, called from both.
+    ══════════════════════════════════════════════════════════════════════════
     """
     from branches.models import RegisterShift
+    from branches.services import drawer
 
     shifts = scoped(
         RegisterShift.objects.select_related("register", "register__branch", "operator"),
@@ -326,15 +339,7 @@ def register_status(user, branch_id=None) -> list[dict]:
 
     out = []
     for shift in shifts:
-        taken = Payment.objects.filter(
-            sale__shift=shift,
-            sale__status=Sale.Status.COMPLETED,
-            method=Payment.Method.CASH,
-        ).aggregate(cash=Sum("amount"), change=Sum("change_given"))
-
-        cash = taken["cash"] or ZERO
-        change = taken["change"] or ZERO
-        opening = shift.opening_cash or ZERO
+        counts = drawer(shift)
 
         sold = Sale.objects.filter(
             shift=shift, status=Sale.Status.COMPLETED
@@ -350,10 +355,14 @@ def register_status(user, branch_id=None) -> list[dict]:
                 "operator": shift.operator_id,
                 "operator_name": shift.operator.full_name,
                 "opened_at": shift.opened_at,
-                "opening_cash": opening,
-                "cash_taken": cash,
-                "change_given": change,
-                "expected_cash": opening + cash - change,
+                "opening_cash": counts["opening_cash"],
+                "cash_taken": counts["cash_taken"],
+                "change_given": counts["change_given"],
+                # New, and the reason this dashboard can now be trusted beside
+                # the close screen: cash that moved mid-shift.
+                "paid_in": counts["paid_in"],
+                "paid_out": counts["paid_out"],
+                "expected_cash": counts["expected_cash"],
                 "revenue": q(sold["revenue"]),
                 "transactions": sold["transactions"] or 0,
             }
