@@ -26,7 +26,7 @@ from rest_framework.response import Response
 
 from Business_Platform.reporting import exact, parse_window
 from identity import access
-from identity.authentication import StaffPrincipal
+from identity.permissions import acting
 from identity.scoping import TenantScoped
 
 from . import reports, services
@@ -59,18 +59,6 @@ def _refuse(error: DjangoValidationError) -> Response:
     return Response(detail, status=status.HTTP_400_BAD_REQUEST)
 
 
-def _acting(request):
-    """
-    Who is doing this, as a row something can point at.
-
-    A till session knows its staff member. A subscriber is a PlatformAccount,
-    which is already a row. Anything else attributes to nobody — see the note
-    on `services._actor`, and note that `approve_order` refuses that case
-    rather than recording an approval by nobody.
-    """
-    if isinstance(request.user, StaffPrincipal):
-        return request.user.staff
-    return request.user
 
 
 class SupplierViewSet(TenantScoped, viewsets.ModelViewSet):
@@ -153,7 +141,7 @@ class PurchaseOrderViewSet(TenantScoped, viewsets.ModelViewSet):
                 }
                 for line in data["items"]
             ],
-            actor=_acting(self.request),
+            actor=acting(self.request),
             expected_at=data.get("expected_at"),
             note=data.get("note") or "",
             idempotency_key=data.get("idempotency_key") or "",
@@ -245,7 +233,7 @@ class PurchaseOrderViewSet(TenantScoped, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
-            order = services.approve_order(order, actor=_acting(request))
+            order = services.approve_order(order, actor=acting(request))
         except DjangoValidationError as error:
             return _refuse(error)
         return Response(self.get_serializer(order).data)
@@ -296,7 +284,7 @@ class PurchaseOrderViewSet(TenantScoped, viewsets.ModelViewSet):
                     {"item": line["item"], "quantity": line["quantity"]}
                     for line in data["lines"]
                 ],
-                actor=_acting(request),
+                actor=acting(request),
                 delivery_note=data.get("delivery_note") or "",
                 note=data.get("note") or "",
                 idempotency_key=data.get("idempotency_key") or "",

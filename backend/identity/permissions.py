@@ -75,6 +75,28 @@ class IsKnownPrincipal(BasePermission):
         return isinstance(request.user, (PlatformAccount, StaffPrincipal))
 
 
+def acting(request):
+    """
+    Who is doing this, as a row something can point at.
+
+    A till session knows its staff member; a subscriber is a PlatformAccount,
+    which is already a row. Anything else attributes to nobody, which the
+    services that care about attribution refuse — `approve_order` will not
+    record an approval by nobody.
+
+    ⚠ THERE WERE THREE OF THESE. inventory/views.py and procurement/views.py
+      each had a private copy, and the second one's docstring described itself
+      as "the twin" of the first — which is a comment noticing a duplication
+      rather than removing it. Adding a third for the till's cash movements
+      is what made it worth doing properly: attribution is an identity
+      question, so it belongs beside the principal types rather than in
+      whichever app needed it first.
+    """
+    if isinstance(request.user, StaffPrincipal):
+        return request.user.staff
+    return request.user
+
+
 def tenant_scope(principal) -> list[int]:
     """
     The organisation ids this principal may touch. The only answer to that.

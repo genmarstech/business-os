@@ -28,6 +28,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from identity import access
+from identity.permissions import acting
 from identity.authentication import StaffPrincipal
 from identity.permissions import tenant_scope
 from identity.scoping import TenantScoped
@@ -77,18 +78,6 @@ def _refused(error) -> dict:
     )
 
 
-def _acting(request):
-    """
-    Who is doing this, as a row something can point at.
-
-    A till session knows its staff member; a subscriber is a PlatformAccount,
-    which is already a row. The twin of `procurement.views._acting`, and the
-    reason the count endpoints no longer take a `*_by` field — see the banner
-    on `services._actor`.
-    """
-    if isinstance(request.user, StaffPrincipal):
-        return request.user.staff
-    return request.user
 
 
 
@@ -344,7 +333,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         try:
             count = services.open_count(
                 branch=branch,
-                actor=_acting(request),
+                actor=acting(request),
                 note=form.validated_data.get("note", ""),
             )
         except DjangoValidationError as error:
@@ -364,7 +353,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                 count=count,
                 inventory=form.validated_data["inventory"],
                 counted=form.validated_data["counted"],
-                actor=_acting(request),
+                actor=acting(request),
                 note=form.validated_data.get("note", ""),
             )
         except DjangoValidationError as error:
@@ -378,7 +367,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         count = self.get_object()
         try:
             closed, applied = services.close_count(
-                count=count, actor=_acting(request)
+                count=count, actor=acting(request)
             )
         except DjangoValidationError as error:
             return Response(_refused(error), status=status.HTTP_400_BAD_REQUEST)
@@ -394,7 +383,7 @@ class StockCountViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         try:
             abandoned = services.abandon_count(
                 count=count,
-                actor=_acting(request),
+                actor=acting(request),
                 reason=form.validated_data["reason"],
             )
         except DjangoValidationError as error:
