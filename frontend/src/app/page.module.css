@@ -252,11 +252,42 @@
   letter-spacing: 0.02em;
 }
 
+/*
+ * The two doors sit together on the right, so .doorBar's space-between still
+ * has exactly two children: the brand and this.
+ */
+.doorDoors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/*
+ * The staff door is the quieter of the two. An owner arriving for the first
+ * time is who this page is written for, and nobody has staff before they have
+ * a business — but the people who sign in here every day are the staff, so it
+ * cannot be hidden either.
+ */
+.doorStaff {
+  font-size: 13.5px;
+  color: var(--ink-faint);
+  text-decoration: none;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+
+.doorStaff:hover {
+  color: var(--ink);
+  background: var(--sunken);
+}
+
 .doorSignIn {
   font-size: 13.5px;
   color: var(--ink-muted);
   text-decoration: none;
   padding: 8px 4px;
+  white-space: nowrap;
 }
 
 .doorSignIn:hover {

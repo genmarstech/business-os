@@ -52,17 +52,26 @@ goods receipts that move stock. See *Buying* below.
 committed and not yet delivered, and which of them turn up when they said
 they would. See *What the buying reports will and will not say* below.
 
-What is left of V2: cash reconciliation beyond the drawer count, the returns
-workflow beyond the refund itself, advanced permissions, notifications, and
-multi-branch reporting beyond the branch comparison.
-What is left of V2: cash reconciliation beyond the drawer count, the returns
-workflow beyond the refund itself, advanced permissions, notifications, and
-multi-branch reporting beyond the branch comparison. Nothing reports on
-purchasing yet — what a supplier has cost this quarter, and what is committed
-and not yet delivered, are questions this data can answer and no screen asks.
+**Notifications are built** — stock crossings, M-Pesa outcomes, approvals
+waiting and short drawers, addressed to a permission rather than to a person.
+See *Telling somebody something happened* below.
 
-**V3 is not started**: offline mode, M-Pesa, loyalty, accounting integrations,
-e-commerce sync, advanced analytics, automated replenishment. §11 asks for
+**Everybody the role table names can now get in.** The purchasing officer, the
+finance clerk and the branch auditor hold real permissions and had nowhere to
+use them: the office is server-rendered and they carried a bearer token, which
+a server component never sees. The same credential now also opens a cookie
+session at `/sign-in`, so the screens that were already written and already
+permission-gated are reachable by the people they were gated for.
+
+What is left of V2: cash reconciliation beyond the drawer count, the returns
+workflow beyond the refund itself, and multi-branch reporting beyond the
+branch comparison.
+
+**V3 is barely started, and M-Pesa is the piece that is done** — STK push at
+the till, a public callback that decides nothing, and a payment that can be
+spent exactly once. See *Taking M-Pesa at the till* below. The rest is
+untouched: offline mode, loyalty, accounting integrations, e-commerce sync,
+advanced analytics, automated replenishment. §11 asks for
 idempotency keys and transaction identifiers to be defined *before* production
 rollout, and they are — sales and refunds both take one — so the offline
 queue has something to synchronise against when it is built.
@@ -676,6 +685,40 @@ figures hundreds of shillings apart, with nothing to say which was lying.
 That is the exact failure the banner describes, reached the exact way it
 predicted. The report now calls `drawer()`, and a test asserts the two agree
 field by field.
+## Three doors, and who goes through which
+
+| who | where | credential |
+|---|---|---|
+| the owner, an admin, an accountant | `/auth/start` → Genmars | a **Genmars account** |
+| a cashier, a stock clerk | `/till` | a **till login**, as a bearer token |
+| a purchasing officer, finance clerk, branch auditor, branch manager | `/sign-in` | **the same till login**, as a cookie session |
+
+The third door is new, and it closed a hole the role table had been promising
+around. Those roles hold real permissions — `purchasing.approve`,
+`reports.branch` — against endpoints that honour them, and they had nowhere to
+use them: every office screen is server-rendered, and a server component
+forwards cookies rather than headers, so somebody holding only a bearer token
+could not reach a single one. They signed in at the till and were told their
+screen did not exist.
+
+**Nothing new had to be built behind that door.** `Shell.tsx` already hides a
+navigation item the caller has no permission for, and half a dozen pages
+already branch on `me.kind === "staff"`. The application was written for them
+and could not let them in.
+
+> ⚠ **A transport, not a credential store.** Both staff doors call the same
+> `authenticate_staff`, open the same `StaffSession` row and produce the same
+> `StaffPrincipal` — so `revoke_all_sessions` ends both and withdrawing a login
+> logs the browser out on its next request. A `StaffCredential` password is
+> still refused by `api.genmars.co.ke`, and a Genmars password is still refused
+> here. `backend/identity/README.md` has the full argument.
+
+The cookie door **enforces CSRF** and the token door **must not**: a browser
+sends a cookie automatically so a cross-site POST would ride on it, while a
+header is never sent automatically and asking a till for a CSRF token would
+break every register. That is why they are two authentication classes rather
+than one with a branch — a branch is a thing that can be wrong, and this one
+would fail open.
 
 ## Scanning a barcode
 
@@ -777,13 +820,11 @@ every test in that app asserts a row exists rather than that nothing threw.
 
 These are written down rather than left to be rediscovered.
 
-- **Only the office sees notifications.** The feed, the permissions and the API
-  are tier-agnostic and a staff bearer token reads `/ntf/` correctly — but the
-  bell lives in the Shell, which a tenant-local principal cannot reach, and
-  `/till` has none on purpose (a terminal, not a dashboard; a payment's outcome
-  is already on the screen the cashier is watching). It becomes a gap the day
-  the purchasing officer and finance clerk get the till workspaces they are
-  still missing, below.
+- **The till has no notification bell**, on purpose: it is a terminal rather
+  than a dashboard, and a cashier's two relevant notifications are already in
+  front of them — a payment's outcome is on the screen they are watching, and
+  they cannot order stock. Operational staff who work in the OFFICE do see the
+  bell now, since they reach the Shell like anybody else.
 - **Camera scanning does not work on iPhones.** `BarcodeDetector` is
   Chromium-only, and every iOS browser is WebKit underneath — so this is
   iPhones rather than a browser choice. Typing a code and USB wedge scanners

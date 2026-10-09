@@ -264,16 +264,16 @@ function Signed({
     return (
       <div className={styles.gate}>
         <div className={styles.gateCard}>
-          <h1 className={styles.gateTitle}>You are signed in</h1>
+          <h1 className={styles.gateTitle}>Your work is in the office</h1>
           <p className={styles.gateLede}>
-            Your login works, {session.staff.name}. Your role does not work a
-            register or count stock, and the till has no screen for it yet —
-            buying, figures and audit are done from the office system by
-            somebody with a Genmars sign-in.
+            Your login works, {session.staff.name} — it is just not a till
+            login. Your role does not ring up sales or count stock; buying,
+            figures and audit are done on the office screens.
           </p>
           <p className={styles.gateNote}>
-            Nothing is wrong with your sign-in. Tell your manager you have
-            reached this screen and they will know what to put you on.
+            Sign in at <strong>/sign-in</strong> with the same business
+            number, username and password you used here. Nothing else to set
+            up — it is the same login.
           </p>
           <button
             type="button"
