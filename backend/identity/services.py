@@ -339,6 +339,51 @@ def open_staff_session(credential: StaffCredential) -> tuple[StaffSession, str]:
     return session, token
 
 
+def _touch(session: StaffSession) -> None:
+    """
+    Stamp last_used_at. Shared, so the two transports cannot drift.
+
+    The cookie path and the token path both resolve the same StaffSession row,
+    and "when was this last used" has to mean the same thing whichever one
+    carried the request — otherwise a staff member working all day in a
+    browser looks idle beside a till that is merely open.
+    """
+    session.last_used_at = timezone.now()
+    session.save(update_fields=["last_used_at"])
+
+
+def resolve_staff_session_by_id(session_id: int) -> StaffSession | None:
+    """
+    The live session with this id, or None. For the COOKIE transport.
+
+    ⚠ NO TOKEN IS INVOLVED AND NONE IS NEEDED. A bearer token has to be a
+      secret because the client carries it in a header it could have obtained
+      anywhere. A Django session cookie is already a secret the server signed
+      and issued, so storing a second one inside it would be a credential
+      guarding a credential — and one more thing that can leak.
+
+      What this does instead is re-check the row on every request: that it has
+      not expired, has not been revoked, and that the login behind it is still
+      active. That is what makes withdrawing a login log the browser out at
+      once rather than at the end of the shift, and it is the same StaffSession
+      row the till's token resolves to, so `revoke_all_sessions` ends both.
+    """
+    session = (
+        StaffSession.objects.select_related(
+            "credential", "credential__staff", "credential__organization"
+        )
+        .filter(pk=session_id)
+        .first()
+    )
+    if session is None or not session.is_live:
+        return None
+    if not session.credential.is_active:
+        return None
+
+    _touch(session)
+    return session
+
+
 def resolve_staff_session(token: str) -> StaffSession | None:
     """
     Find the live session a token belongs to, or None.
@@ -363,8 +408,7 @@ def resolve_staff_session(token: str) -> StaffSession | None:
                 # not merely stop the next sign-in. This is the whole point of
                 # checking on every request rather than only at the door.
                 return None
-            session.last_used_at = timezone.now()
-            session.save(update_fields=["last_used_at"])
+            _touch(session)
             return session
     return None
 

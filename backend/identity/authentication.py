@@ -33,6 +33,53 @@ from .models import PlatformAccount
 
 SUBSCRIBER_SESSION_KEY = "platform_account_id"
 
+# ── THE OTHER SESSION KEY, AND WHY THEY MUST NEVER BOTH BE SET ──────────────
+#
+# A browser session can carry a subscriber OR a member of operational staff,
+# and the two authentication classes below read these two keys out of the SAME
+# Django session. If both were ever present, whichever class DRF happened to
+# try first would decide who the caller is — and the order is a line in
+# settings.py that nobody would think of as a security control.
+#
+# So signing in either way clears the other key first. `become()` below is the
+# only thing that writes either of them, and a test asserts a session cannot
+# end up holding both.
+STAFF_SESSION_KEY = "staff_session_id"
+
+
+def become(request, *, account_id: int | None = None, staff_session_id: int | None = None):
+    """
+    Make this browser session exactly one principal, and rotate its key.
+
+    ⚠ THE ONLY PLACE EITHER SESSION KEY IS WRITTEN.
+
+    Two reasons it is a function rather than two assignments at two call
+    sites:
+
+      · A session must never hold both keys. Which principal a request
+        authenticated as would then depend on the ORDER of
+        DEFAULT_AUTHENTICATION_CLASSES in settings.py — a line nobody reads
+        as a security control, and one a future reshuffle would change
+        without anybody connecting the two.
+
+      · Session fixation. A session id captured before a sign-in is still
+        valid after it unless the key is cycled, and the sign-in is the one
+        moment in the flow where closing that costs nothing.
+
+    Pass neither to sign out of both.
+    """
+    request.session.pop(SUBSCRIBER_SESSION_KEY, None)
+    request.session.pop(STAFF_SESSION_KEY, None)
+
+    if account_id is None and staff_session_id is None:
+        return
+
+    request.session.cycle_key()
+    if account_id is not None:
+        request.session[SUBSCRIBER_SESSION_KEY] = account_id
+    else:
+        request.session[STAFF_SESSION_KEY] = staff_session_id
+
 
 class _Csrf(CsrfViewMiddleware):
     """Django's own check, reachable from outside the middleware chain."""
@@ -108,6 +155,90 @@ class SubscriberSessionAuthentication(authentication.BaseAuthentication):
         so the existing suite is unaffected and a test that wants the real
         behaviour asks for it with Client(enforce_csrf_checks=True).
         """
+        check = _Csrf(lambda request: None)
+        check.process_request(request)
+        reason = check.process_view(request, None, (), {})
+        if reason:
+            raise exceptions.PermissionDenied(f"CSRF failed: {reason}")
+
+
+class StaffSessionAuthentication(authentication.BaseAuthentication):
+    """
+    A member of operational staff working in a browser, not at a till.
+
+    ══════════════════════════════════════════════════════════════════════════
+    WHY THIS EXISTS WHEN StaffTokenAuthentication ALREADY DOES.
+
+    The bearer token below was chosen for a TILL, and the argument for it is
+    on StaffSession: a till is not a browser tab, it stays signed in for a
+    whole shift, it is meant to become an offline-capable client, and it holds
+    its credential explicitly rather than having one set on it invisibly.
+
+    Every word of that is about a register. None of it is about a finance
+    clerk reading yesterday's takings on a laptop, or a purchasing officer
+    approving a delivery — and those people had NOWHERE TO WORK. The
+    server-rendered application was already written for them: Shell.tsx gates
+    every navigation item on a permission, and half a dozen pages branch on
+    `me.kind === "staff"`. They simply could not reach it, because a server
+    component forwards cookies and they had only a token.
+
+    So the transport differs by context and the CREDENTIAL does not. Both
+    classes resolve the same StaffCredential, through the same
+    `authenticate_staff`, into the same StaffPrincipal.
+
+    ⚠ THIS DOES NOT BREACH THE TWO-TIER RULE, AND IT IS WORTH SAYING WHY.
+      The rule is that the two CREDENTIAL STORES must never meet: a
+      StaffCredential password must never be accepted by api.genmars.co.ke,
+      and a Genmars password must never be accepted here. This adds no third
+      store and no crossover — it is the same tenant-local credential, read
+      from a cookie this application set rather than from a header. A
+      subscriber still cannot sign in this way and a cashier still cannot sign
+      in at Genmars.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── IT ENFORCES CSRF, FOR THE REASON THE SUBSCRIBER CLASS DOES ──────────
+    A cookie is sent by the browser automatically, so a cross-site POST would
+    otherwise ride on it. The bearer class below deliberately does NOT enforce
+    CSRF, and must not: a header is never sent automatically, so there is
+    nothing to forge, and enforcing it would break every till.
+
+    That difference is the whole reason these are two classes rather than one
+    with a branch. A single class would have to decide per request whether the
+    check applies, and the day somebody gets that branch wrong it fails open.
+    """
+
+    def authenticate(self, request):
+        session_id = request.session.get(STAFF_SESSION_KEY)
+        if not session_id:
+            return None
+
+        # Anything that is not an integer is not one of ours. Passing it to
+        # the ORM raises ValueError and turns a bad session into a 500 — the
+        # same trap SubscriberSessionAuthentication already guards, found
+        # there by a test that put a staff token in the subscriber's key.
+        try:
+            session_id = int(session_id)
+        except (TypeError, ValueError):
+            request.session.pop(STAFF_SESSION_KEY, None)
+            return None
+
+        session = services.resolve_staff_session_by_id(session_id)
+        if session is None:
+            # Expired, revoked, or the login was withdrawn. Checked on EVERY
+            # request rather than only at the door, which is what makes
+            # `set_credential_active(active=False)` take effect now rather
+            # than whenever the browser next signs in.
+            request.session.pop(STAFF_SESSION_KEY, None)
+            return None
+
+        # Only once we know there IS a session to protect — running it before
+        # would answer "CSRF failed" to an anonymous caller.
+        self.enforce_csrf(request)
+
+        return (StaffPrincipal(session), None)
+
+    def enforce_csrf(self, request):
+        """Django's own check, run by hand because this is not middleware."""
         check = _Csrf(lambda request: None)
         check.process_request(request)
         reason = check.process_view(request, None, (), {})

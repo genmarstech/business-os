@@ -443,6 +443,11 @@ MAILERS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "identity.authentication.SubscriberSessionAuthentication",
+        # Operational staff in a browser. Beside the subscriber class rather
+        # than after the token one because both read the same Django session,
+        # and `authentication.become` guarantees only one of their two keys is
+        # ever set — so the order here decides nothing, which is the point.
+        "identity.authentication.StaffSessionAuthentication",
         "identity.authentication.StaffTokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
