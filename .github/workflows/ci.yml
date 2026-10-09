@@ -64,9 +64,30 @@ jobs:
     #
     # 17-alpine matches compose.yaml. A suite green on a different major
     # version is a weaker claim than it looks.
+    #
+    # ── THE REGISTRY IS A MIRROR AND THE TAG IS NOT ─────────────────────────
+    #
+    # mirror.gcr.io is a read-through cache of Docker Hub, so this is the same
+    # postgres:17-alpine the sentence above is about, fetched from somewhere
+    # that does not count pulls per IP.
+    #
+    # Docker Hub does, and GitHub's hosted runners share an IP with every
+    # other repository building on them. This job failed twice in three
+    # minutes on `toomanyrequests: You have reached your unauthenticated pull
+    # rate limit` with a green suite behind it — a red check that says nothing
+    # about the code, which the header of this file argues is worse than none.
+    #
+    # The alternative is a Docker Hub account and two repository secrets. That
+    # buys a per-account limit instead of a per-IP one and is the better answer
+    # the day this mirror is not enough; it is not needed yet, and a secret
+    # nobody has to rotate is a secret that cannot leak.
+    #
+    # A service container cannot take a build argument, so unlike the two
+    # Dockerfiles this is written out rather than parameterised. Nothing
+    # deploys from here — compose.yaml on the host still names Docker Hub.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: mirror.gcr.io/library/postgres:17-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
@@ -205,11 +226,17 @@ jobs:
       # build on the host. What this catches is a Dockerfile that stopped
       # working, which is otherwise discovered during a deploy — the worst
       # moment to discover it.
+      #
+      # REGISTRY is why these two pull from a mirror; both Dockerfiles explain
+      # it at the ARG, and both default to Docker Hub so a deploy that does not
+      # pass it builds exactly what it always did.
       - name: Backend image
         uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: false
+          build-args: |
+            REGISTRY=mirror.gcr.io/library
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -218,5 +245,7 @@ jobs:
         with:
           context: ./frontend
           push: false
+          build-args: |
+            REGISTRY=mirror.gcr.io/library
           cache-from: type=gha
           cache-to: type=gha,mode=max
