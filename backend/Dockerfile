@@ -13,9 +13,33 @@
 # assumed.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── WHERE THE BASE IMAGE IS PULLED FROM, AND WHY IT IS AN ARGUMENT ──────────
+#
+# The default is Docker Hub, spelled in full. `python:3.14-slim` and
+# `docker.io/library/python:3.14-slim` are the same image; writing it out is
+# what lets the registry be substituted without the tag moving.
+#
+# ⚠ THE TAG IS NOT THE PART THAT MAY VARY. The Python version is pinned for
+#   the reason above and REGISTRY must never be used to change it.
+#
+# CI overrides this to a read-through mirror because Docker Hub's
+# unauthenticated pull limit is counted PER IP, and GitHub's hosted runners
+# share theirs with everybody else building on them. That is not a
+# hypothetical: it took this pipeline down twice in three minutes with
+# `429 Too Many Requests`, on a branch whose tests were green — a red check
+# that says nothing about the code, which the header of ci.yml argues is
+# worse than no check at all.
+#
+# Deploys do not pass it. The host builds from Docker Hub, as it always has,
+# so nothing that ships comes from the mirror; what CI proves is that this
+# Dockerfile still builds, and a read-through mirror serves the same digests
+# to prove it against.
+
+ARG REGISTRY=docker.io/library
+
 # ---- build ------------------------------------------------------------------
 
-FROM python:3.14-slim AS build
+FROM ${REGISTRY}/python:3.14-slim AS build
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -39,7 +63,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # ---- runtime ----------------------------------------------------------------
 
-FROM python:3.14-slim AS runtime
+FROM ${REGISTRY}/python:3.14-slim AS runtime
 
 LABEL org.opencontainers.image.title="business-platform-api" \
       org.opencontainers.image.vendor="Genmars Tech Limited" \
