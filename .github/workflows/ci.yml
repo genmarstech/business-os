@@ -240,6 +240,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+          # BUILDKIT_SYNTAX covers line 1 of the Dockerfile, which REGISTRY
+          # cannot: a parser directive is resolved before any ARG is read. The
+          # banner there explains it. Without this, every FROM is mirrored and
+          # the build still dies on Docker Hub at the first line — which is
+          # exactly how this was found.
       - name: Frontend image
         uses: docker/build-push-action@v7
         with:
@@ -247,5 +252,6 @@ jobs:
           push: false
           build-args: |
             REGISTRY=mirror.gcr.io/library
+            BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1.7
           cache-from: type=gha
           cache-to: type=gha,mode=max
