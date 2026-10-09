@@ -619,6 +619,64 @@ The hourly ceiling on reset codes applies, so a mistyped address cannot be
 turned into a hundred emails at a stranger — reported as a 429 rather than
 silently swallowed.
 
+## Cash in and out of a drawer
+
+Expected cash used to be opening float plus cash taken less change given. A
+shop that lifts KSh 5,000 out at lunchtime to walk it to the bank then counts
+a drawer 5,000 below what the system expects, and the till reports it
+**short** — for the most ordinary thing a cash business does.
+
+The product already knew it happened: `RegisterShift.note`'s own help text
+offers *"a float taken for change"* as an example. The answer was prose in a
+box nothing adds up. And once short drawers started raising a notification to
+every holder of `reports.branch`, the cost stopped being a wrong figure on a
+screen and became **a manager paged, daily, about money nobody lost**.
+
+`CashMovement` records it instead: a kind, a positive amount, a required
+reason, and who. Append-only — a movement recorded wrongly is corrected by a
+second one in the opposite direction, for the reason §10 gives about sales.
+
+### In and out are not the same authority
+
+| | effect on the expected figure | needs |
+|---|---|---|
+| change brought in | **raises** it | `shift.open` — a cashier's own act |
+| dropped to the safe / banked | **lowers** it | `shift.close` — a manager |
+| paid out of the drawer | **lowers** it | `shift.close` — a manager |
+
+The arithmetic is the argument. A false pay-in makes the drawer look **more**
+short, never less, so it hides nothing. A pay-out lowers what is expected — a
+cashier who could record one could take money and write the shortfall away in
+the same movement, which is precisely what a drawer count exists to catch. The
+same shape as voiding a sale and approving a purchase order: the second person
+is a permission the first one does not hold.
+
+The viewset's `permissions` map is keyed by action and cannot say "depends on
+the body", so the action is registered at the **weaker** of the two and the
+stronger is checked by hand — registered rather than omitted, because an
+action missing from that map inherits `default_permission` silently.
+
+The till explains the refusal **before** the button is pressed rather than
+after a 403, because "ask your manager" is something somebody at a counter can
+act on.
+
+> ⚠ **Nothing moves through a closed shift.** A movement recorded afterwards
+> changes the expected figure after somebody counted against it, rewriting a
+> variance that has already been signed off.
+
+### It also made an old claim true
+
+`drawer()` carried a banner reading *"ONE IMPLEMENTATION, SHARED WITH THE
+REPORT"* — and it was not shared. `sales/reports.register_status` held a
+second copy of the same arithmetic. They stayed in step only because nobody
+had changed either, and then cash movements were added to one: a shop that
+banked at lunchtime would have seen the close screen and the dashboard expect
+figures hundreds of shillings apart, with nothing to say which was lying.
+
+That is the exact failure the banner describes, reached the exact way it
+predicted. The report now calls `drawer()`, and a test asserts the two agree
+field by field.
+
 ## Scanning a barcode
 
 `CatalogCategoryProduct.barcode` is unique per organisation, with empties
