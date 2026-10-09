@@ -9,6 +9,38 @@ Who is allowed in, and on whose authority.
 | **Subscriber** | owner, org admin, accountant | Genmars account, via sign-on | gen-portal |
 | **Operational** | cashier, branch manager, stock clerk | this application | here |
 
+## One operational credential, two transports
+
+| where | carried as | CSRF | why |
+|---|---|---|---|
+| a till | `Authorization: Bearer gbp_…` | **no** — nothing to forge | a fixed terminal that holds its credential explicitly and is meant to work offline (blueprint §11) |
+| the office | a Django session cookie | **yes** — a browser sends it automatically | a purchasing officer, finance clerk or branch auditor reading screens on a laptop |
+
+The argument for a bearer token is on `StaffSession`, and every word of it is
+about a register. None of it reaches somebody approving a delivery in a
+browser — and those three roles had nowhere to work at all, because every
+office screen is server-rendered and a server component forwards cookies, not
+headers.
+
+> ⚠ **This adds a transport, not a credential store.** The two-tier rule is
+> that a `StaffCredential` password must never be accepted by
+> `api.genmars.co.ke` and a Genmars password must never be accepted here.
+> Both doors call the same `authenticate_staff`, open the same `StaffSession`
+> row and produce the same `StaffPrincipal`. A subscriber still cannot sign in
+> at `/auth/staff/session`, and there is a test saying so.
+
+One row means one revocation path: `revoke_all_sessions` ends both, and
+withdrawing a login logs the browser out **on its next request** rather than
+whenever it next signs in.
+
+⚠ **A session must never hold both principals.** Both cookie classes read the
+same Django session, so if both keys were set, *which* principal a request
+authenticated as would be decided by the order of
+`DEFAULT_AUTHENTICATION_CLASSES` — a line in `settings.py` nobody reads as a
+security control. `authentication.become()` is the only thing that writes
+either key: it clears both, then sets one, and cycles the session key against
+fixation while it is there.
+
 The line is **who the commercial relationship is with**. A subscriber deals
 with Genmars, so Genmars holds their identity. A cashier works for the
 customer, so the customer's tenant holds theirs — a shop must be able to sack
@@ -182,17 +214,24 @@ neither does.
 ## Still to build
 
 - Inviting another subscriber
-- **A till workspace for the purchasing officer, the finance clerk and the
-  branch auditor.** All three sign in correctly and land on a screen that says
-  we have not built theirs — which is honest, and is not a workspace. Their
-  work exists in the office system (`/buying`, `/reports`) and that is
-  server-rendered behind a subscriber session, so a tenant-local principal
-  cannot reach it: closing this means either those screens in the till client
-  or a staff-readable server surface.
 - Binding a `StaffSession` to a `Register`, for blueprint §11 offline work
 - Entitlement: this application must not take money. See the architecture note.
 
 ### No longer outstanding
+
+**The purchasing officer, the finance clerk and the branch auditor now have
+somewhere to work**, and it was not a till workspace. All three landed on a
+screen saying we had not built theirs, and the answer turned out to be that we
+had: every office screen is server-rendered and already permission-gated —
+`Shell.tsx` hides a navigation item the caller has no permission for, and half
+a dozen pages branch on `me.kind === "staff"`. They simply could not reach it,
+because a server component forwards cookies and they held only a bearer token.
+
+So there is a second transport for the same credential —
+`StaffSessionAuthentication`, a cookie session opened at
+`POST /auth/staff/session` — and the till now points them at `/sign-in`
+instead of apologising.
+
 
 `must_change_password` said "nothing enforces it yet", and the answer turned
 out not to be enforcement. A login created with no password at all cannot be

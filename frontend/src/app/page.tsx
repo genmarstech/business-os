@@ -181,9 +181,25 @@ function FrontDoor() {
           <BusinessMark size={26} lockup />
           <span className={styles.doorMaker}>Genmars</span>
         </div>
-        <a className={styles.doorSignIn} href="/auth/start">
-          Sign in
-        </a>
+        {/*
+          ── TWO DOORS, BECAUSE THERE ARE TWO KINDS OF PERSON ──────────────
+          An owner signs in with a Genmars account through the handoff; the
+          people they employ sign in with a username this business issued and
+          Genmars has never seen. One button with a branch behind it would
+          have to ask which you are before it can ask anything useful, and
+          the answer is obvious to the person and invisible to us.
+
+          The owner's is the filled one: they are who arrives here first, and
+          nobody has staff before they have a business.
+        */}
+        <div className={styles.doorDoors}>
+          <a className={styles.doorStaff} href="/sign-in">
+            Staff sign in
+          </a>
+          <a className={styles.doorSignIn} href="/auth/start">
+            Sign in
+          </a>
+        </div>
       </header>
 
       <main className={styles.doorMain}>

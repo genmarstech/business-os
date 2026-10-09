@@ -26,6 +26,16 @@ urlpatterns = [
     path("callback", views.SignOnCallbackView.as_view(), name="sign-on-callback"),
     # Operational staff — tenant-local, never Genmars.
     path("staff/sign-in", views.StaffSignInView.as_view(), name="staff-sign-in"),
+    # The same credential, carried in a cookie instead of a header, for staff
+    # working in the office application rather than at a till. Separate from
+    # the route above on purpose: one returns a token and one sets a session,
+    # and a single endpoint deciding which from a flag is a single endpoint
+    # that can decide wrong.
+    path(
+        "staff/session",
+        views.StaffBrowserSignInView.as_view(),
+        name="staff-browser-sign-in",
+    ),
     path("staff/sign-out", views.StaffSignOutView.as_view(), name="staff-sign-out"),
     path(
         "staff/password",

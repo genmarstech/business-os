@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import access, emails, services, signon
-from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal
+from .authentication import SUBSCRIBER_SESSION_KEY, StaffPrincipal, become
 from .models import PlatformAccount, StaffCredential, TenantInvitation, TenantMembership
 
 # The only thing logged from this module is a mail failure, and it names the
@@ -174,11 +174,9 @@ class SignOnCallbackView(APIView):
                 template_name="identity/sign_on_failed.html",
             )
 
-        # New session key on sign-in. Without this, a session id captured before
-        # the handoff is still valid after it — session fixation, and the one
-        # moment in the flow where it is cheap to close.
-        request.session.cycle_key()
-        request.session[SUBSCRIBER_SESSION_KEY] = account.pk
+        # Cycles the key against session fixation AND clears any operational
+        # staff key, so this browser is exactly one principal. See `become`.
+        become(request, account_id=account.pk)
 
         memberships = list(services.tenants_for(account))
 
@@ -386,13 +384,92 @@ class StaffSignInView(APIView):
         )
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class StaffBrowserSignInView(APIView):
+    """
+    Operational staff signing in to the OFFICE application, in a browser.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE SAME CREDENTIAL AS THE TILL, CARRIED DIFFERENTLY.
+
+    `StaffSignInView` above returns a bearer token, because a till is a fixed
+    terminal that holds its credential explicitly and is meant to work
+    offline. That argument is about a register and does not reach a finance
+    clerk reading yesterday's takings on a laptop — who had nowhere to work at
+    all, because every office screen is server-rendered and a server component
+    forwards cookies, not headers.
+
+    So this opens the SAME StaffSession and puts its id in the browser's
+    session instead of handing back a token. `revoke_all_sessions` ends both,
+    and withdrawing a login logs the browser out on its next request.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── IT SETS THE CSRF COOKIE, AND THAT IS NOT DECORATION ──────────────────
+    Every write from the office application goes through a Next server action,
+    which reads the `csrftoken` cookie out of the browser's jar and echoes it.
+    The jar is only filled by a Django response the BROWSER itself receives —
+    `lib/api.ts` carries the scar: /auth/me looked like the source and is not,
+    because the Next server calls it and discards the Set-Cookie, so every
+    subscriber write failed with "CSRF cookie not set" until the sign-on
+    callback started minting it.
+
+    This endpoint is called by the browser directly, so it is the equivalent
+    moment for this tier, and `ensure_csrf_cookie` is what makes the writes
+    that follow possible.
+
+    ⚠ The refusal is the SAME SENTENCE as the till's, for the same reason:
+      this screen is reachable by anyone who can reach the shop's URL, and an
+      answer that distinguished "no such username" from "wrong password" is a
+      way to enumerate a shop's staff from outside it.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        try:
+            organization_id = int(request.data.get("organization"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": services.GENERIC_SIGN_IN_FAILURE},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = services.authenticate_staff(
+                organization_id=organization_id,
+                username=request.data.get("username", ""),
+                password=request.data.get("password", ""),
+            )
+        except services.AuthError as error:
+            return Response(
+                {"detail": error.safe_message}, status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        session, _token = services.open_staff_session(credential)
+
+        # The token is deliberately discarded. A cookie session needs no second
+        # secret inside it — Django already signed the one the browser holds —
+        # and minting one we never return would be a credential nobody uses
+        # sitting in the database waiting to be found useful.
+        become(request, staff_session_id=session.pk)
+
+        payload = _staff_session_payload(credential, session, "")
+        # Nothing may carry the token out of here, and `_staff_session_payload`
+        # is shared with the two doors that DO return one.
+        payload.pop("token", None)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
 class StaffSignOutView(APIView):
     """Close the shift's session. Idempotent — signing out twice is not an error."""
 
     def post(self, request):
         if isinstance(request.user, StaffPrincipal):
             services.close_staff_session(request.user.session)
-        request.session.pop(SUBSCRIBER_SESSION_KEY, None)
+        # Both keys, so signing out of a browser cannot leave the other
+        # principal behind — see `become`.
+        become(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

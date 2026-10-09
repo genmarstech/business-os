@@ -1,0 +1,164 @@
+/*
+ * The office sign-in.
+ *
+ * One card, centred, nothing else on the page. Somebody arriving here has one
+ * thing to do and three fields to do it with; a marketing hero above the form
+ * would be a shop's employee scrolling past a sales pitch to start work.
+ *
+ * Tokens only — a literal colour here is the row that reads wrong on
+ * whichever theme the shop is not using.
+ */
+
+.page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 16px gutter so the card never touches the edge of a phone. */
+  padding: 32px 16px;
+  background: var(--app);
+  color: var(--ink);
+}
+
+.card {
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 28px 26px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 12px);
+}
+
+.brand {
+  display: flex;
+  margin-bottom: 14px;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 6px 0 18px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  margin-top: 12px;
+  margin-bottom: 5px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.input {
+  font: inherit;
+  /* 16px exactly. Anything smaller and iOS Safari zooms the page on focus,
+     which on a phone pushes the rest of the form off screen. */
+  font-size: 16px;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md, 8px);
+  background: var(--app);
+  color: var(--ink);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.hint {
+  margin-top: 5px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+
+.submit {
+  margin-top: 20px;
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--accent-fill);
+  border-radius: var(--r-md, 8px);
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.submit:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 0 0 4px;
+  padding: 9px 11px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.aside,
+.others p {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}
+
+.aside {
+  margin: 14px 0 0;
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.others p {
+  margin: 0;
+}
+
+.others strong {
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.aside a,
+.others a {
+  color: var(--accent-text);
+}
