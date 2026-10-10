@@ -40,8 +40,51 @@ from . import daraja
 from .crypto import NotConfigured
 from .models import MpesaTill, StkPush, token_digest
 
-# Daraja's own code for a request the customer has not answered yet.
-PENDING_CODES = {"1032-pending", "500.001.1001"}
+# ══════════════════════════════════════════════════════════════════════════
+# WHICH ANSWERS END A PUSH, AND WHY EVERYTHING ELSE DOES NOT.
+#
+# ⚠ THIS LIST IS THE ONLY THING ALLOWED TO TURN A PUSH INTO "NOT PAID".
+#   Adding a default branch that fails on an unrecognised code re-creates
+#   the bug below. Do not.
+#
+# This used to be the other way round: a small set of PENDING_CODES was
+# treated as "still going" and EVERY OTHER CODE was treated as a refusal.
+# Then production answered `4999 — The transaction is still under
+# processing`, which is not in that set, and the push was marked failed
+# TEN SECONDS after it was sent, while the customer was still looking at
+# the PIN prompt. Worse, `confirm` returns a settled push untouched, so
+# when the money did arrive nothing ever asked again: a real payment of
+# KSh 80 sat in the database as a failure, funding no sale.
+#
+# So the default direction is reversed. An answer is final only if it is
+# listed here; anything else means keep asking until EXPIRE_AFTER_SECONDS.
+# The worst case of that is a cashier waiting three minutes before taking
+# cash. The worst case of the old default is a customer paying twice.
+#
+# It is the same instinct as the DarajaError branch in `confirm`, which has
+# said "unreachable is not unpaid" since this file was written. An
+# unrecognised code is not unpaid either.
+#
+# The text is ours, not Safaricom's: `ResultDesc` is written for a
+# developer ("Request Cancelled by user."), and this is read aloud at a
+# counter with the customer listening.
+FINAL_FAILURES = {
+    "1": "There was not enough money in the M-Pesa account.",
+    "17": "M-Pesa could not process that one.",
+    "1001": "Another M-Pesa payment is already going through on that phone.",
+    "1019": "The request ran out of time at M-Pesa.",
+    "1025": "M-Pesa could not process that one.",
+    "1032": "The customer cancelled it.",
+    "1037": "The phone could not be reached.",
+    "2001": "The PIN was wrong.",
+    "9999": "M-Pesa could not process that one.",
+}
+
+# Kept for what it documents rather than for what it decides: these are the
+# in-flight answers seen in the wild. `4999` is the one that cost real
+# money. Nothing branches on membership of this set any more — a code is
+# pending because it is NOT in FINAL_FAILURES, not because it is here.
+PENDING_CODES = {"1032-pending", "500.001.1001", "4999"}
 
 # How long a push is worth waiting for. Safaricom gives the customer about a
 # minute; past this the till stops asking and the cashier takes cash.
@@ -234,12 +277,6 @@ def confirm(push: StkPush) -> StkPush:
     code = str(answer.get("ResultCode", ""))
     description = str(answer.get("ResultDesc", ""))[:255]
 
-    if code in PENDING_CODES:
-        if age > EXPIRE_AFTER_SECONDS:
-            return _settle(push, StkPush.Status.EXPIRED, code, "",
-                           "The customer did not respond in time")
-        return push
-
     if code == "0":
         # The query reports success but carries no receipt number; the
         # callback does. Taking the receipt from the callback would mean
@@ -250,8 +287,19 @@ def confirm(push: StkPush) -> StkPush:
                        str(answer.get("MpesaReceiptNumber", ""))[:32],
                        description or "Paid")
 
-    return _settle(push, StkPush.Status.FAILED, code, "",
-                   description or "Not paid")
+    if code in FINAL_FAILURES:
+        return _settle(push, StkPush.Status.FAILED, code, "",
+                       FINAL_FAILURES[code])
+
+    # ── NOT RECOGNISED MEANS NOT FINISHED ──────────────────────────────
+    # See the banner on FINAL_FAILURES. `4999` arrives here, which is the
+    # whole point: Safaricom are saying the transaction is still under
+    # processing, and the only safe reading of an answer we do not know is
+    # that it has not finished yet.
+    if age > EXPIRE_AFTER_SECONDS:
+        return _settle(push, StkPush.Status.EXPIRED, code, "",
+                       "The customer did not respond in time")
+    return push
 
 
 def _settle(push, status, code, receipt, description) -> StkPush:
@@ -269,6 +317,42 @@ def _settle(push, status, code, receipt, description) -> StkPush:
     notifications.payment_settled(push=push)
 
     return push
+
+
+@transaction.atomic
+def recheck(push: StkPush) -> StkPush:
+    """
+    Ask Safaricom again about a push that was closed without being paid.
+
+    ── WHY A CLOSED PUSH HAS TO BE RE-ASKABLE AT ALL ───────────────────────
+    `confirm` returns a settled push untouched, which is right for a poll
+    loop and wrong as a final word: the first production run of this code
+    closed a push as failed on an answer that said "still under processing",
+    and when the money landed a minute later there was no way back. The
+    customer had paid, the shop's record said otherwise, and correcting it
+    meant editing a payment row by hand.
+
+    This does NOT decide anything. It clears the settlement and calls
+    `confirm`, so the answer still comes from Safaricom and from nowhere
+    else — the same rule that makes the public callback a hint rather than a
+    verdict. A push that really did fail simply settles as failed again.
+
+    ⚠ A PAID PUSH IS NEVER REOPENED. Paid is the one answer that cannot
+      become something else: reopening it would let a spent payment be
+      detached from the sale it funded.
+    """
+    push = StkPush.objects.select_for_update().get(pk=push.pk)
+    if push.status == StkPush.Status.PAID:
+        return push
+    if not push.checkout_request_id:
+        # It never reached Safaricom, so there is nobody to ask. Settled as
+        # failed is the truth, not a guess worth revisiting.
+        return push
+
+    push.status = StkPush.Status.REQUESTED
+    push.settled_at = None
+    push.save(update_fields=["status", "settled_at", "updated_at"])
+    return confirm(push)
 
 
 @transaction.atomic

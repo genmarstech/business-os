@@ -138,6 +138,7 @@ class StkPushViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         # for the money for it, and nobody else.
         "request_payment": access.SALES_CHECKOUT,
         "check": access.SALES_CHECKOUT,
+        "recheck": access.SALES_CHECKOUT,
     }
     queryset = StkPush.objects.select_related("branch").all()
     serializer_class = StkPushSerializer
@@ -204,6 +205,26 @@ class StkPushViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         push = self.get_object()
         settled = services.confirm(push)
         return Response(StkPushSerializer(settled).data)
+
+    @action(detail=True, methods=["post"])
+    def recheck(self, request, pk=None):
+        """
+        Ask again about a push that was closed without being paid.
+
+        ── NOT THE SAME AS `check`, AND DELIBERATELY A SEPARATE DOOR ───────
+        `check` is the poll loop and stops at the first settled answer.
+        This reopens one that settled unpaid and asks Safaricom once more.
+        It exists because the first production run closed a push on an
+        answer that meant "still going", and the customer's money arrived
+        afterwards with nothing left that would look for it.
+
+        It decides nothing itself — `services.recheck` clears the
+        settlement and lets `confirm` write whatever Safaricom says, so
+        this cannot manufacture a payment. Held at SALES_CHECKOUT, the same
+        as `check`: whoever may take the money may ask what became of it.
+        """
+        push = self.get_object()
+        return Response(StkPushSerializer(services.recheck(push)).data)
 
 
 class MpesaCallbackView(APIView):

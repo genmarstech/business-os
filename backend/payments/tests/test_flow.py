@@ -674,3 +674,183 @@ class WhenTheKeyItselfIsRefusedTests(TestCase):
                 )
 
         self.assertIn("503", str(refused.exception))
+
+
+@override_settings(MPESA_CREDENTIAL_KEY=KEY)
+class NotRecognisedIsNotRefusedTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    THE TEN-SECOND FAILURE THAT COST A REAL KSh 80.
+
+    Production answered a query with `4999 — The transaction is still under
+    processing`. That code was not in PENDING_CODES, so `confirm` fell
+    through to its "anything else is a refusal" branch and settled the push
+    FAILED ten seconds after it was sent, while the customer was still
+    looking at the PIN prompt. `confirm` then returns a settled push
+    untouched, so when the money arrived nothing ever asked again.
+
+    The direction is now reversed: only a listed code is final.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop()
+        an_mpesa_till(self.org)
+
+    def a_push(self):
+        with patch("payments.daraja.stk_push") as push:
+            push.return_value = {
+                "MerchantRequestID": "m-1",
+                "CheckoutRequestID": "ws_CO_1",
+            }
+            return services.request(
+                branch=self.branch,
+                amount=Decimal("80.00"),
+                phone="0748016528",
+                callback_base="https://business.genmars.co.ke",
+            )
+
+    def answering(self, push, answer):
+        with patch("payments.daraja.stk_query", return_value=answer):
+            return services.confirm(push)
+
+    def test_still_under_processing_is_not_a_refusal(self):
+        push = self.a_push()
+
+        settled = self.answering(
+            push,
+            {"ResultCode": "4999",
+             "ResultDesc": "The transaction is still under processing"},
+        )
+
+        self.assertEqual(
+            settled.status, StkPush.Status.REQUESTED,
+            "4999 means the customer has not answered yet. Marking it failed "
+            "is what left a paid KSh 80 recorded as a failure.",
+        )
+
+    def test_a_code_nobody_has_ever_seen_is_also_not_a_refusal(self):
+        """
+        The rule is the default, not a list of exceptions to it. A code
+        Safaricom introduce next year must not close somebody's payment.
+        """
+        push = self.a_push()
+
+        settled = self.answering(push, {"ResultCode": "7777", "ResultDesc": "?"})
+
+        self.assertEqual(settled.status, StkPush.Status.REQUESTED)
+
+    def test_a_real_refusal_still_settles_at_once(self):
+        """
+        The reverse failure matters too: a cashier whose customer cancelled
+        must be freed to take cash now, not in three minutes.
+        """
+        push = self.a_push()
+
+        settled = self.answering(
+            push, {"ResultCode": "1032", "ResultDesc": "Request Cancelled by user."}
+        )
+
+        self.assertEqual(settled.status, StkPush.Status.FAILED)
+        self.assertEqual(
+            settled.result_description, "The customer cancelled it.",
+            "Said in words a cashier can read to the person in front of them.",
+        )
+
+    def test_an_unrecognised_code_expires_rather_than_waiting_for_ever(self):
+        push = self.a_push()
+        StkPush.objects.filter(pk=push.pk).update(
+            created_at=timezone.now() - timedelta(seconds=services.EXPIRE_AFTER_SECONDS + 1)
+        )
+        push.refresh_from_db()
+
+        settled = self.answering(push, {"ResultCode": "4999", "ResultDesc": "x"})
+
+        self.assertEqual(settled.status, StkPush.Status.EXPIRED)
+
+    def test_paid_is_still_paid(self):
+        push = self.a_push()
+
+        settled = self.answering(push, {"ResultCode": "0", "ResultDesc": "ok"})
+
+        self.assertEqual(settled.status, StkPush.Status.PAID)
+
+
+@override_settings(MPESA_CREDENTIAL_KEY=KEY)
+class AskingAgainTests(TestCase):
+    """
+    A push closed unpaid has to be re-askable, or a wrongly-closed payment
+    can only be repaired by editing the database.
+    """
+
+    def setUp(self):
+        self.org, (self.branch,) = a_shop()
+        an_mpesa_till(self.org)
+
+    def a_failed_push(self):
+        with patch("payments.daraja.stk_push") as push:
+            push.return_value = {"MerchantRequestID": "m", "CheckoutRequestID": "ws_CO_1"}
+            made = services.request(
+                branch=self.branch, amount=Decimal("80.00"),
+                phone="0748016528", callback_base="https://b.test",
+            )
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "1032", "ResultDesc": "no"}):
+            return services.confirm(made)
+
+    def test_a_payment_that_actually_went_through_can_be_recovered(self):
+        push = self.a_failed_push()
+        self.assertEqual(push.status, StkPush.Status.FAILED)
+
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "0", "ResultDesc": "ok"}):
+            again = services.recheck(push)
+
+        self.assertEqual(again.status, StkPush.Status.PAID)
+
+    def test_it_asks_safaricom_rather_than_deciding(self):
+        """A push that really failed settles failed again. This is not a
+        way to turn a refusal into a payment."""
+        push = self.a_failed_push()
+
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "1032", "ResultDesc": "no"}):
+            again = services.recheck(push)
+
+        self.assertEqual(again.status, StkPush.Status.FAILED)
+
+    def test_a_paid_push_is_never_reopened(self):
+        """
+        Reopening a paid push would let a payment be detached from the sale
+        it funded. It is the one answer that is not revisited.
+        """
+        with patch("payments.daraja.stk_push") as push:
+            push.return_value = {"MerchantRequestID": "m", "CheckoutRequestID": "ws_CO_2"}
+            made = services.request(
+                branch=self.branch, amount=Decimal("80.00"),
+                phone="0748016528", callback_base="https://b.test",
+            )
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "0", "ResultDesc": "ok"}):
+            paid = services.confirm(made)
+
+        with patch("payments.daraja.stk_query") as asked:
+            again = services.recheck(paid)
+
+        asked.assert_not_called()
+        self.assertEqual(again.status, StkPush.Status.PAID)
+
+    def test_one_that_never_reached_safaricom_is_not_re_asked(self):
+        with patch("payments.daraja.stk_push",
+                   side_effect=daraja.DarajaError("nope")):
+            with self.assertRaises(services.PaymentError):
+                services.request(
+                    branch=self.branch, amount=Decimal("80.00"),
+                    phone="0748016528", callback_base="https://b.test",
+                )
+
+        push = StkPush.objects.get()
+        with patch("payments.daraja.stk_query") as asked:
+            services.recheck(push)
+
+        asked.assert_not_called()
