@@ -1268,3 +1268,105 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* ── checking a payment ──────────────────────────────────────────────────
+ *
+ * A list read at a counter with somebody waiting, so the verdict is a
+ * sentence on its own line rather than a status word in a column: a
+ * cashier should not have to know that "paid" with no sale against it is
+ * the one that needs a manager.
+ */
+
+.recList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.recTop {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.recAmount {
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.recPhone {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+.recWhen {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.recVerdict {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+/* Semantic, and separate from the accent: "the shop is holding money
+   nobody has accounted for" must not look like "this is a button". */
+.rec_good { color: var(--ok); }
+.rec_attend { color: var(--warn); }
+.rec_bad { color: var(--danger); }
+.rec_wait { color: var(--ink-muted); }
+
+.recCode {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.recAsk {
+  align-self: flex-start;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.recAsk:hover:not(:disabled) { border-color: var(--accent-fill); }
+.recAsk:disabled { opacity: 0.6; cursor: default; }
+.recAsk:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.recClose {
+  margin-top: 16px;
+  padding: 10px 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
