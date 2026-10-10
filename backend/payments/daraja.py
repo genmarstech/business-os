@@ -120,7 +120,6 @@ def _request(url: str, *, method: str = "GET", headers: dict, body=None) -> dict
             # thing left to say, and saying nothing is what made the last
             # one unreadable.
             else f"M-Pesa refused the request (HTTP {error.code}).",
-            else "M-Pesa refused the request.",
             status=error.code,
             code=code,
         ) from None
