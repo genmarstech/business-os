@@ -83,12 +83,26 @@ class MpesaTillViewSet(TenantScoped, viewsets.ModelViewSet):
     """
 
     tenant_path = "organization_id"
+    # ── SCOPED TO A BRANCH NOW THAT A TILL CAN BELONG TO ONE ────────────
+    #
+    # Declared because the model reaches a branch, and `test_anything_
+    # belonging_to_a_branch_is_scoped_to_one` is right that leaving it off
+    # fails open. It changes nothing for an owner or an admin: they are
+    # subscribers, `branch_scope` answers None for them, and None means
+    # unrestricted rather than confined to nothing.
+    #
+    # ⚠ The business default has branch IS NULL, and `scoped_to_branch`
+    #   filters `branch_id__in=[…]`, which excludes it. That is deliberate
+    #   and not an oversight: a principal confined to one branch may manage
+    #   THAT branch's number and has no business editing the one every
+    #   other shop is paid on.
+    branch_path = "branch_id"
     default_permission = access.SETTINGS_ORGANISATION
     permissions = {
         "list": access.SETTINGS_ORGANISATION,
         "retrieve": access.SETTINGS_ORGANISATION,
     }
-    queryset = MpesaTill.objects.all()
+    queryset = MpesaTill.objects.select_related("branch").all()
     serializer_class = MpesaTillSerializer
     pagination_class = None
 

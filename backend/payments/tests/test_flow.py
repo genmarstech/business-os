@@ -9,11 +9,13 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
+from django.db.models import ProtectedError
+from django.db.utils import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from payments import daraja, services
-from payments.models import StkPush
+from payments.models import MpesaTill, StkPush
 from sales import services as sales_services
 from sales.models import Payment
 
@@ -854,3 +856,166 @@ class AskingAgainTests(TestCase):
             services.recheck(push)
 
         asked.assert_not_called()
+
+
+@override_settings(MPESA_CREDENTIAL_KEY=KEY)
+class WhichNumberThisBranchIsPaidOnTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    A DEFAULT FOR THE BUSINESS, AN OVERRIDE WHERE A BRANCH HAS ITS OWN.
+
+    Most shops are paid on one number everywhere and must keep behaving
+    exactly as they did. A chain whose branches are separate Safaricom
+    merchants is the case that arrives when the second shop opens.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, (self.head, self.west) = a_shop(branches=("Head", "West"))
+
+    def test_a_business_with_one_number_uses_it_everywhere(self):
+        till = an_mpesa_till(self.org)
+
+        self.assertEqual(services.till_for(self.head).pk, till.pk)
+        self.assertEqual(services.till_for(self.west).pk, till.pk)
+
+    def test_a_branch_with_its_own_number_uses_that_one(self):
+        an_mpesa_till(self.org, short_code="174379")
+        an_mpesa_till(self.org, short_code="555001", branch=self.west)
+
+        self.assertEqual(services.till_for(self.west).short_code, "555001")
+        self.assertEqual(
+            services.till_for(self.head).short_code, "174379",
+            "An override at one branch must not move the other branches.",
+        )
+
+    def test_a_branch_override_that_is_off_does_not_fall_back(self):
+        """
+        An owner who switched a branch's M-Pesa off meant to switch it off.
+        Quietly billing that shop's customers through head office instead is
+        not a helpful reading of it.
+        """
+        an_mpesa_till(self.org)
+        an_mpesa_till(self.org, short_code="555001", active=False,
+                      branch=self.west)
+
+        with self.assertRaises(services.PaymentError) as refused:
+            services.till_for(self.west)
+
+        self.assertIn("switched off", str(refused.exception))
+        self.assertIn(
+            self.west.branch_name, str(refused.exception),
+            "A refusal about one branch has to name it, or an owner goes "
+            "looking in the business-wide settings that are working fine.",
+        )
+
+    def test_a_business_cannot_hold_two_defaults(self):
+        """
+        Postgres treats NULLs as distinct, so this needs a conditional
+        constraint rather than unique_together — without it a business could
+        hold four defaults and `for_branch` would return whichever the
+        database felt like.
+        """
+        an_mpesa_till(self.org)
+
+        with self.assertRaises(IntegrityError):
+            an_mpesa_till(self.org, short_code="999999")
+
+    def test_a_branch_cannot_hold_two_overrides(self):
+        an_mpesa_till(self.org, short_code="111111")
+        an_mpesa_till(self.org, short_code="222222", branch=self.west)
+
+        second = MpesaTill(
+            organization=self.org, branch=self.west, short_code="333333"
+        )
+        with self.assertRaises(IntegrityError):
+            second.save()
+
+
+@override_settings(MPESA_CREDENTIAL_KEY=KEY)
+class AskedOnTheNumberItWentOutOnTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    ⚠ THE QUERY MUST USE THE TILL THE PUSH WAS SENT WITH.
+
+    `confirm` looked the till up again by organisation, which was safe only
+    while there was exactly one. Once a branch can have its own, an owner
+    adding an override while a push is in flight makes the query go out as
+    head office asking Safaricom about a transaction it never sent. The
+    answer is a refusal, and the customer has already paid.
+
+    Same failure as sending a till number where the store number belongs —
+    see WhichShortCodeGoesWhereTests — one level up.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, (self.head, self.west) = a_shop(branches=("Head", "West"))
+        self.default = an_mpesa_till(self.org, short_code="174379")
+        self.own = an_mpesa_till(self.org, short_code="555001",
+                                 branch=self.west)
+
+    def a_push_from(self, branch):
+        with patch("payments.daraja.stk_push") as sent:
+            sent.return_value = {"MerchantRequestID": "m", "CheckoutRequestID": "ws_1"}
+            push = services.request(
+                branch=branch, amount=Decimal("150.00"),
+                phone="0700000000", callback_base="https://b.test",
+            )
+        return push, sent
+
+    def test_the_push_records_the_till_it_used(self):
+        push, sent = self.a_push_from(self.west)
+
+        self.assertEqual(push.till_id, self.own.pk)
+        self.assertEqual(sent.call_args.args[0].short_code, "555001")
+
+    def test_the_query_uses_that_till_even_after_the_settings_change(self):
+        push, _ = self.a_push_from(self.west)
+
+        # The owner moves the override to the other shop while this push is
+        # in flight — an ordinary afternoon's admin. `for_branch(west)` now
+        # answers with the business default, so re-deriving the till would
+        # ask head office about West's transaction.
+        self.own.branch = self.head
+        self.own.save()
+        self.assertEqual(services.till_for(self.west).short_code, "174379")
+
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "0", "ResultDesc": "ok"}) as asked:
+            services.confirm(push)
+
+        self.assertEqual(
+            asked.call_args.args[0].short_code, "555001",
+            "Queried under the number it was sent on, not whatever is "
+            "configured by the time the answer is wanted.",
+        )
+
+    def test_a_till_with_payments_against_it_cannot_be_deleted(self):
+        """
+        PROTECT, and worth asserting rather than inheriting by accident.
+        Deleting a till that has pushes against it would leave every one of
+        them unconfirmable — there would be no credential left to ask with,
+        and an in-flight payment would be stranded for good.
+        """
+        push, _ = self.a_push_from(self.west)
+
+        with self.assertRaises(ProtectedError):
+            self.own.delete()
+
+    def test_a_push_written_before_the_column_existed_still_confirms(self):
+        """
+        Those rows have no till recorded and were every one of them sent on
+        the organisation's single number, so the old lookup is right for
+        them — and leaving them unconfirmable would strand real payments.
+        """
+        push, _ = self.a_push_from(self.head)
+        StkPush.objects.filter(pk=push.pk).update(till=None)
+        push.refresh_from_db()
+
+        with patch("payments.daraja.stk_query",
+                   return_value={"ResultCode": "0", "ResultDesc": "ok"}) as asked:
+            settled = services.confirm(push)
+
+        self.assertEqual(asked.call_args.args[0].short_code, "174379")
+        self.assertEqual(settled.status, StkPush.Status.PAID)

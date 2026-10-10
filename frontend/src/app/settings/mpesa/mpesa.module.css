@@ -206,3 +206,45 @@
   font-size: 12.5px;
   margin: 0;
 }
+
+/* ── shops paid on their own number ─────────────────────────────────────
+ * A list, not a table: there are at most a handful, and a table of three
+ * rows is heavier than what it carries.
+ */
+
+.overrides {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.override {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.overrideWhere {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.overrideCode {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+.overrideState {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}

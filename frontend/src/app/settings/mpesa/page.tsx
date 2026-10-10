@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { getOrNull } from "@/lib/api";
 import { PERM, may, me as whoAmI } from "@/lib/session";
-import { MpesaForm, type Till } from "./forms";
+import { MpesaForm, type Branch, type Till } from "./forms";
 import styles from "./mpesa.module.css";
 
 /**
@@ -55,7 +55,21 @@ export default async function MpesaPage() {
     );
   }
 
-  const till = rows(await getOrNull<Page<Till>>("/pay/mpesa/till/"))[0] ?? null;
+  /*
+   * ── THE DEFAULT, AND ANY BRANCH THAT HAS ITS OWN ──────────────────────
+   * The list used to be read as "the one till", `[0]`, which was true while
+   * a business could only have one. A chain can now hold a default plus an
+   * override per branch, and taking the first row would edit whichever the
+   * database happened to return — possibly one shop's number while the
+   * owner believed they were changing the business default.
+   */
+  const tills = rows(await getOrNull<Page<Till>>("/pay/mpesa/till/"));
+  // The business default is the one this form edits; see the note above.
+  const till = tills.find((t) => t.branch === null) ?? null;
+  const overrides = tills.filter((t) => t.branch !== null);
+  const branches = rows(
+    await getOrNull<Page<Branch>>("/brn/branch/?is_active=true"),
+  );
   const organisationId =
     me.kind === "staff" ? me.organisation.id : (me.organisations[0]?.id ?? 0);
 
@@ -95,8 +109,45 @@ export default async function MpesaPage() {
             ) : null}
           </div>
 
-          <MpesaForm organizationId={organisationId} till={till} />
+          <MpesaForm
+            organizationId={organisationId}
+            till={till}
+            branches={branches}
+          />
         </section>
+
+        {/*
+          Listed rather than hidden behind the form. An owner who set a
+          branch's own number months ago needs to be able to SEE that it
+          exists — otherwise the business default looks like the whole
+          story, and a push from that shop goes somewhere they have
+          forgotten about.
+        */}
+        {overrides.length > 0 ? (
+          <section className={styles.panel}>
+            <h2 className={styles.title}>Shops with their own number</h2>
+            <ul className={styles.overrides}>
+              {overrides.map((row) => (
+                <li key={row.id} className={styles.override}>
+                  <span className={styles.overrideWhere}>
+                    {branches.find((b) => b.id === row.branch)?.branch_name ??
+                      "A shop"}
+                  </span>
+                  <span className={styles.overrideCode}>
+                    {row.short_code}
+                    {row.store_number && row.store_number !== row.short_code
+                      ? ` · store ${row.store_number}`
+                      : ""}
+                  </span>
+                  <span className={styles.overrideState}>
+                    {row.is_active ? row.environment : "off"}
+                    {row.is_complete ? "" : " · incomplete"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <p className={styles.footnote}>
           Your credentials are encrypted before they are stored and are never

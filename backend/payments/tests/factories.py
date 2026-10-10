@@ -102,9 +102,13 @@ def stocked(branch, product, quantity="100"):
 
 def an_mpesa_till(org, *, active=True, environment="sandbox", complete=True,
                   transaction_type=MpesaTill.TransactionType.PAYBILL,
-                  short_code="174379", store_number=""):
+                  short_code="174379", store_number="", branch=None):
     till = MpesaTill(
         organization=org,
+        # Set at creation, not afterwards: a row saved with no branch IS the
+        # business default, and saving a second one to edit it a moment later
+        # trips the one-default-per-organisation constraint, correctly.
+        branch=branch,
         short_code=short_code,
         store_number=store_number,
         transaction_type=transaction_type,

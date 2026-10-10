@@ -7,8 +7,11 @@ import styles from "./mpesa.module.css";
 
 const EMPTY: State = null;
 
+export type Branch = { id: number; branch_name: string };
+
 export type Till = {
   id: number;
+  branch: number | null;
   environment: "sandbox" | "production";
   short_code: string;
   store_number: string;
@@ -32,9 +35,12 @@ export type Till = {
 export function MpesaForm({
   organizationId,
   till,
+  branches,
 }: {
   organizationId: number;
   till: Till | null;
+  /** Empty where the business has one shop — the picker is then pointless. */
+  branches: Branch[];
 }) {
   const [state, action, pending] = useActionState(saveMpesaTill, EMPTY);
   const [live, setLive] = useState(till?.environment === "production");
@@ -55,6 +61,48 @@ export function MpesaForm({
     <form action={action} className={styles.form}>
       {till ? <input type="hidden" name="id" value={till.id} /> : null}
       <input type="hidden" name="organization" value={organizationId} />
+
+      {/*
+        ── WHO THIS NUMBER IS FOR ────────────────────────────────────────
+        Only shown where there is more than one shop. A business with a
+        single branch has nothing to choose, and a picker offering the
+        choice invites somebody to attach their only number to their only
+        branch — which works, and then silently stops working the day they
+        open a second shop with no default behind it.
+      */}
+      {branches.length > 1 ? (
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.legend}>Who is paid on this number</legend>
+          <label className={styles.field}>
+            <span className={styles.label}>Applies to</span>
+            <select
+              name="branch"
+              className={styles.input}
+              defaultValue={till?.branch ? String(till.branch) : ""}
+            >
+              <option value="">
+                Every shop — the business default
+              </option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.branch_name} only
+                </option>
+              ))}
+            </select>
+            <span className={styles.hint}>
+              Most businesses are paid on one number everywhere; leave this
+              on the default. Set a shop only where Safaricom gave that shop
+              its own till, and add the default first — a branch without one
+              behind it has no M-Pesa at all.
+            </span>
+            {error("branch") ? (
+              <span className={styles.error}>{error("branch")}</span>
+            ) : null}
+          </label>
+        </fieldset>
+      ) : (
+        <input type="hidden" name="branch" value="" />
+      )}
 
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Where the money goes</legend>

@@ -42,6 +42,7 @@ class MpesaTillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "organization",
+            "branch",
             "environment",
             "short_code",
             "store_number",

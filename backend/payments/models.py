@@ -70,13 +70,24 @@ class MpesaTill(models.Model):
     """
     One shop's M-Pesa configuration.
 
-    ── ONE PER ORGANISATION, NOT PER BRANCH ────────────────────────────────
-    Most shops have a single paybill or till number across every branch, and
-    a sale already records which branch took it, so per-branch reconciliation
-    works without per-branch configuration. Chains that genuinely run a
-    separate till per branch are a later addition — and a real one, which is
-    why `StkPush.branch` is recorded now rather than being added when it is
-    needed.
+    ── A DEFAULT FOR THE BUSINESS, AND AN OVERRIDE PER BRANCH ──────────────
+    This was one row per organisation, on the reasoning that most shops have
+    a single paybill across every branch and a sale already records which
+    branch took it. That reasoning still holds for most shops, which is why
+    the DEFAULT is still organisation-wide and why a business that never
+    thinks about this keeps exactly what it had.
+
+    It does not hold for a chain whose branches are separate Safaricom
+    merchants — the case that arrives the moment a second shop opens with
+    its own till number. So:
+
+        branch IS NULL   the business default, set by the owner
+        branch = <id>    that branch's own number, overriding the default
+
+    `for_branch` below is the only thing that chooses between them, and
+    nothing else may re-derive it: a push sent on one number and queried on
+    another is a payment nobody can confirm, which is the same failure
+    `push_short_code` exists to prevent one level down.
 
     ── THE CREDENTIALS ARE SEALED, AND READ IN EXACTLY ONE PLACE ───────────
     `consumer_key`, `consumer_secret` and `passkey` hold ciphertext. Nothing
@@ -95,8 +106,19 @@ class MpesaTill(models.Model):
         PAYBILL = "CustomerPayBillOnline", "Paybill"
         BUY_GOODS = "CustomerBuyGoodsOnline", "Buy goods (till)"
 
-    organization = models.OneToOneField(
-        BusinessOrganization, on_delete=models.CASCADE, related_name="mpesa_till"
+    organization = models.ForeignKey(
+        BusinessOrganization, on_delete=models.CASCADE, related_name="mpesa_tills"
+    )
+    branch = models.ForeignKey(
+        Branches,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="mpesa_tills",
+        help_text=(
+            "Leave empty for the business default. Set it only where this "
+            "branch is a separate Safaricom merchant with its own number."
+        ),
     )
 
     environment = models.CharField(
@@ -178,9 +200,52 @@ class MpesaTill(models.Model):
     class Meta:
         verbose_name = "M-Pesa till"
         verbose_name_plural = "M-Pesa tills"
+        constraints = [
+            # ── TWO CONSTRAINTS, BECAUSE NULL IS NOT A VALUE ─────────────
+            # Postgres treats NULLs as distinct, so a plain unique_together
+            # on (organization, branch) would happily allow a business to
+            # hold four defaults — and `for_branch` would then return
+            # whichever the database felt like. The conditional pair says
+            # what is actually meant: at most one default per business, and
+            # at most one override per branch.
+            models.UniqueConstraint(
+                fields=["organization"],
+                condition=models.Q(branch__isnull=True),
+                name="one_default_mpesa_till_per_organisation",
+            ),
+            models.UniqueConstraint(
+                fields=["branch"],
+                condition=models.Q(branch__isnull=False),
+                name="one_mpesa_till_override_per_branch",
+            ),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.organization.name} — {self.short_code}"
+        where = self.branch.branch_name if self.branch_id else "default"
+        return f"{self.organization.name} — {self.short_code} ({where})"
+
+    @classmethod
+    def for_branch(cls, branch) -> MpesaTill | None:
+        """
+        The number this branch is paid on: its own, or the business default.
+
+        ⚠ THE ONLY PLACE THAT CHOOSES. `services.till_for` calls this and
+          everything else calls that. A second implementation of this rule
+          is a push sent on one shortcode and queried on another, which is
+          a payment nobody can confirm.
+
+        A branch override that is switched off or half-filled does NOT fall
+        back to the default. An owner who turned a branch's M-Pesa off meant
+        to turn it off, and quietly billing their customers through head
+        office instead is not a helpful interpretation — `till_for` reports
+        it as the incomplete configuration it is.
+        """
+        own = cls.objects.filter(branch_id=branch.pk).first()
+        if own is not None:
+            return own
+        return cls.objects.filter(
+            organization_id=branch.organization_id, branch__isnull=True
+        ).first()
 
     # ── the two numbers a push is addressed with ────────────────────────────
     #
@@ -293,6 +358,30 @@ class StkPush(models.Model):
     # §8 scoping wants one hop rather than two.
     branch = models.ForeignKey(
         Branches, on_delete=models.PROTECT, related_name="stk_pushes"
+    )
+
+    # ── WHICH NUMBER THIS WENT OUT ON ───────────────────────────────────
+    #
+    # ⚠ RECORDED, NOT RE-DERIVED. `confirm` must query Safaricom under the
+    #   SAME shortcode and passkey the push was sent with, and once a
+    #   branch can have its own till those can change between the two
+    #   calls — an owner adds an override at Westlands while a push from
+    #   Westlands is in flight, and the query goes out as head office
+    #   asking about a transaction it never sent. The answer is a refusal,
+    #   and the customer has already paid.
+    #
+    #   It used to look the till up again by organisation, which was safe
+    #   only because there was exactly one. There no longer is.
+    #
+    # Nullable for the rows written before this column existed; `confirm`
+    # falls back to the lookup for those, which is correct because every
+    # one of them was sent on the organisation's only till.
+    till = models.ForeignKey(
+        "payments.MpesaTill",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="pushes",
     )
 
     amount = models.DecimalField(**MONEY)
