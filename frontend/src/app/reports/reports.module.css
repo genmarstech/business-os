@@ -453,3 +453,45 @@
   overflow: hidden;
   max-width: 22rem;
 }
+
+/* ── the branch nav ─────────────────────────────────────────────────────── */
+
+/*
+ * The same chips as the period nav, on their own row.
+ *
+ * ── CAPPED, BECAUSE A CHAIN IS NOT A SHOP ───────────────────────────────
+ * A plan is sold by branches and nothing stops somebody having thirty. Wrapped
+ * without a ceiling, this nav walks the whole page down before the first
+ * figure — so it scrolls within four rows' worth and the KPI strip stays where
+ * a reader expects it. `max-height` in `em` rather than `px` so it still holds
+ * four rows when the text scales.
+ */
+.branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -8px 0 20px;
+  max-height: 10.5em;
+  overflow-y: auto;
+  /* Room for the focus ring on the last row, which `overflow` would clip. */
+  padding: 2px;
+}
+
+/*
+ * The selected branch in the comparison table, which is a link like the rest
+ * of the column and must not look like the only one that is not.
+ */
+.pickedName {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.table a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.table a:hover {
+  border-bottom-color: var(--accent-fill);
+}

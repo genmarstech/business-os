@@ -8,6 +8,7 @@ import {
   amount,
   dashboard,
   ksh,
+  type BranchRow,
   type DrawerRow,
   type DrawerSummary,
   type Overview,
@@ -45,6 +46,23 @@ const RANGES = [
   { key: "year", label: "This year" },
 ] as const;
 
+/**
+ * A link to this page with one dimension changed and the other kept.
+ *
+ * ── THE PERIOD NAV USED TO DROP THE BRANCH ─────────────────────────────────
+ *
+ * Every report on this page takes `?branch=`, the permission model is built
+ * around it, and nothing in the product ever set it: there was no picker, and
+ * the period links were written as `/reports?range=…`, so a hand-typed branch
+ * was discarded by the first click. Two dimensions in the URL means every
+ * link on the screen has to carry both or one of them cannot be used.
+ */
+function href(range: string, branch?: number): string {
+  const params = new URLSearchParams({ range });
+  if (branch) params.set("branch", String(branch));
+  return `/reports?${params}`;
+}
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -54,10 +72,27 @@ export default async function ReportsPage({
   if (!me) redirect("/");
 
   const { range = "today", branch } = await searchParams;
-  const data = await dashboard({
-    range,
-    branch: branch ? Number(branch) : undefined,
-  });
+  /*
+   * ⚠ NaN AND 0 BOTH HAVE TO BECOME undefined.
+   *   `Number("")` is 0 and `Number("west")` is NaN, and either sent on as a
+   *   branch id produces a window that matches nothing — a page of zeroes
+   *   that reads as a shop with no trade rather than as a bad URL.
+   */
+  const asked = Number(branch);
+  const selected = Number.isInteger(asked) && asked > 0 ? asked : undefined;
+
+  const data = await dashboard({ range, branch: selected });
+
+  /*
+   * Named from the branch LIST, not from the comparison: a branch that has
+   * not sold anything in the window is absent from the comparison, and that
+   * is exactly when somebody is looking at it. Undefined when the id is not
+   * one of theirs — the server already answered with nothing, and inventing
+   * a name for it would dress a refusal up as an empty day.
+   */
+  const selectedName = data.branchOptions.find(
+    (option) => option.id === selected,
+  )?.branch_name;
 
   const canSeeOrganisation = may(me, PERM.reportsOrganisation);
   /*
@@ -83,18 +118,33 @@ export default async function ReportsPage({
         <header className={styles.head}>
           <p className={styles.eyebrow}>Organisation</p>
           <h1 className={styles.title}>Reports</h1>
+          {/*
+            ── THIS SENTENCE BECOMES UNTRUE THE MOMENT A BRANCH IS PICKED ───
+            It said "Every branch, consolidated" unconditionally. With
+            `?branch=` honoured by every figure on the page, that is a claim
+            about the numbers below it that is simply wrong — and the reader
+            has no other way to tell which branch they are looking at.
+          */}
           <p className={styles.sub}>
-            {canSeeOrganisation
-              ? "Every branch, consolidated. Figures are the server's own — nothing on this page is added up in a browser."
-              : "The branches you are assigned to. Consolidated figures are an owner's to see."}
+            {selectedName
+              ? `${selectedName} only. Every figure below is this branch's, except the branch comparison, which always covers the branches you can see.`
+              : canSeeOrganisation
+                ? "Every branch, consolidated. Figures are the server's own — nothing on this page is added up in a browser."
+                : "The branches you are assigned to. Consolidated figures are an owner's to see."}
           </p>
+          {selected !== undefined && selectedName === undefined ? (
+            <p className={styles.sub}>
+              That branch is not one of yours, so there is nothing to show for
+              it. <Link href={href(range)}>Start again</Link>.
+            </p>
+          ) : null}
         </header>
 
         <nav className={styles.ranges} aria-label="Period">
           {RANGES.map((option) => (
             <Link
               key={option.key}
-              href={`/reports?range=${option.key}`}
+              href={href(option.key, selected)}
               className={`${styles.range} ${
                 range === option.key ? styles.rangeOn : ""
               }`}
@@ -104,6 +154,37 @@ export default async function ReportsPage({
             </Link>
           ))}
         </nav>
+
+        {/*
+          Offered only where there is a choice to make. One branch is the
+          common case for a shop starting out, and a picker with a single
+          option in it is a control that does nothing.
+        */}
+        {data.branchOptions.length > 1 ? (
+          <nav className={styles.branches} aria-label="Branch">
+            <Link
+              href={href(range)}
+              className={`${styles.range} ${
+                selected === undefined ? styles.rangeOn : ""
+              }`}
+              aria-current={selected === undefined ? "page" : undefined}
+            >
+              All branches
+            </Link>
+            {data.branchOptions.map((option) => (
+              <Link
+                key={option.id}
+                href={href(range, option.id)}
+                className={`${styles.range} ${
+                  selected === option.id ? styles.rangeOn : ""
+                }`}
+                aria-current={selected === option.id ? "page" : undefined}
+              >
+                {option.branch_name}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
 
         {!data.overview ? (
           <section className={styles.panel}>
@@ -233,20 +314,22 @@ export default async function ReportsPage({
           </section>
         ) : null}
 
-        <div className={styles.pair}>
-          {data.branches.length > 0 ? (
-            <Ranked
-              title="By branch"
-              nonce={nonce}
-              rows={data.branches.map((b) => ({
-                key: b.branch,
-                name: b.branch_name,
-                note: `${b.transactions} sale${b.transactions === 1 ? "" : "s"}`,
-                value: b.revenue,
-              }))}
-            />
-          ) : null}
+        {/*
+          ── A TABLE, NOT A RANKED BAR, BECAUSE IT IS NO LONGER ONE FIGURE ──
+          The bar compared turnover and nothing else. Profit is the figure
+          the comparison exists to produce, and a bar can carry exactly one
+          number — so the panel that most needed a second column was the one
+          component that could not grow one.
+        */}
+        {data.branches.length > 1 ? (
+          <BranchComparison
+            rows={data.branches}
+            range={range}
+            selected={selected}
+          />
+        ) : null}
 
+        <div className={styles.pair}>
           {data.methods.length > 0 ? (
             <Ranked
               title="How they paid"
@@ -318,6 +401,131 @@ export default async function ReportsPage({
       </div>
     </Shell>
   );
+}
+
+/**
+ * Where the money is actually made — §4 "Branch comparison".
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * TURNOVER RANKS THE BRANCHES IN THE WRONG ORDER.
+ *
+ * This was a ranked bar of revenue. A branch shifting volume at a thin
+ * margin sat above a quieter one earning more per shilling taken, and the
+ * decision somebody opens a branch comparison to make — where stock, staff
+ * and attention go — is answered by the second branch, not the first.
+ *
+ * Profit was two annotations away in sales/reports.py the whole time.
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Rows are links, so this doubles as the way into a branch: the chips above
+ * the page are for a branch that has not traded, and this is for the one
+ * somebody just spotted a problem in.
+ */
+function BranchComparison({
+  rows,
+  range,
+  selected,
+}: {
+  rows: BranchRow[];
+  range: string;
+  selected?: number;
+}) {
+  return (
+    <section className={styles.panel}>
+      <h2 className={styles.panelTitle}>By branch</h2>
+      <p className={styles.panelLede}>
+        Ranked on what was taken, and read on what was earned — the two orders
+        are not the same. This panel always covers every branch you can see,
+        including when one is selected above.
+      </p>
+      <div className={styles.scroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Branch</th>
+              <th className={styles.num}>Sales</th>
+              <th className={styles.num}>Taken</th>
+              <th className={styles.num}>Net of tax</th>
+              <th className={styles.num}>Gross profit</th>
+              <th className={styles.num}>Margin</th>
+              <th className={styles.num}>Refunded</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.branch}>
+                <td>
+                  <Link
+                    href={href(range, row.branch)}
+                    className={
+                      selected === row.branch ? styles.pickedName : styles.name
+                    }
+                  >
+                    {row.branch_name}
+                  </Link>
+                  {row.transactions === 0 ? (
+                    <div className={styles.meta}>
+                      Nothing sold in this period
+                    </div>
+                  ) : null}
+                </td>
+                <td className={styles.num}>{row.transactions}</td>
+                <td className={styles.num}>{ksh(row.revenue)}</td>
+                <td className={styles.num}>{ksh(row.net_revenue)}</td>
+                <td
+                  className={`${styles.num} ${styles.strong} ${
+                    row.gross_profit.startsWith("-") ? styles.low : ""
+                  }`}
+                >
+                  {ksh(row.gross_profit)}
+                </td>
+                <td className={styles.num}>{margin(row)}</td>
+                <td
+                  className={`${styles.num} ${
+                    Number(row.refunded) > 0 ? styles.low : ""
+                  }`}
+                >
+                  {ksh(row.refunded)}
+                  {row.refunds > 0 ? (
+                    <div className={styles.meta}>
+                      {row.refunds} return{row.refunds === 1 ? "" : "s"}
+                    </div>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className={styles.footnote}>
+        Margin is gross profit over revenue net of tax, which is the base it
+        was earned on — figuring it against the till total would understate
+        every branch by the VAT it collected and does not keep.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Gross profit as a share of what the branch actually earned.
+ *
+ * ⚠ THE ONE FIGURE ON THIS PAGE A BROWSER WORKS OUT, AND IT IS A RATIO.
+ *   Every money figure arrives as a string and stays one, because a Decimal
+ *   through a float stops adding up. A percentage is not money and is never
+ *   summed with anything, so parsing here cannot corrupt a total — and the
+ *   server has no business computing a display rounding.
+ *
+ *   Net revenue, not revenue: the profit was earned on the money the branch
+ *   keeps, and dividing by the till total would understate every branch by
+ *   the tax it collected on somebody else's behalf.
+ */
+function margin(row: BranchRow): string {
+  const base = Number(row.net_revenue);
+  // A branch that only refunded has no base to divide by, and 0/0 renders as
+  // "NaN%" — which looks like a bug in the shop's figures rather than an
+  // absent one.
+  if (!Number.isFinite(base) || base <= 0) return "—";
+  return `${((Number(row.gross_profit) / base) * 100).toFixed(1)}%`;
 }
 
 /**
