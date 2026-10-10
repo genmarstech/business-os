@@ -81,6 +81,7 @@ export type BranchRow = {
 export type BranchOption = {
   id: number;
   branch_name: string;
+  is_active: boolean;
 };
 
 export type ProductRow = {
@@ -241,7 +242,7 @@ export async function dashboard(window: Window) {
        * leave the picker holding the one branch already selected and no way
        * back out of it.
        */
-      getOrNull<BranchOption[] | { results: BranchOption[] }>("/brn/branches/"),
+      getOrNull<BranchOption[] | { results?: BranchOption[] }>("/brn/branch/"),
     ]);
 
   return {
@@ -260,13 +261,25 @@ export async function dashboard(window: Window) {
      */
     drawers: drawers ?? null,
     /*
-     * The viewset may or may not be paginated depending on settings, so both
-     * shapes are accepted. Getting this wrong is a picker that renders empty
-     * while the request succeeded — which looks like a shop with one branch.
+     * ── `/brn/branch/`, SINGULAR, AND THAT IS NOT A DETAIL ─────────────────
+     *
+     * This read `/brn/branches/` and 404ed. `getOrNull` turns a 404 into
+     * null — correct, because a caller refused a report is an ordinary case
+     * here — and `?? []` then turned that into no branches, so the picker
+     * rendered nothing at all. A green build, a green suite and a feature
+     * that silently did not exist.
+     *
+     * The rest of the application has always called it `/brn/branch/`; five
+     * other screens say so.
+     *
+     * Both page shapes are accepted because the rest of the application
+     * does, and inactive branches are dropped for the same reason — a closed
+     * branch is not somewhere to report on.
      */
-    branchOptions: Array.isArray(branchList)
+    branchOptions: (Array.isArray(branchList)
       ? branchList
-      : (branchList?.results ?? []),
+      : (branchList?.results ?? [])
+    ).filter((branch) => branch.is_active),
   };
 }
 
