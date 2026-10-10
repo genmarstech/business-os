@@ -152,10 +152,17 @@ class SubscriberRoleTests(TestCase):
         admin = self.account(TenantMembership.Role.ADMIN, number=12)
         owner = self.account(TenantMembership.Role.OWNER, number=13)
 
-        self.assertFalse(access.may(admin, access.STAFF_MANAGE))
+        # The pair that changes what the organisation IS.
+        self.assertFalse(access.may(admin, access.MEMBERS_MANAGE))
         self.assertFalse(access.may(admin, access.SETTINGS_ORGANISATION))
-        self.assertTrue(access.may(owner, access.STAFF_MANAGE))
+        self.assertTrue(access.may(owner, access.MEMBERS_MANAGE))
         self.assertTrue(access.may(owner, access.SETTINGS_ORGANISATION))
+
+        # ── AND THE ONE THAT IS NOT IN THAT PAIR ───────────────────────
+        # Putting somebody on a till is the day-to-day running of a shop,
+        # which is the whole of what an admin is for. It issues credentials
+        # strictly weaker than the admin's own, so it is not a way to climb.
+        self.assertTrue(access.may(admin, access.STAFF_MANAGE))
 
         # But tax IS an admin's job — the settings split. A VAT rate change
         # is ordinary work and should not need the owner fetched.
@@ -361,14 +368,18 @@ class PermissionOverHttpTests(TestCase):
         )
         self.assertEqual(made.status_code, 201, made.content)
 
-    def test_an_admin_may_not_reach_the_staff_table(self):
+    def test_an_admin_may_reach_the_staff_table(self):
         """
-        staffAssignment is the table that grants every operational permission
-        in access.py, so writing to it is held at the narrowest permission
-        there is.
+        staffAssignment grants OPERATIONAL permissions — who works which
+        till, in what role. Every one of them is strictly less authority
+        than an admin already holds organisation-wide, so withholding it
+        protected nothing and meant every new cashier waited for the owner.
+
+        The narrow permission is members.manage, below, which hands somebody
+        authority over the business itself.
         """
         self.as_subscriber(TenantMembership.Role.ADMIN, number=23)
-        self.assertEqual(self.client.get("/brn/staff-assignments/").status_code, 403)
+        self.assertEqual(self.client.get("/brn/staff-assignments/").status_code, 200)
 
     def test_an_owner_may(self):
         self.as_subscriber(TenantMembership.Role.OWNER, number=24)
@@ -686,9 +697,15 @@ class WhoAmITells(TestCase):
         reported = set(body["permissions"])
         self.assertEqual(reported, set(access.SUBSCRIBER_ROLES["admin"]))
 
-        # And the pair an admin must not hold is genuinely absent from both.
-        self.assertNotIn(access.STAFF_MANAGE, reported)
-        self.assertEqual(self.client.get("/brn/staff-assignments/").status_code, 403)
+        # The drift check in both directions, which is the point of the
+        # test: something withheld is absent AND refused, something granted
+        # is reported AND allowed. Either half alone lets the list and the
+        # server disagree.
+        self.assertNotIn(access.MEMBERS_MANAGE, reported)
+        self.assertEqual(self.client.get("/auth/invitations/").status_code, 403)
+
+        self.assertIn(access.STAFF_MANAGE, reported)
+        self.assertEqual(self.client.get("/brn/staff-assignments/").status_code, 200)
 
     def test_an_admin_may_configure_tax_and_not_rename_the_business(self):
         """

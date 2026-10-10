@@ -361,8 +361,9 @@ class WithdrawingALoginTests(TestCase):
 
 class WhoMayIssueTests(TestCase):
     """
-    STAFF_MANAGE is owner-only today. A cashier who could issue logins could
-    make themselves a second one with a different name and ring up sales as
+    STAFF_MANAGE belongs to the subscriber tier — an owner or an admin — and
+    to nobody at a till. A cashier who could issue logins could make
+    themselves a second one with a different name and ring up sales as
     somebody who does not exist.
     """
 
