@@ -763,7 +763,36 @@ function Selling({
       setKey(crypto.randomUUID());
       search.current?.focus();
     } catch (caught) {
-      setError(readError(caught, "The sale did not go through."));
+      /*
+       * ══════════════════════════════════════════════════════════════════
+       * WHAT THIS SAYS WHEN THE CUSTOMER HAS ALREADY PAID.
+       *
+       * ⚠ "The sale did not go through." IS A LIE ONCE `paidBy` EXISTS,
+       *   AND IT IS THE EXPENSIVE KIND.
+       *
+       * It happened in production: a confirmed M-Pesa push, the checkout
+       * request never reached the server, and the till told the cashier
+       * the sale had failed while the customer's phone was showing an
+       * M-Pesa SMS for the same amount. From there a cashier either
+       * presses M-Pesa again — charging a second time, because the button
+       * sends a NEW push — or waves the customer through and the shop
+       * takes the loss. Both are worse than the original fault.
+       *
+       * So the money and the paperwork are reported separately. The push
+       * is already confirmed and already spendable; only the sale is
+       * missing, and `onFinish` below writes it from the SAME push and
+       * the same idempotency key.
+       * ══════════════════════════════════════════════════════════════════
+       */
+      setError(
+        paidBy
+          ? readError(
+              caught,
+              "The money arrived, but the sale was not written. " +
+                "Press “Finish the sale” — the customer will not be charged again.",
+            )
+          : readError(caught, "The sale did not go through."),
+      );
     } finally {
       setBusy(false);
     }
@@ -777,6 +806,16 @@ function Selling({
    */
   async function askForPayment() {
     if (basket.length === 0 || !branchId) return;
+    /*
+     * ── NEVER TWO PUSHES FOR ONE BASKET ────────────────────────────────
+     * A paid push that has not been spent yet is money already taken. The
+     * button that reaches here says "Request", and pressing it again in
+     * that state sends a SECOND prompt for the same shopping — which is
+     * exactly what a cashier does when the till has just told them the
+     * sale failed. The UI hides the button in that state; this is the
+     * guard that does not depend on the UI being right.
+     */
+    if (push?.status === "paid") return;
     setBusy(true);
     setError("");
     try {
@@ -836,12 +875,26 @@ function Selling({
    * Paid: ring the sale up. Separate from the poll so it runs once, on the
    * transition, rather than on every tick that happens to see "paid".
    */
+  /*
+   * ⚠ `busy` IS A DEPENDENCY, AND LEAVING IT OUT STRANDED A REAL PAYMENT.
+   *
+   * The guard read `busy` while the dependency list was `[push?.status]`
+   * alone. If the terminal happened to be busy at the instant the status
+   * became "paid", the effect ran once, the guard refused, and it NEVER
+   * RAN AGAIN — the status stays "paid", so nothing re-triggered it. A
+   * confirmed payment with a basket on screen and no sale, and no sign
+   * that anything was waiting to happen.
+   *
+   * `sale` is here too: once one is written this must stop, or clearing
+   * an error would ring the basket up twice. The idempotency key makes
+   * that harmless, and "harmless" is not the standard.
+   */
   useEffect(() => {
-    if (push?.status === "paid" && basket.length > 0 && !busy) {
+    if (push?.status === "paid" && basket.length > 0 && !busy && !sale) {
       void checkout(push);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [push?.status]);
+  }, [push?.status, busy, sale]);
 
   /*
    * ── THERE IS NO "CLOSE TILL" BUTTON, AND THERE SHOULD NOT BE ────────────
@@ -1168,6 +1221,13 @@ function Selling({
                   busy={busy}
                   onAsk={() => void askForPayment()}
                   onGiveUp={() => setPush(null)}
+                  /*
+                    The same push and the same idempotency key as the
+                    attempt that failed, so the server either writes the
+                    sale or hands back the one it already wrote. Nothing
+                    about this reaches Safaricom.
+                  */
+                  onFinish={() => push && void checkout(push)}
                 />
               ) : null}
 
@@ -1216,6 +1276,7 @@ function Mpesa({
   busy,
   onAsk,
   onGiveUp,
+  onFinish,
 }: {
   totalCents: number;
   phone: string;
@@ -1224,10 +1285,46 @@ function Mpesa({
   busy: boolean;
   onAsk: () => void;
   onGiveUp: () => void;
+  /** Write the sale for a push that is already paid. Never a new charge. */
+  onFinish: () => void;
 }) {
   const waiting = push?.status === "requested";
   const settledBadly =
     push && (push.status === "failed" || push.status === "expired");
+  /*
+   * Paid, and the basket is still here — so the sale was not written. The
+   * money is in the shop's account either way; what is missing is the
+   * paperwork, and the only safe action is to finish it with THIS push.
+   */
+  const paidButUnfinished = push?.status === "paid";
+
+  if (paidButUnfinished) {
+    return (
+      <div className={styles.mpesaWaiting} role="status">
+        <div className={styles.mpesaHeading}>
+          {shillings(totalCents)} received from {push.phone_number}
+        </div>
+        <p className={styles.mpesaNote}>
+          M-Pesa has confirmed the payment. The sale still has to be written
+          — this finishes it with the payment already made, and does not
+          charge the customer again.
+        </p>
+        <button
+          className={styles.take}
+          onClick={onFinish}
+          disabled={busy}
+          autoFocus
+        >
+          {busy ? "Finishing…" : "Finish the sale"}
+        </button>
+        {/*
+          No "give up and take cash" here, which the waiting state does
+          have. There is nothing to give up on: the money has arrived, and
+          taking cash as well would charge the customer twice.
+        */}
+      </div>
+    );
+  }
 
   if (waiting) {
     return (
@@ -1296,9 +1393,60 @@ function stamp(when: string | null | undefined): string {
   });
 }
 
+/*
+ * ── DRIVING A THERMAL PRINTER FROM A BROWSER ──────────────────────────────
+ *
+ * There is no direct ESC/POS here and there should not be: a browser cannot
+ * open a USB or serial device, and the alternative is a local print agent —
+ * a second thing to install, run and keep alive on every terminal in every
+ * shop. The receipt printer is installed as the terminal's system printer
+ * instead, and `window.print()` reaches it through the operating system's
+ * own driver. globals.css sizes the slip to 72mm and forces black on white
+ * so what comes out is a till roll and not a screenshot of the register.
+ *
+ * ── WHY AUTO-PRINT IS REMEMBERED PER TERMINAL ────────────────────────────
+ * A shop with a printer wants one on every sale and never wants to press
+ * anything; a shop without one wants no dialogue at all. That is a property
+ * of the TERMINAL, not of the business and not of the cashier — the same
+ * shop can have a printer on till 1 and none on the phone a supervisor
+ * carries. So it lives in this browser's storage beside the till session,
+ * wrapped because a kiosk browser can have storage disabled.
+ */
+const AUTO_PRINT = "till.autoprint";
+
+function autoPrintWanted(): boolean {
+  try {
+    return window.localStorage.getItem(AUTO_PRINT) === "yes";
+  } catch {
+    return false;
+  }
+}
+
+function rememberAutoPrint(on: boolean): void {
+  try {
+    window.localStorage.setItem(AUTO_PRINT, on ? "yes" : "no");
+  } catch {
+    /* A till with storage off simply asks every time. */
+  }
+}
+
 function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
   const discount = cents(sale.discount_total || "0");
   const issued = sale.receipt?.issued_at ?? sale.completed_at;
+  const [auto, setAuto] = useState(autoPrintWanted);
+
+  /*
+   * Once, when the slip first appears, and only for this sale — `sale.id`
+   * rather than `auto`, so ticking the box mid-receipt does not fire a
+   * print for the one already on screen. The timeout lets the browser lay
+   * the slip out before it is captured; printing in the same tick can
+   * produce a blank page.
+   */
+  useEffect(() => {
+    if (!autoPrintWanted()) return;
+    const timer = setTimeout(() => window.print(), 150);
+    return () => clearTimeout(timer);
+  }, [sale.id]);
 
   return (
     <div className={styles.receipt}>
@@ -1438,21 +1586,29 @@ function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
       </div>
 
       <div className={styles.slipActions} id="receipt-actions">
-        {/*
-          The browser's own print dialogue, which is what reaches a thermal
-          printer on a till. print.css hides everything but #receipt-slip,
-          so what comes out is the slip and not the whole register screen.
-        */}
-        <button
-          className={styles.slipPrint}
-          onClick={() => window.print()}
-          type="button"
-        >
-          Print
-        </button>
-        <button className={styles.take} onClick={onNext} autoFocus>
-          Next customer
-        </button>
+        <div className={styles.slipButtons}>
+          <button
+            className={styles.slipPrint}
+            onClick={() => window.print()}
+            type="button"
+          >
+            Print
+          </button>
+          <button className={styles.take} onClick={onNext} autoFocus>
+            Next customer
+          </button>
+        </div>
+        <label className={styles.slipAuto}>
+          <input
+            type="checkbox"
+            checked={auto}
+            onChange={(e) => {
+              setAuto(e.target.checked);
+              rememberAutoPrint(e.target.checked);
+            }}
+          />
+          Print every receipt automatically on this till
+        </label>
       </div>
     </div>
   );
