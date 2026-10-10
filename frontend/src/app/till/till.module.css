@@ -1119,8 +1119,9 @@
      amount off the slip. */
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "name amount"
-    "qty  amount";
+    "name  amount"
+    "qty   amount"
+    "offer offer";
   gap: 0 10px;
   font-size: 13px;
 }
@@ -1369,4 +1370,39 @@
   background: none;
   border: 0;
   cursor: pointer;
+}
+
+/* ── an offer, on the slip ───────────────────────────────────────────────
+ *
+ * The saving is semantic colour rather than the accent: "you paid less
+ * than the shelf said" is information about the money, not a control. It
+ * is also the one thing on a receipt a customer looks for, so it is
+ * allowed to be the only coloured text on the paper.
+ *
+ * All of it survives printing — globals.css forces the slip to black on
+ * white, and the strike-through and the indent carry the meaning there.
+ */
+
+.slipWas {
+  color: var(--ink-faint);
+  text-decoration-thickness: 1px;
+}
+
+.slipOffer {
+  grid-area: offer;
+  font-size: 11px;
+  color: var(--ok);
+  overflow-wrap: break-word;
+}
+
+.slipSaved {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.slipSaved span {
+  color: var(--ok);
 }

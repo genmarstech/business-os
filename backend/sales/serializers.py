@@ -64,11 +64,17 @@ class SaleItemSerializer(serializers.ModelSerializer):
 
     quantity_refunded = serializers.SerializerMethodField()
     quantity_refundable = serializers.SerializerMethodField()
+    # What a receipt needs to print "was 220.00, you saved 40.00". `saved`
+    # is derived on the model so the two figures beside each other on the
+    # paper cannot disagree — see the property.
+    saved = serializers.SerializerMethodField()
+    offer_name = serializers.SerializerMethodField()
 
     class Meta:
         model = SaleItem
         fields = [
             "id", "product", "product_name", "sku", "note", "unit_price", "quantity",
+            "usual_price", "saved", "offer_name",
             "discount_amount", "tax_rate", "tax_amount", "line_total",
             "quantity_refunded", "quantity_refundable",
         ]
@@ -91,6 +97,21 @@ class SaleItemSerializer(serializers.ModelSerializer):
 
     def get_quantity_refundable(self, item) -> str:
         return f"{item.quantity - self._refunded(item):.2f}"
+
+    def get_saved(self, item) -> str:
+        return f"{item.saved:.2f}"
+
+    def get_offer_name(self, item) -> str:
+        """
+        The promotion's name, where one made this line cheaper.
+
+        Blank rather than the list's name when the list did not undercut
+        the usual price: a wholesale or premium-branch rate is a price
+        list too, and naming it on a receipt as an offer would be untrue.
+        """
+        if not item.was_on_offer or item.price_list is None:
+            return ""
+        return item.price_list.name
 
 
 class PaymentSerializer(serializers.ModelSerializer):

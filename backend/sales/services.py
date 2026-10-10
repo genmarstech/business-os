@@ -315,6 +315,20 @@ def checkout(
                 "gross": gross,
                 "unit_price": unit_price,
                 "price_list": from_list,
+                # ── WHAT IT WOULD HAVE COST, WHERE A LIST UNDERCUT IT ───
+                # Captured now, because nothing can work it out later: the
+                # product's price next month is not this one, and the
+                # promotion that explains the gap will have ended. Only
+                # filled where the list is actually CHEAPER — a list that
+                # raises a price is a wholesale or a premium-branch rate,
+                # and printing "you saved -20.00" on that receipt is worse
+                # than printing nothing.
+                "usual_price": (
+                    Decimal(product.selling_price)
+                    if from_list is not None
+                    and Decimal(product.selling_price) > unit_price
+                    else ZERO
+                ),
                 "note": str(line.get("note", "") or "").strip()[:200],
             }
         )
@@ -391,6 +405,7 @@ def checkout(
             # shelf says 100" is asked weeks later, by which time the
             # promotion has ended and the configuration no longer explains it.
             unit_price=line["unit_price"],
+            usual_price=line["usual_price"],
             price_list=line["price_list"],
             unit_cost=product.cost_price,
             quantity=line["quantity"],

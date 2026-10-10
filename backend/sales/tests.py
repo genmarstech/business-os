@@ -17,7 +17,14 @@ from django.test import TestCase
 from django.utils import timezone
 
 from branches.models import Branches, Register, RegisterShift, staffAssignment
-from catalog.models import CatalogCategories, CatalogCategoryProduct, TaxRule
+from catalog.models import (
+    CatalogCategories,
+    CatalogCategoryProduct,
+    PriceList,
+    PriceListBranch,
+    PriceListEntry,
+    TaxRule,
+)
 from identity.authentication import StaffPrincipal
 from identity.models import PlatformAccount, StaffCredential, TenantMembership
 from inventory.models import BranchInventory, StockMovement
@@ -1407,3 +1414,128 @@ class WhatIsOnTheReceiptTests(TestCase):
         self.assertEqual(paid["method_label"], "Cash")
         self.assertEqual(paid["tendered"], "200.00")
         self.assertEqual(paid["change_given"], "11.00")
+
+
+class WhatTheCustomerSavedTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    A RECEIPT THAT DOES NOT MENTION THE OFFER IS A SHOP NOT GETTING CREDIT
+    FOR IT.
+
+    The sale already recorded WHICH list priced a line — `price_list`, for
+    the "why was this 80 when the shelf says 100" question asked weeks
+    later. It did not record what the customer was spared, and nothing can
+    work that out afterwards: the product's price next month is not this
+    one, and the promotion that explains the gap will have ended.
+
+    So `usual_price` is captured at the moment of sale, the same reason
+    every other figure on a SaleItem is copied rather than joined.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, self.branch, self.staff, self.register, self.shift = a_shop(
+            "Jamii"
+        )
+        self.omo = a_product(self.org, name="Omo", price="220.00", cost="150.00")
+        stock(self.branch, self.omo, "50")
+
+    def on_offer(self, price="180.00", name="October promotion", branches=None):
+        price_list = PriceList.objects.create(
+            organization=self.org, name=name, precedence=10, is_active=True
+        )
+        PriceListEntry.objects.create(
+            price_list=price_list, product=self.omo, price=Decimal(price)
+        )
+        for branch in branches or []:
+            PriceListBranch.objects.create(price_list=price_list, branch=branch)
+        return price_list
+
+    def buy(self, quantity="2"):
+        sale = services.checkout(
+            shift=self.shift,
+            cashier=self.staff,
+            lines=[{"product": self.omo, "quantity": Decimal(quantity)}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("1000.00")}],
+        )
+        return sale.items.get()
+
+    def test_it_records_what_the_line_would_have_cost(self):
+        self.on_offer()
+
+        line = self.buy(quantity="2")
+
+        self.assertEqual(line.unit_price, Decimal("180.00"))
+        self.assertEqual(line.usual_price, Decimal("220.00"))
+        self.assertTrue(line.was_on_offer)
+
+    def test_the_saving_counts_the_quantity(self):
+        """Two tubs at forty off is eighty, not forty."""
+        self.on_offer()
+
+        self.assertEqual(self.buy(quantity="2").saved, Decimal("80.00"))
+
+    def test_an_ordinary_sale_carries_no_offer_at_all(self):
+        """
+        Most lines. A receipt printing "you saved 0.00" on every one of
+        them is worse than a receipt that says nothing.
+        """
+        line = self.buy()
+
+        self.assertEqual(line.usual_price, Decimal("0.00"))
+        self.assertFalse(line.was_on_offer)
+        self.assertEqual(line.saved, Decimal("0.00"))
+
+    def test_a_list_that_raises_the_price_is_not_an_offer(self):
+        """
+        ⚠ A price list is not always a promotion. A premium-branch rate or
+          a rate for a difficult customer is one too, and printing "you
+          saved -30.00" on that receipt is untrue as well as absurd.
+        """
+        self.on_offer(price="250.00", name="Airport branch rate")
+
+        line = self.buy()
+
+        self.assertEqual(line.unit_price, Decimal("250.00"))
+        self.assertEqual(
+            line.usual_price, Decimal("0.00"),
+            "Nothing was saved, so nothing is recorded and nothing prints.",
+        )
+        self.assertFalse(line.was_on_offer)
+
+    def test_the_offer_is_named_on_the_line(self):
+        from .serializers import SaleItemSerializer
+
+        self.on_offer(name="October promotion")
+        line = self.buy()
+
+        shown = SaleItemSerializer(line).data
+        self.assertEqual(shown["offer_name"], "October promotion")
+        self.assertEqual(shown["saved"], "80.00")
+        self.assertEqual(shown["usual_price"], "220.00")
+
+    def test_a_price_rise_is_not_named_as_an_offer_either(self):
+        from .serializers import SaleItemSerializer
+
+        self.on_offer(price="250.00", name="Airport branch rate")
+        line = self.buy()
+
+        self.assertEqual(SaleItemSerializer(line).data["offer_name"], "")
+
+    def test_the_saving_survives_the_promotion_ending(self):
+        """
+        The whole point of copying it. A receipt reprinted in December must
+        still say what the customer saved in October, by which time the
+        list has been deactivated and the shelf price has moved.
+        """
+        price_list = self.on_offer()
+        line = self.buy()
+
+        price_list.is_active = False
+        price_list.save(update_fields=["is_active"])
+        self.omo.selling_price = Decimal("300.00")
+        self.omo.save(update_fields=["selling_price"])
+        line.refresh_from_db()
+
+        self.assertEqual(line.usual_price, Decimal("220.00"))
+        self.assertEqual(line.saved, Decimal("80.00"))
