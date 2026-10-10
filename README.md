@@ -829,12 +829,20 @@ Now: a chip row of the branches the caller may see, and one `href(range,
 branch)` that every link on the page goes through, because two dimensions in a
 URL means every link carries both or one of them cannot be used.
 
-- **The list comes from `/brn/branches/`, not from the comparison.** The
+- **The list comes from `/brn/branch/`, not from the comparison.** The
   comparison is built from completed sales, so a branch that has not sold
   anything in the window is absent from it — and that is exactly the branch
   somebody is checking on. The endpoint is tenant-scoped *and* branch-confined
   (`branch_path = "id"`), so a branch manager is offered their own branches
   and never the organisation's list.
+
+  > ⚠ **It shipped asking for `/brn/branches/` and the picker did not exist.**
+  > The router registers `branch`, so the plural 404ed; `getOrNull` turns a
+  > 404 into null, which is right — a caller refused a report is ordinary on
+  > this page — and the `?? []` behind it turned *refused* into *no
+  > branches*. A green suite, a clean typecheck and a successful build, and
+  > the feature silently was not there. It was found by opening the page,
+  > which is the only thing that would have found it.
 - **The header says which branch is selected.** It read *"Every branch,
   consolidated"* unconditionally, which with a branch selected is a false
   claim about the numbers under it — and the only thing on the page that would
