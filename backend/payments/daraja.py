@@ -59,6 +59,26 @@ def base_url(environment: str) -> str:
     return PRODUCTION if environment == "production" else SANDBOX
 
 
+def _what_they_said(detail: str) -> tuple[str, str]:
+    """
+    Daraja's own message and code out of a refusal body, or two blanks.
+
+    The shape varies by endpoint and by failure — `errorMessage` on a
+    rejected push, `ResultDesc` on a query, occasionally neither — so this
+    looks for each in turn and gives up quietly rather than letting a
+    diagnostic aid become a reason the error path itself raises.
+    """
+    try:
+        payload = json.loads(detail or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return "", ""
+    if not isinstance(payload, dict):
+        return "", ""
+    said = payload.get("errorMessage") or payload.get("ResultDesc") or ""
+    code = payload.get("errorCode") or payload.get("ResultCode") or ""
+    return str(said)[:160], str(code)[:8]
+
+
 def _request(url: str, *, method: str = "GET", headers: dict, body=None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(url, data=data, method=method)
@@ -78,8 +98,26 @@ def _request(url: str, *, method: str = "GET", headers: dict, body=None) -> dict
             pass
         # The URL and the status, never the body we sent.
         log.error("daraja refused: HTTP %s %s %s", error.code, url, detail)
+
+        # ── SAFARICOM'S OWN WORDS, BECAUSE OURS SAY NOTHING ────────────────
+        #
+        # This used to raise a flat "M-Pesa refused the request." for every
+        # refusal, which is what a shop owner then saw in their
+        # notifications: a payment failed, no reason, nothing to do about
+        # it. Daraja's `errorMessage` is frequently the whole diagnosis —
+        # "Merchant does not exist" means the shortcode is not a merchant in
+        # this environment, which is either the wrong number or a live
+        # number pointed at the sandbox, and both are things an owner can
+        # fix in Settings in a minute.
+        #
+        # ⚠ This is the RESPONSE body, never the request body. The request
+        #   body carries the password; nothing here may ever carry it back.
+        said, code = _what_they_said(detail)
         raise DarajaError(
-            "M-Pesa refused the request.", status=error.code
+            f"M-Pesa refused the request: {said}" if said
+            else "M-Pesa refused the request.",
+            status=error.code,
+            code=code,
         ) from None
     except urllib.error.URLError as error:
         log.error("daraja unreachable: %s", error.reason)
@@ -111,9 +149,20 @@ def access_token(till) -> str:
 
 
 def _password(till, stamp: str) -> str:
-    """base64(shortcode + passkey + timestamp). NEVER log the result."""
+    """
+    base64(shortcode + passkey + timestamp). NEVER log the result.
+
+    ⚠ The shortcode here is `push_short_code`, NOT `short_code`. For a
+      buy-goods till those differ — the passkey is issued against the store
+      number, so hashing the till number produces a password Safaricom
+      cannot verify. It does not report that as a bad password: it answers
+      "Merchant does not exist" or "Invalid Access Token", which sends
+      whoever is debugging it to the credentials instead of to the number.
+    """
     passkey = till.credentials()["passkey"]
-    return base64.b64encode(f"{till.short_code}{passkey}{stamp}".encode()).decode()
+    return base64.b64encode(
+        f"{till.push_short_code}{passkey}{stamp}".encode()
+    ).decode()
 
 
 def stk_push(till, *, amount: int, phone: str, callback_url: str,
@@ -127,15 +176,21 @@ def stk_push(till, *, amount: int, phone: str, callback_url: str,
     """
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     body = {
-        "BusinessShortCode": till.short_code,
+        # Not the same field twice. See the table on `MpesaTill.store_number`:
+        # a paybill is one number, a buy-goods till is a store number that
+        # identifies the merchant and a till number that receives the money.
+        "BusinessShortCode": till.push_short_code,
         "Password": _password(till, stamp),
         "Timestamp": stamp,
         "TransactionType": till.transaction_type,
         "Amount": amount,
         "PartyA": phone,
-        "PartyB": till.short_code,
+        "PartyB": till.push_party_b,
         "PhoneNumber": phone,
         "CallBackURL": callback_url,
+        # Daraja truncates this itself and shows the customer whatever
+        # survives; cutting it here means the shop sees the same 12
+        # characters its customers will.
         "AccountReference": reference[:12] or till.short_code,
         "TransactionDesc": description[:13] or "Payment",
     }
@@ -159,7 +214,10 @@ def stk_query(till, *, checkout_request_id: str) -> dict:
     """
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     body = {
-        "BusinessShortCode": till.short_code,
+        # The SAME shortcode the push went out under. Querying a different
+        # one asks Safaricom about a merchant that never sent this request,
+        # and the answer is a refusal that reads like a failed payment.
+        "BusinessShortCode": till.push_short_code,
         "Password": _password(till, stamp),
         "Timestamp": stamp,
         "CheckoutRequestID": checkout_request_id,

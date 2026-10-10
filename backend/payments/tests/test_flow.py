@@ -365,3 +365,213 @@ class CheckoutSpendsThePushTests(SpendBase):
         with self.assertRaises(services.PaymentError):
             self.ring_up(push, "2")
         self.assertEqual(Sale.objects.count(), before)
+
+
+class WhichShortCodeGoesWhereTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    A PAYBILL IS ONE NUMBER AND A BUY-GOODS TILL IS TWO.
+
+    Daraja asks for `BusinessShortCode`, `PartyB` and a password, and for a
+    paybill all three are built from the same shortcode. For buy goods they
+    are not: the store (head office) number identifies the merchant and is
+    what the passkey was issued against, and the till number is what gets
+    paid.
+
+    This whole class exists because sending the till number for all three is
+    answered with "Merchant does not exist" — a message that sends whoever
+    reads it to the credentials, which were never wrong. The sandbox
+    shortcode 174379 is a paybill, so every test here predating this one
+    passed against the broken payload.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def sent(self, till, *, amount=150):
+        """The body `stk_push` would put on the wire, with nothing real called."""
+        with patch("payments.daraja._request") as request, \
+                patch("payments.daraja.access_token", return_value="tok"):
+            request.return_value = {"CheckoutRequestID": "x"}
+            daraja.stk_push(
+                till,
+                amount=amount,
+                phone="254700000000",
+                callback_url="https://example.test/pay/mpesa/callback/t",
+                reference="SHOP",
+                description="Payment",
+            )
+        return request.call_args.kwargs["body"]
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_a_paybill_uses_one_number_for_everything(self):
+        org, _ = a_shop()
+        till = an_mpesa_till(org, short_code="174379")
+
+        body = self.sent(till)
+
+        self.assertEqual(body["BusinessShortCode"], "174379")
+        self.assertEqual(body["PartyB"], "174379")
+        self.assertEqual(body["TransactionType"], "CustomerPayBillOnline")
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_buy_goods_identifies_by_store_and_pays_the_till(self):
+        org, _ = a_shop()
+        till = an_mpesa_till(
+            org,
+            transaction_type="CustomerBuyGoodsOnline",
+            short_code="5820101",     # the till the money lands in
+            store_number="4109108",   # the merchant Safaricom knows
+        )
+
+        body = self.sent(till)
+
+        self.assertEqual(
+            body["BusinessShortCode"], "4109108",
+            "The store number identifies the merchant. Sending the till "
+            "number here is what Daraja answers with 'Merchant does not "
+            "exist'.",
+        )
+        self.assertEqual(
+            body["PartyB"], "5820101",
+            "The money is paid into the till number, not the head office.",
+        )
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_the_password_is_built_from_the_number_the_passkey_belongs_to(self):
+        """
+        The password is base64(shortcode + passkey + timestamp), and
+        Safaricom verify it against the shortcode they were handed. Build it
+        from the till number while claiming to be the store and the two
+        disagree — which is NOT reported as a bad password.
+        """
+        import base64
+
+        org, _ = a_shop()
+        till = an_mpesa_till(
+            org,
+            transaction_type="CustomerBuyGoodsOnline",
+            short_code="5820101",
+            store_number="4109108",
+        )
+
+        body = self.sent(till)
+        decoded = base64.b64decode(body["Password"]).decode()
+
+        self.assertTrue(
+            decoded.startswith("4109108"),
+            f"The password must hash the store number, got {decoded[:7]!r}",
+        )
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_a_blank_store_number_falls_back_rather_than_sending_nothing(self):
+        """
+        Every row written before `store_number` existed has a blank one, and
+        an empty `BusinessShortCode` is a worse failure than a guess — the
+        fallback is also exactly right for a shop whose two numbers match.
+        """
+        org, _ = a_shop()
+        till = an_mpesa_till(
+            org, transaction_type="CustomerBuyGoodsOnline", short_code="5820101"
+        )
+
+        body = self.sent(till)
+
+        self.assertEqual(body["BusinessShortCode"], "5820101")
+        self.assertEqual(body["PartyB"], "5820101")
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_the_query_asks_under_the_same_shortcode_the_push_went_out_as(self):
+        """
+        A push sent as the store number and queried as the till number asks
+        Safaricom about a merchant that never sent it. The answer is a
+        refusal, and the customer has already paid.
+        """
+        org, _ = a_shop()
+        till = an_mpesa_till(
+            org,
+            transaction_type="CustomerBuyGoodsOnline",
+            short_code="5820101",
+            store_number="4109108",
+        )
+
+        pushed = self.sent(till)
+
+        with patch("payments.daraja._request") as request, \
+                patch("payments.daraja.access_token", return_value="tok"):
+            request.return_value = {"ResultCode": "0"}
+            daraja.stk_query(till, checkout_request_id="ws_CO_1")
+            queried = request.call_args.kwargs["body"]
+
+        self.assertEqual(queried["BusinessShortCode"], pushed["BusinessShortCode"])
+
+
+class WhatSafaricomSaidTests(TestCase):
+    """
+    A refusal used to read "M-Pesa refused the request." and nothing else,
+    which is what a shop owner saw in their notifications: a failed payment
+    with no cause and nothing to do about it. Daraja's own `errorMessage` is
+    usually the whole diagnosis.
+    """
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_a_refusal_carries_safaricoms_own_words(self):
+        import urllib.error
+
+        org, (branch,) = a_shop()
+        an_mpesa_till(org)
+
+        refusal = urllib.error.HTTPError(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            400,
+            "Bad Request",
+            {},  # type: ignore[arg-type]
+            None,
+        )
+        refusal.read = lambda: (  # type: ignore[method-assign]
+            b'{"errorCode":"500.001.1001","errorMessage":"Merchant does not exist"}'
+        )
+
+        with patch("payments.daraja.access_token", return_value="tok"), \
+                patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaises(services.PaymentError) as refused:
+                services.request(
+                    branch=branch,
+                    amount=Decimal("150.00"),
+                    phone="0700000000",
+                    callback_base="https://example.test",
+                )
+
+        self.assertIn("Merchant does not exist", str(refused.exception))
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_the_failed_push_records_the_same_sentence(self):
+        """
+        The row outlives the exception, and the notification is written from
+        the row. A reason that reaches only the cashier's screen is a reason
+        the owner never sees.
+        """
+        import urllib.error
+
+        org, (branch,) = a_shop()
+        an_mpesa_till(org)
+
+        refusal = urllib.error.HTTPError(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            400, "Bad Request", {}, None,  # type: ignore[arg-type]
+        )
+        refusal.read = lambda: (  # type: ignore[method-assign]
+            b'{"errorMessage":"Merchant does not exist"}'
+        )
+
+        with patch("payments.daraja.access_token", return_value="tok"), \
+                patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaises(services.PaymentError):
+                services.request(
+                    branch=branch,
+                    amount=Decimal("150.00"),
+                    phone="0700000000",
+                    callback_base="https://example.test",
+                )
+
+        push = StkPush.objects.get()
+        self.assertEqual(push.status, StkPush.Status.FAILED)
+        self.assertIn("Merchant does not exist", push.result_description)

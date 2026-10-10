@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { markRead } from "./notifications";
 import styles from "./Notifications.module.css";
@@ -69,6 +75,16 @@ export function Notifications() {
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [failed, setFailed] = useState(false);
   const panel = useRef<HTMLDivElement | null>(null);
+  const anchor = useRef<HTMLButtonElement | null>(null);
+  // Where the panel goes, measured from the bell. Null until it has been
+  // measured, which `useLayoutEffect` does before the browser paints, so the
+  // panel is never seen in the wrong place first.
+  const [box, setBox] = useState<{
+    left: number;
+    bottom: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
   const count = useCallback(async () => {
     try {
@@ -144,6 +160,66 @@ export function Notifications() {
     }
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * WHY THE PANEL IS `position: fixed` AND PLACED FROM JAVASCRIPT.
+   *
+   * It was `position: absolute` inside `.wrap`, which looks right and is
+   * not: the sidebar that contains the bell is `overflow-y: auto`
+   * (Shell.module.css `.side`), and an absolutely-positioned box CANNOT
+   * escape a scrolling ancestor. So a 23rem panel opened inside a 14rem
+   * sidebar and was clipped to it — the subject wrapped to one word per
+   * line, the Done button was off the edge, and the sidebar grew a
+   * horizontal scrollbar. It looked like a styling accident and was a
+   * containment one, which is why the repair is not "make it narrower".
+   *
+   * Fixed positioning is relative to the viewport, so nothing clips it.
+   * The cost is that the browser no longer keeps it attached to the bell,
+   * so this measures the bell and does it — on open, on resize, and on
+   * scroll anywhere (capture phase, because the sidebar scrolls, not the
+   * window).
+   *
+   * It also opens UPWARD. The bell is the last thing in the sidebar, a few
+   * pixels off the bottom of the screen; downward had nowhere to go.
+   * ══════════════════════════════════════════════════════════════════════
+   */
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    function place() {
+      const bell = anchor.current?.getBoundingClientRect();
+      if (!bell) return;
+
+      // A phone gets the full width between the gutters; a laptop gets the
+      // panel's natural width, nudged left if the sidebar sits near an edge.
+      const gutter = 12;
+      const width = Math.min(368, window.innerWidth - gutter * 2);
+      const left = Math.max(
+        gutter,
+        Math.min(bell.left, window.innerWidth - width - gutter),
+      );
+
+      setBox({
+        left,
+        width,
+        // Distance from the viewport's bottom to the panel's bottom edge:
+        // the panel sits just above the bell.
+        bottom: Math.max(gutter, window.innerHeight - bell.top + 6),
+        // Never taller than the space actually above the bell, so the panel
+        // scrolls internally instead of running off the top of the screen.
+        maxHeight: Math.max(160, bell.top - 6 - gutter),
+      });
+    }
+
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+
   // Escape closes it, and the focus goes back to the bell. A panel that can
   // only be dismissed with the mouse is a panel somebody on a keyboard is
   // stuck inside.
@@ -187,6 +263,7 @@ export function Notifications() {
     <div className={styles.wrap} ref={panel}>
       <button
         type="button"
+        ref={anchor}
         className={styles.bell}
         aria-expanded={open}
         aria-label={
@@ -218,7 +295,23 @@ export function Notifications() {
       </button>
 
       {open ? (
-        <div className={styles.panel} role="dialog" aria-label="Notifications">
+        <div
+          className={styles.panel}
+          role="dialog"
+          aria-label="Notifications"
+          style={
+            box
+              ? {
+                  left: box.left,
+                  bottom: box.bottom,
+                  width: box.width,
+                  maxHeight: box.maxHeight,
+                }
+              : // Measured before paint; this only covers the frame before
+                // the layout effect runs on a server-rendered first open.
+                { visibility: "hidden" }
+          }
+        >
           <div className={styles.head}>
             <strong className={styles.title}>Notifications</strong>
             {rows && rows.length > 0 ? (

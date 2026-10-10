@@ -31,6 +31,12 @@ export async function saveMpesaTill(
     ...(organization ? { organization } : {}),
     environment: text(form, "environment") || "sandbox",
     short_code: text(form, "short_code"),
+    // Both are sent on every save, including as empty strings. The field is
+    // hidden rather than preserved when the kind changes, so a paybill must
+    // be able to clear a store number left behind by a buy-goods config —
+    // and the reverse. These are numbers printed on a shop's wall, not
+    // secrets, so the "blank means leave it" rule below does not apply.
+    store_number: text(form, "store_number"),
     transaction_type: text(form, "transaction_type"),
     account_reference: text(form, "account_reference"),
     is_active: form.get("is_active") === "on",

@@ -206,9 +206,19 @@ export function Shell({
             is about the person rather than about the page.
           */}
           <Notifications />
-          <div className={styles.who}>
-            {me.kind === "subscriber" ? me.email : `${me.name} · ${me.username}`}
-          </div>
+          {(() => {
+            const who =
+              me.kind === "subscriber"
+                ? me.email
+                : `${me.name} · ${me.username}`;
+            // `title` because the line is now cut rather than wrapped — the
+            // full address has to stay reachable somewhere.
+            return (
+              <div className={styles.who} title={who}>
+                {who}
+              </div>
+            );
+          })()}
         </div>
       </nav>
 
