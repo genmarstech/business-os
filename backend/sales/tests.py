@@ -1303,3 +1303,107 @@ class BranchConfinedReportingTests(TestCase):
         start, end = self.window()
         figures = reports.overview(account, start, end)
         self.assertEqual(figures["revenue"], Decimal("900.00"))
+
+
+class WhatIsOnTheReceiptTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    A RECEIPT NAMES THE SALE'S OWN PEOPLE, NOT WHOEVER IS SIGNED IN NOW.
+
+    The till drew its receipt from the terminal's session — the shop from
+    the login, the cashier from whoever was at the keyboard. That is right
+    exactly once, at the moment of the sale, and wrong on every REPRINT: a
+    receipt reprinted tomorrow by a different cashier at a different branch
+    would have carried today's names onto yesterday's transaction, which is
+    the signature a duplicate-receipt refund is spotted by.
+
+    So the names come off the sale, through the serializer, and these
+    assertions are what stop them drifting back to the session.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org, self.branch, self.staff, self.register, self.shift = a_shop(
+            "Jamii Supermarket"
+        )
+        self.product = a_product(self.org, name="Yoghurt", price="63.00")
+        stock(self.branch, self.product)
+
+        self.customer = Customer.objects.create(
+            organization=self.org,
+            full_name="Mary Otieno",
+            phone_number="+254748016528",
+        )
+        self.sale = services.checkout(
+            shift=self.shift,
+            cashier=self.staff,
+            customer=self.customer,
+            lines=[{"product": self.product, "quantity": Decimal("3")}],
+            # The cash actually handed over. `checkout` stores `amount` NET
+            # of change and derives `tendered`/`change_given` from it — see
+            # the note beside the Payment write in services.checkout.
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("200.00")}],
+        )
+
+    def shown(self):
+        from .serializers import SaleSerializer
+
+        return SaleSerializer(
+            Sale.objects.select_related(
+                "organization", "branch", "register", "cashier", "customer",
+                "receipt",
+            ).get(pk=self.sale.pk)
+        ).data
+
+    def test_it_carries_the_shop_the_branch_and_the_till(self):
+        data = self.shown()
+
+        self.assertEqual(data["organisation_name"], "Jamii Supermarket")
+        self.assertEqual(data["branch_name"], "Jamii Supermarket Main")
+        self.assertEqual(data["branch_location"], "Nairobi")
+        self.assertEqual(data["register_name"], "Till 1")
+
+    def test_it_names_the_cashier_who_rang_it_up(self):
+        self.assertEqual(self.shown()["cashier_name"], "Jane Cashier")
+
+    def test_it_names_the_customer_when_there_is_one(self):
+        data = self.shown()
+
+        self.assertEqual(data["customer_name"], "Mary Otieno")
+        self.assertEqual(data["customer_phone"], "+254748016528")
+
+    def test_a_walk_in_has_no_customer_rather_than_a_blank_one(self):
+        """
+        Most supermarket sales are to nobody in particular. The field has to
+        come back empty so the slip omits the line — a receipt addressed to
+        an empty name is worse than one addressed to nobody.
+        """
+        walk_in = services.checkout(
+            shift=self.shift,
+            cashier=self.staff,
+            lines=[{"product": self.product, "quantity": Decimal("1")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("63.00")}],
+        )
+        from .serializers import SaleSerializer
+
+        data = SaleSerializer(walk_in).data
+        self.assertEqual(data["customer_name"], "")
+        self.assertEqual(data["customer_phone"], "")
+
+    def test_the_receipt_number_and_the_figures_a_customer_checks(self):
+        data = self.shown()
+
+        self.assertEqual(
+            data["receipt"]["number"], f"{self.branch.branch_number}-{self.sale.number}"
+        )
+        line = data["items"][0]
+        # The slip prints "3 × 63.00 … 189.00", so all three have to be there
+        # and have to multiply out.
+        self.assertEqual(line["unit_price"], "63.00")
+        self.assertEqual(Decimal(line["quantity"]), Decimal("3"))
+        self.assertEqual(line["line_total"], "189.00")
+
+        paid = data["payments"][0]
+        self.assertEqual(paid["method_label"], "Cash")
+        self.assertEqual(paid["tendered"], "200.00")
+        self.assertEqual(paid["change_given"], "11.00")

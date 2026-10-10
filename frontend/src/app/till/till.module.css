@@ -1035,3 +1035,236 @@
   border: 0;
   cursor: pointer;
 }
+
+/* ── the slip the customer is handed ─────────────────────────────────────
+ *
+ * Set to read like a till roll rather than like the rest of the
+ * application: monospaced figures in a narrow column, so a customer
+ * checking it against the shelf price runs their eye down one edge. It is
+ * also what gets printed, so it is sized in a width a 80mm thermal roll
+ * can take — see the @media print block at the end of this file.
+ */
+
+.slip {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  font-variant-numeric: tabular-nums;
+}
+
+.slipHead {
+  text-align: center;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.slipShop {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.slipWhere {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.slipFacts {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.slipFacts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.slipFacts dt {
+  color: var(--ink-faint);
+}
+
+.slipFacts dd {
+  margin: 0;
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.slipLines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+
+.slipLine {
+  display: grid;
+  /* minmax(0, 1fr) so a long product name wraps instead of pushing the
+     amount off the slip. */
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name amount"
+    "qty  amount";
+  gap: 0 10px;
+  font-size: 13px;
+}
+
+.slipName {
+  grid-area: name;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+
+.slipSku {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.slipQty {
+  grid-area: qty;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.slipAmount {
+  grid-area: amount;
+  align-self: center;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.slipSums {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.slipSums > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-muted);
+}
+
+.slipSums span:last-child {
+  font-family: var(--font-mono);
+}
+
+.slipTotal {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.slipTotal span {
+  color: var(--ink);
+}
+
+.slipPaid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 13px;
+}
+
+.slipPaidRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-muted);
+}
+
+.slipPaidRow span:last-child {
+  font-family: var(--font-mono);
+}
+
+.slipRef {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.slipFoot {
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.slipFine {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.slipActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.slipButtons {
+  display: flex;
+  gap: 10px;
+}
+
+.slipButtons .take {
+  flex: 2;
+}
+
+.slipAuto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.slipPrint {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.slipPrint:hover {
+  background: var(--sunken);
+}
+
+.slipPrint:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

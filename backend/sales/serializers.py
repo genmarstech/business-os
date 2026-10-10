@@ -119,6 +119,40 @@ class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
     receipt = ReceiptSerializer(read_only=True)
+
+    # ── THE NAMES A RECEIPT IS PRINTED WITH ─────────────────────────────
+    #
+    # Ids are what the application needs and names are what a customer
+    # reads. The till used to fill a receipt from its own session — the
+    # shop's name from the login, the cashier from whoever was signed in —
+    # and that is wrong in the one case it matters: a REPRINT. A receipt
+    # reprinted tomorrow by a different cashier at a different branch
+    # would have carried today's names onto yesterday's sale.
+    #
+    # Read from the sale, so a receipt says who actually rang it up.
+    # `source` walks a relation each time, which is why `SaleViewSet`
+    # select_relateds all four.
+    organisation_name = serializers.CharField(
+        source="organization.name", read_only=True, default=""
+    )
+    branch_name = serializers.CharField(
+        source="branch.branch_name", read_only=True, default=""
+    )
+    branch_location = serializers.CharField(
+        source="branch.branch_location", read_only=True, default=""
+    )
+    register_name = serializers.CharField(
+        source="register.name", read_only=True, default=""
+    )
+    cashier_name = serializers.CharField(
+        source="cashier.full_name", read_only=True, default=""
+    )
+    customer_name = serializers.CharField(
+        source="customer.full_name", read_only=True, default=""
+    )
+    customer_phone = serializers.CharField(
+        source="customer.phone_number", read_only=True, default=""
+    )
     amount_refunded = serializers.DecimalField(
         max_digits=12, decimal_places=2, read_only=True
     )
@@ -128,7 +162,9 @@ class SaleSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id", "number", "status", "status_label", "order_type", "table_name",
-            "organization", "branch",
+            "organization", "organisation_name", "branch", "branch_name",
+            "branch_location", "register_name", "cashier_name",
+            "customer_name", "customer_phone",
             "register", "shift", "cashier", "customer", "subtotal",
             "discount_total", "tax_total", "total", "amount_refunded",
             "items", "payments", "receipt", "void_reason", "voided_at",
