@@ -130,7 +130,11 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         # on SaleItemSerializer from costing a query per line — see the banner
         # there for why they are derived rather than stored.
         .prefetch_related(
-            "items", "payments", "refunds", "items__refund_items__refund"
+            # `items__price_list` because every line now reports the offer
+            # that priced it, which is a query per line on a receipt
+            # otherwise.
+            "items", "items__price_list", "payments", "refunds",
+            "items__refund_items__refund",
         )
         .all()
     )

@@ -323,6 +323,25 @@ class SaleItem(models.Model):
     # was charged. PROTECT, so a list that has priced real sales cannot be
     # deleted out from under the explanation — lists are deactivated, the
     # same as suppliers and products.
+    # ── WHAT IT WOULD HAVE COST, WHEN A LIST MADE IT LESS ───────────────
+    #
+    # `price_list` below says a promotion applied. It does not say what the
+    # customer was spared, and the receipt cannot work that out later: the
+    # product's price today is not the price it had in March, and the
+    # promotion that explains the gap has ended. Same reason the price
+    # itself is copied rather than joined.
+    #
+    # ZERO means no offer, not "it was free". The field is only filled when
+    # a list actually undercut the usual price, so a sale at the ordinary
+    # price carries nothing and the receipt prints nothing — an "offer" line
+    # reading "you saved 0.00" on every receipt is worse than no line.
+    #
+    # ⚠ It records the usual price, not the saving. The saving is
+    #   arithmetic a reader can check against the line beside it; a stored
+    #   difference is a third number that can disagree with the two it came
+    #   from.
+    usual_price = models.DecimalField(**MONEY, default=ZERO)
+
     price_list = models.ForeignKey(
         "catalog.PriceList",
         on_delete=models.PROTECT,
@@ -358,6 +377,23 @@ class SaleItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.quantity} × {self.product_name}"
+
+    @property
+    def was_on_offer(self) -> bool:
+        """Whether a price list actually made this line cheaper."""
+        return bool(self.usual_price) and self.usual_price > self.unit_price
+
+    @property
+    def saved(self) -> Decimal:
+        """
+        What the customer was spared on this line.
+
+        Derived rather than stored, so it cannot disagree with the two
+        numbers printed beside it on the receipt.
+        """
+        if not self.was_on_offer:
+            return ZERO
+        return (self.usual_price - self.unit_price) * self.quantity
 
 
 class Payment(models.Model):

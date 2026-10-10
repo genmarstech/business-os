@@ -110,6 +110,15 @@ type Sale = {
     sku: string;
     quantity: string;
     unit_price: string;
+    /*
+     * What it would have cost without the promotion, and what the customer
+     * was spared. Both "0.00" when no price list undercut the usual price,
+     * which is most lines — the slip prints nothing in that case rather
+     * than a saving of nothing.
+     */
+    usual_price: string;
+    saved: string;
+    offer_name: string;
     discount_amount: string;
     tax_amount: string;
     line_total: string;
@@ -1511,6 +1520,13 @@ function rememberAutoPrint(on: boolean): void {
 
 function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
   const discount = cents(sale.discount_total || "0");
+  /*
+   * ── WHAT THE OFFERS CAME TO ───────────────────────────────────────────
+   * Summed from the lines rather than carried on the sale: the lines are
+   * the record, and a total that can drift from them is a receipt arguing
+   * with itself in front of a customer.
+   */
+  const saved = sale.items.reduce((sum, item) => sum + cents(item.saved), 0);
   const issued = sale.receipt?.issued_at ?? sale.completed_at;
   const [auto, setAuto] = useState(autoPrintWanted);
 
@@ -1594,7 +1610,26 @@ function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
                   the question this line answers. */}
               <div className={styles.slipQty}>
                 {Number(item.quantity)} × {shillings(cents(item.unit_price))}
+                {/*
+                  The old price struck through, beside the one charged.
+                  A saving stated without the price it is measured from is
+                  a number a customer has to take on trust.
+                */}
+                {cents(item.saved) > 0 ? (
+                  <>
+                    {" "}
+                    <s className={styles.slipWas}>
+                      {shillings(cents(item.usual_price))}
+                    </s>
+                  </>
+                ) : null}
               </div>
+              {cents(item.saved) > 0 ? (
+                <div className={styles.slipOffer}>
+                  {item.offer_name || "Offer"} — saved{" "}
+                  {shillings(cents(item.saved))}
+                </div>
+              ) : null}
               <div className={styles.slipAmount}>
                 {shillings(cents(item.line_total))}
               </div>
@@ -1625,6 +1660,17 @@ function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
             <span>Total</span>
             <span>{shillings(cents(sale.total))}</span>
           </div>
+          {/*
+            Under the total, where a supermarket puts it, and only when
+            there is something to say. It is the line a customer reads
+            aloud to whoever they came with.
+          */}
+          {saved > 0 ? (
+            <div className={styles.slipSaved}>
+              <span>You saved today</span>
+              <span>{shillings(saved)}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className={styles.slipPaid}>
