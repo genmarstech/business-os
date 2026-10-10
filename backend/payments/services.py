@@ -137,17 +137,40 @@ def whole_shillings(amount: Decimal) -> int:
     return int(amount)
 
 
-def till_for(organization_id: int) -> MpesaTill:
-    till = MpesaTill.objects.filter(organization_id=organization_id).first()
-    if till is None or not till.is_active:
+def till_for(branch) -> MpesaTill:
+    """
+    The M-Pesa number this branch is paid on, or a refusal in words.
+
+    ── IT TAKES A BRANCH, NOT AN ORGANISATION ──────────────────────────────
+    It used to take an organisation id, because there was one till per
+    business. A branch can now carry its own — see `MpesaTill.for_branch`,
+    which is the only thing that chooses between that and the default.
+
+    Every refusal below names the BRANCH where a branch override is what is
+    broken. "M-Pesa is not set up for this business" is actively misleading
+    at a shop whose head office has had it working for months, and it sends
+    an owner to the wrong settings screen.
+    """
+    till = MpesaTill.for_branch(branch)
+    where = (
+        f"this branch ({branch.branch_name})"
+        if till is not None and till.branch_id
+        else "this business"
+    )
+    if till is None:
         raise PaymentError(
             {"detail": "M-Pesa is not set up for this business yet. "
                        "An owner turns it on under Settings."}
         )
+    if not till.is_active:
+        raise PaymentError(
+            {"detail": f"M-Pesa is switched off for {where}. "
+                       "An owner turns it on under Settings."}
+        )
     if not till.is_complete:
         raise PaymentError(
-            {"detail": "The M-Pesa settings are incomplete. An owner finishes "
-                       "them under Settings."}
+            {"detail": f"The M-Pesa settings for {where} are incomplete. "
+                       "An owner finishes them under Settings."}
         )
     return till
 
@@ -172,7 +195,7 @@ def request(*, branch, amount: Decimal, phone: str, callback_base: str,
     updates after it are single statements on a row nobody else holds.
     """
     organization_id = branch.organization_id
-    till = till_for(organization_id)
+    till = till_for(branch)
 
     phone = normalise_phone(phone)
     shillings = whole_shillings(Decimal(amount))
@@ -182,6 +205,10 @@ def request(*, branch, amount: Decimal, phone: str, callback_base: str,
         push = StkPush.objects.create(
             organization_id=organization_id,
             branch=branch,
+            # Recorded, so `confirm` queries under the number this actually
+            # went out on rather than whatever is configured by then. See
+            # the banner on StkPush.till.
+            till=till,
             amount=Decimal(amount),
             phone_number=phone,
             callback_token_digest=token_digest(token),
@@ -259,7 +286,15 @@ def confirm(push: StkPush) -> StkPush:
         return _settle(push, StkPush.Status.FAILED, "", "", "Never sent")
 
     age = (timezone.now() - push.created_at).total_seconds()
-    till = MpesaTill.objects.get(organization_id=push.organization_id)
+    # The till the push WENT OUT ON. Falling back to the lookup only for
+    # rows written before that column existed — every one of those was sent
+    # on the organisation's single till, so the lookup is right for them and
+    # wrong for everything after.
+    till = push.till or MpesaTill.objects.filter(
+        organization_id=push.organization_id, branch__isnull=True
+    ).first()
+    if till is None:
+        return push
 
     try:
         answer = daraja.stk_query(

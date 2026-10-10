@@ -26,9 +26,16 @@ export async function saveMpesaTill(
 ): Promise<State> {
   const id = Number(text(form, "id"));
   const organization = Number(text(form, "organization"));
+  /*
+   * Empty means the business default. Sent as null rather than omitted so
+   * an existing row can be moved back to being the default — omitting it
+   * would leave whatever branch it is already attached to.
+   */
+  const branch = Number(text(form, "branch")) || null;
 
   const body = {
     ...(organization ? { organization } : {}),
+    branch,
     environment: text(form, "environment") || "sandbox",
     short_code: text(form, "short_code"),
     // Both are sent on every save, including as empty strings. The field is

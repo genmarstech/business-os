@@ -105,9 +105,9 @@ REFERENCE_TO_ORGANISATION = {
     # entirely.
     "price_list": lambda obj: obj.organization_id,
     "branches": lambda obj: obj.organization_id,
-    # M-Pesa. A till is one per organisation and a push reaches one through
-    # its own column; both are named here per the warning above, in the same
-    # commit that introduces them.
+    # M-Pesa. A till is the business default or one branch's override, and
+    # a push reaches an organisation through its own column; both are named
+    # here per the warning above.
     "mpesa_till": lambda obj: obj.organization_id,
     "stk_push": lambda obj: obj.organization_id,
 }
