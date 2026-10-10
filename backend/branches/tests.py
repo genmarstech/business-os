@@ -492,3 +492,64 @@ class ShiftNoteTests(TestCase):
             f"/brn/register-shifts/{self.shift.pk}/"
         ).json()
         self.assertEqual(body["note"], "Till jammed at 3pm")
+
+
+class TheBranchListPathTests(TestCase):
+    """
+    `/brn/branch/`, singular, which six screens depend on by name.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THIS PINS A PATH RATHER THAN A BEHAVIOUR, AND IT IS HERE BECAUSE THE
+    OBVIOUS WRONG GUESS COSTS NOTHING TO MAKE AND NOTHING TO NOTICE.
+
+    The reports branch picker was written against `/brn/branches/`. The router
+    registers `branch`, so that 404ed; `getOrNull` turns a 404 into null,
+    which is correct — a caller refused a report is an ordinary case on that
+    page — and the `?? []` behind it turned "refused" into "no branches". The
+    picker rendered nothing at all, with a green suite, a green build and a
+    clean typecheck behind it. It was found by opening the page.
+
+    A test cannot stop somebody typing the plural in a browser bundle. What
+    it can do is make the opposite mistake loud: if this path is ever
+    renamed, six screens lose their branch list in the same quiet way, and
+    this fails instead.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org = BusinessOrganization.objects.create(name="Shop A")
+        self.branch = Branches.objects.create(
+            organization=self.org, branch_name="Westlands",
+            branch_location="Nairobi", branch_allocation="Ground floor",
+            branch_manager="A Manager", is_active=True,
+        )
+        self.owner = PlatformAccount.objects.create(
+            genmars_account_id=8500, email="owner@a.co.ke"
+        )
+        TenantMembership.objects.create(
+            account=self.owner, organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.owner.pk
+        session.save()
+
+    def test_the_list_is_at_brn_branch(self):
+        response = self.client.get("/brn/branch/")
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_the_plural_is_not_a_route(self):
+        """The guess that cost a feature. If this ever starts answering,
+        the two spellings have diverged and one of them is wrong."""
+        self.assertEqual(self.client.get("/brn/branches/").status_code, 404)
+
+    def test_a_row_carries_what_a_picker_needs(self):
+        """
+        `id`, a name to show, and the flag that decides whether to offer it
+        at all — a closed branch is not somewhere to report on.
+        """
+        rows = self.client.get("/brn/branch/").json()
+        rows = rows if isinstance(rows, list) else rows["results"]
+        self.assertEqual(len(rows), 1)
+        for key in ("id", "branch_name", "is_active"):
+            self.assertIn(key, rows[0], f"a picker reads {key}")

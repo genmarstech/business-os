@@ -829,12 +829,20 @@ Now: a chip row of the branches the caller may see, and one `href(range,
 branch)` that every link on the page goes through, because two dimensions in a
 URL means every link carries both or one of them cannot be used.
 
-- **The list comes from `/brn/branches/`, not from the comparison.** The
+- **The list comes from `/brn/branch/`, not from the comparison.** The
   comparison is built from completed sales, so a branch that has not sold
   anything in the window is absent from it — and that is exactly the branch
   somebody is checking on. The endpoint is tenant-scoped *and* branch-confined
   (`branch_path = "id"`), so a branch manager is offered their own branches
   and never the organisation's list.
+
+  > ⚠ **It shipped asking for `/brn/branches/` and the picker did not exist.**
+  > The router registers `branch`, so the plural 404ed; `getOrNull` turns a
+  > 404 into null, which is right — a caller refused a report is ordinary on
+  > this page — and the `?? []` behind it turned *refused* into *no
+  > branches*. A green suite, a clean typecheck and a successful build, and
+  > the feature silently was not there. It was found by opening the page,
+  > which is the only thing that would have found it.
 - **The header says which branch is selected.** It read *"Every branch,
   consolidated"* unconditionally, which with a branch selected is a false
   claim about the numbers under it — and the only thing on the page that would
@@ -925,6 +933,58 @@ What that cost, all three confirmed by test against the old code:
 The fix is `payments=[dict(p) for p in data["payments"]]` — every field the
 serialiser validated, so the next one added arrives on its own instead of
 waiting for somebody to remember that list.
+## A cookie must not outrank a token
+
+The till and the office are the **same origin**. `business.genmars.co.ke`
+serves `/till` and `/sign-in`, and Django's session cookie has no path
+restriction — so an office cookie is attached by the browser to every request
+the till makes, alongside the till's own `Authorization: Bearer`.
+
+DRF takes the first authentication class that answers, and the two cookie
+classes are listed first. **The cookie won.** One manager signing in on the
+shop's browser was enough to break the till in two ways at once:
+
+- **Every unsafe till request failed** with `CSRF failed: CSRF token missing`
+  — checkout, refunds, cash in and out, closing a drawer. A bearer request
+  carries no CSRF token and must never need one; the cookie class was
+  demanding one on its behalf.
+- **Every read answered as the office user.** `/auth/me` was handed a
+  cashier's token and came back with somebody else's name, so the till would
+  draw its screens from the wrong person's permissions — and `checkout` pins
+  the cashier to the authenticated principal.
+
+There was a third consequence, and it is the one that matters most. The till's
+Return screen borrows a manager's session for exactly three requests and closes
+it in a `finally` — `till/Return.tsx` says *"their token is never saved and
+their session is closed immediately"*. That sign-out is a POST, so it failed
+CSRF like the rest: **the borrowed manager session stayed open on a shared
+terminal**, which is the one thing that screen is built to prevent.
+
+The fix is `_presents_a_bearer_token` in `identity/authentication.py`: both
+cookie classes decline when the caller names a credential in a header.
+
+- **A named credential beats a carried one.** The explicit thing wins over the
+  ambient thing.
+- **It fails closed.** Suppressing a cookie session with a junk header does not
+  fall back to the cookie — the token class refuses, and the caller has no
+  session at all.
+- **Any `Authorization` header counts**, not just a well-formed one. A
+  malformed header is still somebody naming a credential, and treating it as
+  absent would hand the request back to the cookie.
+- **The office still enforces CSRF on its own writes.** That is a separate
+  test, because it is the regression this change could most easily have caused.
+
+> ⚠ **A test asserted the old behaviour and had to be reversed.** It said the
+> cookie wins, pinned as *"the safe half of the pair"* because a till's token
+> can never **escalate** a request. That reasoning was right and is preserved —
+> when both are presented the request now carries the token's narrower
+> authority, which is a downgrade. What it missed is that the collision is
+> routine rather than hypothetical, because the two share an origin. Its own
+> docstring said it *"reads like an oversight"*. It was one.
+
+**It was found by opening the till in a browser**, not by the suite — the
+default Django test client sets `enforce_csrf_checks=False`, so no existing
+test could see the CSRF half of it at all.
 
 ## Three doors, and who goes through which
 
