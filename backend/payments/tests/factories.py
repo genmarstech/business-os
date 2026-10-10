@@ -100,10 +100,14 @@ def stocked(branch, product, quantity="100"):
     )
 
 
-def an_mpesa_till(org, *, active=True, environment="sandbox", complete=True):
+def an_mpesa_till(org, *, active=True, environment="sandbox", complete=True,
+                  transaction_type=MpesaTill.TransactionType.PAYBILL,
+                  short_code="174379", store_number=""):
     till = MpesaTill(
         organization=org,
-        short_code="174379",
+        short_code=short_code,
+        store_number=store_number,
+        transaction_type=transaction_type,
         environment=environment,
         account_reference="SHOP",
         is_active=active,

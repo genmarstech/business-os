@@ -11,6 +11,7 @@ export type Till = {
   id: number;
   environment: "sandbox" | "production";
   short_code: string;
+  store_number: string;
   transaction_type: string;
   account_reference: string;
   is_active: boolean;
@@ -37,6 +38,16 @@ export function MpesaForm({
 }) {
   const [state, action, pending] = useActionState(saveMpesaTill, EMPTY);
   const [live, setLive] = useState(till?.environment === "production");
+  /*
+   * ── THE STORE NUMBER ONLY EXISTS FOR ONE OF THE TWO KINDS ──────────────
+   * Shown for buy-goods and hidden for a paybill, because a paybill has no
+   * second number and a box asking for one invites somebody to invent it.
+   * Held in state rather than keyed off `till?.transaction_type`, so the
+   * field appears the moment the kind is changed and not after a save.
+   */
+  const [buyGoods, setBuyGoods] = useState(
+    till?.transaction_type === "CustomerBuyGoodsOnline",
+  );
 
   const error = (field: string) => state?.field?.[field];
 
@@ -50,7 +61,9 @@ export function MpesaForm({
 
         <div className={styles.row}>
           <label className={styles.field}>
-            <span className={styles.label}>Paybill or till number</span>
+            <span className={styles.label}>
+              {buyGoods ? "Till number" : "Paybill number"}
+            </span>
             <input
               name="short_code"
               className={styles.input}
@@ -59,6 +72,11 @@ export function MpesaForm({
               defaultValue={till?.short_code}
               placeholder="174379"
             />
+            <span className={styles.hint}>
+              {buyGoods
+                ? "The number the money is paid into."
+                : "The number a customer would normally pay."}
+            </span>
             {error("short_code") ? (
               <span className={styles.error}>{error("short_code")}</span>
             ) : null}
@@ -70,6 +88,9 @@ export function MpesaForm({
               name="transaction_type"
               className={styles.input}
               defaultValue={till?.transaction_type ?? "CustomerPayBillOnline"}
+              onChange={(e) =>
+                setBuyGoods(e.target.value === "CustomerBuyGoodsOnline")
+              }
             >
               <option value="CustomerPayBillOnline">Paybill</option>
               <option value="CustomerBuyGoodsOnline">Buy goods (till)</option>
@@ -77,20 +98,51 @@ export function MpesaForm({
           </label>
         </div>
 
-        <label className={styles.field}>
-          <span className={styles.label}>Account reference</span>
-          <input
-            name="account_reference"
-            className={styles.input}
-            maxLength={24}
-            defaultValue={till?.account_reference}
-            placeholder="Your shop's name"
-          />
-          <span className={styles.hint}>
-            What the customer sees on their statement. Paybill only — buy-goods
-            numbers have no account.
-          </span>
-        </label>
+        {/*
+          Safaricom issue a buy-goods merchant TWO numbers and the passkey is
+          tied to the store one. Sending the till number in its place is
+          answered with "Merchant does not exist", which reads like the
+          credentials are wrong and sends somebody re-typing a passkey that
+          was always correct.
+        */}
+        {buyGoods ? (
+          <label className={styles.field}>
+            <span className={styles.label}>Store number</span>
+            <input
+              name="store_number"
+              className={styles.input}
+              inputMode="numeric"
+              defaultValue={till?.store_number}
+              placeholder="Head office number"
+            />
+            <span className={styles.hint}>
+              The store or head office number your passkey was issued against
+              — not always the same as the till number. If Safaricom gave you
+              only one number, put it here too.
+            </span>
+            {error("store_number") ? (
+              <span className={styles.error}>{error("store_number")}</span>
+            ) : null}
+          </label>
+        ) : null}
+
+        {!buyGoods ? (
+          <label className={styles.field}>
+            <span className={styles.label}>Account reference</span>
+            <input
+              name="account_reference"
+              className={styles.input}
+              maxLength={12}
+              defaultValue={till?.account_reference}
+              placeholder="Your shop's name"
+            />
+            <span className={styles.hint}>
+              What the customer sees on their statement. Twelve characters —
+              M-Pesa cuts anything longer, so it is cut here where you can see
+              it happen.
+            </span>
+          </label>
+        ) : null}
       </fieldset>
 
       <fieldset className={styles.fieldset}>

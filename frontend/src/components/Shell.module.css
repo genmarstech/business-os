@@ -102,10 +102,21 @@
   gap: 8px;
 }
 
+/*
+ * ── ONE LINE, CUT, WITH THE WHOLE THING ON HOVER ──────────────────────────
+ * This was `overflow-wrap: anywhere`, which broke an ordinary email address
+ * across two lines mid-domain — "muchemiedwin68@gmail.c / om" — and pushed
+ * the bell beside it out of shape. An address is an identifier, not prose:
+ * half of it on a second line is not more readable than an ellipsis, and
+ * the `title` gives the full value to anybody who needs it.
+ */
 .who {
   min-width: 0;
+  flex: 1;
   color: var(--ink-muted);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .main {

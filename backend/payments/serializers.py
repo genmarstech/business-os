@@ -44,6 +44,7 @@ class MpesaTillSerializer(serializers.ModelSerializer):
             "organization",
             "environment",
             "short_code",
+            "store_number",
             "transaction_type",
             "account_reference",
             "is_active",
@@ -104,6 +105,37 @@ class MpesaTillSerializer(serializers.ModelSerializer):
                     )
                 }
             )
+
+        # ── BUY-GOODS NEEDS THE STORE NUMBER, AND ASKS FOR IT HERE ─────────
+        #
+        # Not in the model and not in `daraja.py`, because this is the only
+        # moment anybody is looking at the configuration. `push_short_code`
+        # falls back to the till number when this is blank, which keeps old
+        # rows working and is right whenever the two genuinely match — but
+        # it is a GUESS, and the place to stop guessing is before the shop
+        # switches M-Pesa on, not at a counter with a customer waiting while
+        # Daraja answers "Merchant does not exist".
+        #
+        # Asked for explicitly even where it duplicates the till number, so
+        # the answer on file is one somebody checked rather than one we
+        # inferred. The field's hint says to repeat the number if that is
+        # what Safaricom issued.
+        kind = data.get(
+            "transaction_type",
+            getattr(self.instance, "transaction_type", MpesaTill.TransactionType.PAYBILL),
+        )
+        store = data.get("store_number", getattr(self.instance, "store_number", ""))
+        if kind == MpesaTill.TransactionType.BUY_GOODS and not store:
+            raise serializers.ValidationError(
+                {
+                    "store_number": (
+                        "A buy-goods till needs the store number its passkey "
+                        "was issued against. If Safaricom gave you only one "
+                        "number, enter the till number here as well."
+                    )
+                }
+            )
+
         return data
 
     def _apply_secrets(self, till, validated):

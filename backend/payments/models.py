@@ -118,6 +118,37 @@ class MpesaTill(models.Model):
         choices=TransactionType.choices,
         default=TransactionType.PAYBILL,
     )
+
+    # ── A BUY-GOODS TILL IS TWO NUMBERS, AND SENDING ONE SILENTLY FAILS ─────
+    #
+    # ⚠ THIS FIELD IS WHY BUY-GOODS WORKS AT ALL. Do not collapse it back
+    #   into `short_code` on the grounds that they are usually equal.
+    #
+    # Daraja asks a paybill for ONE number and a buy-goods till for TWO, and
+    # it does not say so in the error:
+    #
+    #            BusinessShortCode   PartyB        Password built from
+    #   paybill  the paybill         the paybill   the paybill
+    #   goods    the STORE number    the till      the STORE number
+    #
+    # The store number — Safaricom also call it the head office number — is
+    # what the passkey was issued against. Send the till number in its place
+    # and the password hashes against the wrong shortcode, so Daraja answers
+    # "invalid access token" or "Bad Request" and a cashier is told M-Pesa
+    # refused the request with nothing to act on.
+    #
+    # Blank means "the same as short_code", which is the truth for every
+    # paybill and for a buy-goods till whose two numbers genuinely match. It
+    # is also what every row written before this field existed means, so the
+    # migration needs no data step and paybill behaviour is unchanged.
+    store_number = models.CharField(
+        max_length=12,
+        blank=True,
+        help_text=(
+            "Buy-goods only: the store or head office number the passkey was "
+            "issued against. Blank uses the till number for both."
+        ),
+    )
     account_reference = models.CharField(
         max_length=24,
         blank=True,
@@ -150,6 +181,35 @@ class MpesaTill(models.Model):
 
     def __str__(self) -> str:
         return f"{self.organization.name} — {self.short_code}"
+
+    # ── the two numbers a push is addressed with ────────────────────────────
+    #
+    # Derived here rather than in `daraja.py` so there is ONE answer to "which
+    # shortcode" and both the push and the query it is settled by are built
+    # from it. They were two literals before, and a query that asks about a
+    # different shortcode than the push was sent under is a payment nobody can
+    # confirm.
+
+    @property
+    def push_short_code(self) -> str:
+        """
+        `BusinessShortCode`, and the number the password is built from.
+
+        The store number for a buy-goods till, the paybill otherwise. See the
+        table on `store_number` for why those differ.
+        """
+        if self.is_buy_goods and self.store_number:
+            return self.store_number
+        return self.short_code
+
+    @property
+    def push_party_b(self) -> str:
+        """`PartyB` — who is actually paid. Always the number on the shop."""
+        return self.short_code
+
+    @property
+    def is_buy_goods(self) -> bool:
+        return self.transaction_type == self.TransactionType.BUY_GOODS
 
     # ── reading and writing the secrets ─────────────────────────────────────
 

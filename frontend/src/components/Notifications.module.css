@@ -67,16 +67,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * ── FIXED, NOT ABSOLUTE, AND THE REASON IS NOT TASTE ───────────────────────
+ *
+ * The sidebar this bell lives in is `overflow-y: auto` (Shell.module.css
+ * `.side`). An absolutely-positioned panel is clipped by the nearest
+ * scrolling ancestor, so the old `position: absolute` opened a 23rem panel
+ * inside a 14rem sidebar: one word per line, the Done button past the edge,
+ * and a horizontal scrollbar on the nav.
+ *
+ * Fixed escapes it. The trade is that the browser stops keeping the panel
+ * attached to the bell, so Notifications.tsx measures and places it — every
+ * one of left/bottom/width/max-height is set inline from there, and the
+ * values here are only what a measurement-less first frame falls back to.
+ */
 .panel {
-  position: absolute;
+  position: fixed;
   z-index: 40;
-  /* Anchored to the bell's bottom-left so it opens into the page rather than
-     off the edge of a sidebar. */
-  top: calc(100% + 6px);
-  left: 0;
-  width: min(23rem, calc(100vw - 32px));
+  left: 12px;
+  bottom: 12px;
+  width: min(23rem, calc(100vw - 24px));
   max-height: min(28rem, 70vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -132,10 +145,13 @@
 
 .row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* `minmax(0, 1fr)` rather than `1fr`: a grid track's default minimum is
+     its content, so one long unbroken word in a subject would push the Done
+     button out of the panel instead of wrapping. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
-  padding: 9px 10px;
+  gap: 8px 10px;
+  padding: 10px;
   border-top: 1px solid var(--line);
 }
 
@@ -165,11 +181,20 @@
 .subject {
   font-size: 0.8125rem;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--ink);
   text-decoration: none;
-  /* Wraps. A subject naming a product and a branch is longer than this panel,
-     and truncating it hides the half that says which shelf. */
-  overflow-wrap: anywhere;
+  /*
+   * Wraps, because a subject naming a product and a branch is longer than
+   * this panel and truncating it hides the half that says which shelf.
+   *
+   * `break-word`, NOT `anywhere`: anywhere lets the browser break inside a
+   * word even when the line would have fitted by wrapping normally, which
+   * is how "M-Pesa payment of KSh 80.00" became a column of fragments once
+   * the panel was being clipped. break-word splits a long word only when it
+   * genuinely cannot fit, so an amount or a phone number stays whole.
+   */
+  overflow-wrap: break-word;
 }
 
 .subject:hover { text-decoration: underline; }
@@ -179,6 +204,7 @@
   font-size: 0.75rem;
   line-height: 1.45;
   color: var(--ink-muted);
+  overflow-wrap: break-word;
 }
 
 .meta {
