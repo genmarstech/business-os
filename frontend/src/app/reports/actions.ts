@@ -24,8 +24,21 @@ import { asFormErrors, post, type FormErrors } from "@/lib/api";
 
 export type Drawer = {
   opening_cash: string;
+  /** What crossed the counter, gross — `change_given` is what went back. */
   cash_taken: string;
   change_given: string;
+  /*
+   * Cash moved in or out mid-shift, and returns paid out of the drawer.
+   *
+   * Carried here because the close result is the one moment a manager is
+   * looking straight at a variance and asking where it came from. The server
+   * has always returned these; nothing showed them, so the breakdown stopped
+   * at "taken less change" and a banked float looked like a shortfall with no
+   * cause on the screen.
+   */
+  paid_in: string;
+  paid_out: string;
+  refunded_cash: string;
   expected_cash: string;
   counted_cash: string | null;
   /** Positive is over, negative is short. Null until somebody counts. */

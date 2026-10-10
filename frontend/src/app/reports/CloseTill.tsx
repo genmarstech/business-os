@@ -3,11 +3,35 @@
 import { useActionState, useState } from "react";
 
 import { General, Submit, Text } from "@/components/Form";
-import { closeTill, type State } from "./actions";
+import { closeTill, type Drawer, type State } from "./actions";
 import { ksh } from "@/lib/money";
 import styles from "./reports.module.css";
 
 const NONE: State = null;
+
+/**
+ * Everything that moved the expected figure, in the order it moved it.
+ *
+ * ── SIGNED, AND EVERY TERM OR THE LIST DOES NOT ADD UP ────────────────────
+ *
+ * A reader checks a breakdown by adding it. `paid_in` is an ADDITION — a
+ * float fetched from the safe — and a list of deductions that quietly left
+ * it out would stop short of "Should have held" by exactly that amount, on
+ * the screen whose whole job is explaining where a figure came from.
+ *
+ * So each row carries its own sign and the caller prints it. Nil rows are
+ * dropped: a close with no safe drop and no returns should read as two lines,
+ * not five.
+ */
+function terms(drawer: Drawer): { label: string; sign: "+" | "−"; value: string }[] {
+  const rows: { label: string; sign: "+" | "−"; value: string }[] = [
+    { label: "Change given", sign: "−", value: drawer.change_given },
+    { label: "Cash brought in", sign: "+", value: drawer.paid_in },
+    { label: "Cash taken out", sign: "−", value: drawer.paid_out },
+    { label: "Returns paid out", sign: "−", value: drawer.refunded_cash },
+  ];
+  return rows.filter((row) => Number(row.value) !== 0);
+}
 
 /**
  * Count the drawer, then close the till.
@@ -45,8 +69,32 @@ export function CloseTill({
         <div className={styles.closedTitle}>
           {registerName} closed
         </div>
+        {/*
+          ── THE BREAKDOWN IS SHOWN BECAUSE THIS IS WHERE IT IS ASKED FOR ───
+          A manager reading a shortfall asks where it came from, and the
+          answer used to require another screen. The rows that are nil are
+          omitted rather than printed as 0.00: a close with no returns and no
+          safe drop should read as three lines, not six.
+        */}
         <dl className={styles.closedFigures}>
           <div>
+            <dt>Opened with</dt>
+            <dd>{ksh(state.drawer.opening_cash)}</dd>
+          </div>
+          <div>
+            <dt>Taken</dt>
+            <dd>{ksh(state.drawer.cash_taken)}</dd>
+          </div>
+          {terms(state.drawer).map((term) => (
+            <div key={term.label}>
+              <dt>{term.label}</dt>
+              <dd>
+                {term.sign}
+                {ksh(term.value)}
+              </dd>
+            </div>
+          ))}
+          <div className={styles.closedRule}>
             <dt>Should have held</dt>
             <dd>{ksh(state.drawer.expected_cash)}</dd>
           </div>

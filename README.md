@@ -75,8 +75,15 @@ count cash refunds, having previously read short by every return taken. The
 second was the same bug `CashMovement` was written to fix, arriving the same
 way. See *Taking a return at the till* in `till/Return.tsx`.
 
-What is left of V2: cash reconciliation beyond the drawer count and the
-mid-shift movements, and multi-branch reporting beyond the branch comparison.
+**The drawers can now be reconciled after the fact**, which also turned up a
+figure that had been wrong the whole time: expected cash subtracted change
+twice, so every till in the product read **over** by the day's change — the
+direction nobody investigates, and the one that hides a shortfall. See
+*Reconciling the drawers* below.
+
+What is left of V2: multi-branch reporting beyond the branch comparison, and
+cash reconciliation above the level of a single drawer — banking a day's
+takings across tills, and a safe of its own, are not modelled.
 
 **V3 is barely started, and M-Pesa is the piece that is done** — STK push at
 the till, a public callback that decides nothing, and a payment that can be
@@ -712,6 +719,88 @@ figures hundreds of shillings apart, with nothing to say which was lying.
 That is the exact failure the banner describes, reached the exact way it
 predicted. The report now calls `drawer()`, and a test asserts the two agree
 field by field.
+
+## Reconciling the drawers, and the figure that was wrong the whole time
+
+Two things were wrong here and only one of them was a missing screen.
+
+### Every drawer in the product read over, by the day's change
+
+`checkout` records a KSh 1,000 note against a 700 total as `amount` **700**
+and `change_given` **300** — net, with its own comment saying so. `drawer()`
+summed `amount` and then subtracted `change_given` from it, so that sale
+contributed 400 to the expected figure while the drawer was 700 heavier.
+
+Expected came out **low by the whole day's change**, and a drawer counted
+against it read **over** by the same amount. A till opening with 1,000 that
+sold one 100 item for a 500 note closed 400 over.
+
+Two reasons it lasted:
+
+- **Over is the direction nobody investigates.** A drawer with too much in it
+  looks like somebody being careful. `branches/services.py` already carried a
+  banner saying exactly that about a different term, and the bug was sitting
+  four lines above it.
+- **Every test tendered the exact amount** — the one kind of cash sale a shop
+  almost never makes. One of them asserted 1,032 where the right answer is
+  1,116, with the wrong formula written out in its docstring as though it
+  were the rule. A wrong figure written down as the expected answer stops
+  being a bug and becomes a specification.
+
+It also **hid theft pound for pound**: a cashier taking 500 out of a day that
+gave 2,000 in change left a drawer reading 1,500 over instead of 500 short —
+the one number a till exists to produce, saying the opposite of what happened.
+
+`cash_taken` now means what crossed the counter, which is what the column of
+that name says on every screen. Three tests pin it, and the helper they use
+no longer accepts a `change` argument it silently ignored.
+
+### The variance was computed and then unreadable
+
+Closing a till produces a variance, puts it in a notification, and stores the
+count. After that there was nowhere to look at it: the only screen showing a
+drawer figure was **Tills open now**, which lists `status="OPEN"`. So a
+shift's figures were visible for exactly as long as the shift had no variance
+and vanished at the moment it acquired one.
+
+Which means "which drawers did not balance, and is it always the same till"
+had **no answer anywhere in the product**. A shop could be short two hundred
+every Friday for a year and not be able to find out. A count nobody can look
+back at only disciplines whoever happened to be watching.
+
+**Drawers counted** on `/reports` is that answer — `GET /sls/reports/drawers/`,
+every till closed in the window with all six terms, the count, and what it
+came out at.
+
+- **`reports.branch`, not `shift.close`.** Counting a drawer is a manager's
+  act; reading the variances afterwards is reporting. The **branch auditor**
+  holds `reports.branch` and no till permission at all, and somebody who can
+  see that Friday is always short without being able to close a till is
+  precisely who the screen is for.
+- **A query per shift, deliberately.** `drawer()` is the one implementation
+  and its banner says so; re-expressing six terms across three tables as an
+  annotation would make it the third copy, and the existing two have already
+  disagreed once. `limit` bounds the cost, and a truncated window **says it
+  was truncated** — "every drawer balanced" and "every drawer we looked at
+  balanced" are different statements.
+- **The net is named as a net.** One till 500 short and another 500 over nets
+  to zero, which is two problems rather than none. `short` and `over` are
+  counted beside it and never folded into it.
+- **A drawer nobody counted is not a balanced one.** A shift closed by the
+  PATCH that `close_shift` replaced is CLOSED with `closing_cash` NULL.
+  Reading a missing count as a zero variance would report it as having come
+  out exactly right — the most flattering possible lie about it. It is listed
+  as *not counted*, with an em dash where the figure would be.
+- **The name in the row is the operator, not the counter.** Nothing records
+  who closed a shift. A column headed "counted by" over that name would be
+  naming the one person the permission split deliberately keeps out of the
+  count. Recording the closer is still open.
+
+The close screen and **Tills open now** show all six terms too. The lede on
+that panel had asserted "opening, plus taken, less change given" since before
+cash movements existed, so a reader adding three columns to reach a fourth
+that did not match had nothing to tell them why.
+
 ## Three doors, and who goes through which
 
 | who | where | credential |

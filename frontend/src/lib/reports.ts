@@ -81,18 +81,81 @@ export type MethodRow = {
   count: number;
 };
 
-export type RegisterRow = {
+/**
+ * Every term of the expected figure, because the screen shows all of them.
+ *
+ * ── THE COLUMNS HAVE TO RECONCILE TO THE ONE BESIDE THEM ───────────────────
+ *
+ * `cash_taken` is what crossed the counter and `change_given` is what went
+ * back, so opening + taken − change + paid in − paid out − returned is
+ * `expected_cash` exactly. A manager looking at a drawer that does not add up
+ * adds these up; a screen where they do not reach the total is a screen that
+ * sends them to a spreadsheet instead.
+ *
+ * It did not reconcile until 2026-10-10, and the figure was wrong rather than
+ * just unexplained — see the banner in branches/services.py.
+ */
+type DrawerTerms = {
+  opening_cash: string;
+  cash_taken: string;
+  change_given: string;
+  paid_in: string;
+  paid_out: string;
+  refunded_cash: string;
+  expected_cash: string;
+};
+
+export type RegisterRow = DrawerTerms & {
   shift: number;
   register_name: string;
   branch_name: string;
   operator_name: string;
   opened_at: string;
-  opening_cash: string;
-  cash_taken: string;
-  change_given: string;
-  expected_cash: string;
   revenue: string;
   transactions: number;
+};
+
+/** A drawer that has already been counted. */
+export type DrawerRow = DrawerTerms & {
+  shift: number;
+  register_name: string;
+  branch_name: string;
+  /**
+   * ⚠ WHO WAS ON THE TILL, NOT WHO COUNTED IT. Nothing records the person
+   *   who closed a shift, and a column headed "counted by" over this name
+   *   would be naming the one person a count is meant to be independent of.
+   */
+  operator_name: string;
+  opened_at: string;
+  closed_at: string;
+  counted_cash: string | null;
+  /** Positive is over, negative is short. Null when nobody ever counted. */
+  variance: string | null;
+  /**
+   * A shift closed before the count existed — CLOSED with no `closing_cash`.
+   * Rendering it as balanced would be the most flattering possible lie about
+   * a drawer nobody looked in.
+   */
+  uncounted: boolean;
+  note: string;
+};
+
+export type DrawerSummary = {
+  closed: number;
+  counted: number;
+  balanced: number;
+  short: number;
+  over: number;
+  /**
+   * A NET. One till 500 short and another 500 over nets to zero, and that is
+   * two problems rather than none — which is why `short` and `over` are shown
+   * beside it and never folded into it.
+   */
+  net_variance: string;
+  worst_short: string;
+  /** More drawers were counted in this window than were read. */
+  truncated: boolean;
+  closed_in_window: number;
 };
 
 export type StockAlert = {
@@ -124,8 +187,16 @@ function query(window: Window): string {
  */
 export async function dashboard(window: Window) {
   const q = query(window);
-  const [overview, branches, products, cashiers, methods, registers, alerts] =
-    await Promise.all([
+  const [
+    overview,
+    branches,
+    products,
+    cashiers,
+    methods,
+    registers,
+    alerts,
+    drawers,
+  ] = await Promise.all([
       getOrNull<Overview>(`/sls/reports/overview/${q}`),
       getOrNull<{ branches: BranchRow[] }>(`/sls/reports/by-branch/${q}`),
       getOrNull<{ products: ProductRow[] }>(`/sls/reports/by-product/${q}`),
@@ -135,6 +206,9 @@ export async function dashboard(window: Window) {
       ),
       getOrNull<{ registers: RegisterRow[] }>(`/sls/reports/register-status/${q}`),
       getOrNull<{ alerts: StockAlert[] }>(`/sls/reports/stock-alerts/${q}`),
+      getOrNull<{ shifts: DrawerRow[]; summary: DrawerSummary }>(
+        `/sls/reports/drawers/${q}`,
+      ),
     ]);
 
   return {
@@ -145,6 +219,13 @@ export async function dashboard(window: Window) {
     methods: methods?.methods ?? [],
     registers: registers?.registers ?? [],
     alerts: alerts?.alerts ?? [],
+    /*
+     * `drawers` stays null when the caller was refused, and that is NOT the
+     * same as a window in which nothing was counted. The panel is omitted
+     * for the first and says so for the second — "no drawers were counted"
+     * printed at somebody who simply may not see them would be false.
+     */
+    drawers: drawers ?? null,
   };
 }
 

@@ -372,3 +372,159 @@ def register_status(user, branch_id=None) -> list[dict]:
             }
         )
     return out
+
+
+def drawers_counted(user, start, end, branch_id=None, limit=100) -> dict:
+    """
+    The drawers that have already been counted, and by how much each was out.
+
+    ══════════════════════════════════════════════════════════════════════════
+    THE VARIANCE WAS PRODUCED AND THEN UNREADABLE, WHICH IS MOST OF THE WAY TO
+    NOT PRODUCING IT.
+
+    Closing a till computes a variance, puts it in a notification, and stores
+    the count it came from. After that there was nowhere to see it. The only
+    screen that showed a drawer figure was `register_status`, which filters
+    `status="OPEN"` — so a shift's variance was visible for exactly as long as
+    the shift was not yet closed, and vanished at the moment it acquired one.
+
+    A shop could therefore be short two hundred shillings every Friday for a
+    year and nobody could find that out, because the question "which drawers
+    did not balance" had no answer anywhere. A count nobody can look back at
+    is a count that only disciplines the person who happened to be watching.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── WHY EACH SHIFT IS ASKED SEPARATELY, AND WHY THAT IS NOT A MISTAKE ─────
+
+    This is a query per shift, which the other functions in this module go out
+    of their way to avoid. It is deliberate: `branches.services.drawer` is the
+    ONE implementation of what a till should be holding, and its banner says
+    so. Rewriting that arithmetic as an annotation over the shift table — six
+    terms across three tables, two of them directional — would make this the
+    third copy, and the two existing copies have already disagreed once, with
+    the close screen and the dashboard several hundred shillings apart.
+
+    So the cost is paid where it is cheapest to pay: `limit` bounds it. A
+    window with more closed shifts than that is reported as truncated rather
+    than silently cut, because "every drawer balanced" and "every drawer we
+    looked at balanced" are different statements and only one of them is safe
+    to put in front of a manager.
+
+    ── `closed_at`, NOT `opened_at` ──────────────────────────────────────────
+
+    A shift is placed in the window by when it was COUNTED. A night shift that
+    opens at 22:00 on Friday and is counted at 06:00 on Saturday belongs to
+    the day somebody reconciled it, which is the day the money was handled and
+    the day a manager would go looking for it.
+    """
+    from branches.models import RegisterShift
+    from branches.services import drawer
+
+    shifts = scoped(
+        RegisterShift.objects.select_related("register", "register__branch", "operator"),
+        user,
+        "register__branch__organization_id",
+    ).filter(
+        status="CLOSED",
+        closed_at__gte=start,
+        closed_at__lte=end,
+    )
+
+    shifts = _confine(shifts, user, "register__branch_id", branch_id)
+
+    # Newest first: the drawer counted an hour ago is the one still worth
+    # asking somebody about.
+    total = shifts.count()
+    shifts = shifts.order_by("-closed_at")[:limit]
+
+    rows = []
+    short_count = 0
+    over_count = 0
+    net_total = ZERO
+    worst = ZERO
+
+    for shift in shifts:
+        counts = drawer(shift)
+        variance = counts["variance"]
+
+        # ⚠ NULL IS POSSIBLE HERE AND IS NOT ZERO.
+        #
+        # `close_shift` always writes a count, so a shift closed through it
+        # has a variance. A row closed before that service existed — status
+        # moved by the PATCH the service was written to replace — has
+        # `closing_cash` of NULL and therefore no variance at all. Counting
+        # that as balanced would report a drawer nobody ever counted as one
+        # that came out exactly right, which is the most flattering possible
+        # lie about it.
+        if variance is None:
+            uncounted = True
+        else:
+            uncounted = False
+            net_total += variance
+            if variance < ZERO:
+                short_count += 1
+                if variance < worst:
+                    worst = variance
+            elif variance > ZERO:
+                over_count += 1
+
+        rows.append(
+            {
+                "shift": shift.pk,
+                "register": shift.register_id,
+                "register_name": shift.register.name,
+                "branch": shift.register.branch_id,
+                "branch_name": shift.register.branch.branch_name,
+                # ⚠ THE OPERATOR, WHICH IS NOT THE PERSON WHO COUNTED.
+                #
+                # Nothing records who closed a shift — `close_shift` writes
+                # the count and the time and no actor. This is who was ON the
+                # till, and a screen that labels it "counted by" would be
+                # naming the one person the permission model deliberately
+                # keeps out of the count.
+                "operator": shift.operator_id,
+                "operator_name": shift.operator.full_name,
+                "opened_at": shift.opened_at,
+                "closed_at": shift.closed_at,
+                "opening_cash": counts["opening_cash"],
+                "cash_taken": counts["cash_taken"],
+                "change_given": counts["change_given"],
+                "paid_in": counts["paid_in"],
+                "paid_out": counts["paid_out"],
+                "refunded_cash": counts["refunded_cash"],
+                "expected_cash": counts["expected_cash"],
+                "counted_cash": counts["counted_cash"],
+                "variance": variance,
+                "uncounted": uncounted,
+                "note": shift.note,
+            }
+        )
+
+    counted = [row for row in rows if not row["uncounted"]]
+
+    return {
+        "shifts": rows,
+        "summary": {
+            "closed": len(rows),
+            "counted": len(counted),
+            # Balanced is derived by subtraction rather than counted in the
+            # loop, so the four numbers always add up to `counted` — a
+            # summary whose parts do not sum to its whole is the fastest way
+            # to lose a manager's trust in the rest of the screen.
+            "balanced": len(counted) - short_count - over_count,
+            "short": short_count,
+            "over": over_count,
+            # Positive is over, negative is short, and it is a NET: a till
+            # 500 short and another 500 over sum to zero, which is why
+            # `short` and `worst_short` are carried beside it. Two tills that
+            # cancel out is not a shop that balanced.
+            "net_variance": q(net_total),
+            "worst_short": q(worst),
+            # True when the window holds more closed shifts than were read.
+            # See the docstring — the summary describes `shifts`, not the
+            # window, and saying which is the difference between a figure and
+            # a guess.
+            "truncated": total > len(rows),
+            "closed_in_window": total,
+        },
+    }
