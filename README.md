@@ -884,6 +884,48 @@ grow one.
   in words. Narrowing it would leave a table of one row with nothing to
   compare against.
 
+## A payment spent exactly once, which it was not
+
+`README` said it, `CheckoutPaymentSerializer` said it, `services.checkout`
+said it and `payments.services.spend` enforced it. It still did not happen,
+because of six lines in `sales/views.py`:
+
+```python
+payments=[
+    {"method": p["method"], "amount": p["amount"],
+     "reference": p.get("reference", "")}      # ← stk_push dropped here
+    for p in data["payments"]
+],
+```
+
+The serialiser validated `stk_push`, the till sent it, and the service read
+it — and the dict between them copied three keys by hand. So
+`payment.get("stk_push")` was always `None` and **`spend()` was never called
+from a real request.**
+
+What that cost, all three confirmed by test against the old code:
+
+- **The same confirmed payment could pay for a second basket.** One M-Pesa
+  payment, two completed sales, both `201`. That is the single thing the
+  guard exists to stop.
+- **A push the customer never approved was accepted.** A sale completed, in
+  full, against a payment still sitting at `requested`.
+- **Another shop's push paid here.** The serialiser resolves it from an
+  unscoped queryset on purpose, because the service is supposed to check the
+  tenant and answer in words. The service never ran.
+- And `StkPush.sale` stayed `NULL` on every paid push, so no M-Pesa receipt
+  could be matched to the sale it paid for.
+
+> ⚠ **The suite could not see any of it.** Every test of this calls
+> `services.checkout` directly with `stk_push` already in the dict — correct,
+> and exactly one layer below where the field went missing. The endpoint had
+> no test at all. It was found by ringing up a real basket in a browser and
+> noticing a paid push with no sale attached.
+
+The fix is `payments=[dict(p) for p in data["payments"]]` — every field the
+serialiser validated, so the next one added arrives on its own instead of
+waiting for somebody to remember that list.
+
 ## Three doors, and who goes through which
 
 | who | where | credential |
