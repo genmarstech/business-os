@@ -1,3 +1,5 @@
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.db import models
 from organisations.models import BusinessOrganization
 
@@ -132,11 +134,52 @@ class CatalogCategoryProduct(models.Model):
         blank=True,
     )
 
+    # ══════════════════════════════════════════════════════════════════
+    # BOUGHT BY THE CARTON, SOLD BY THE BOTTLE.
+    #
+    # A shop orders ten cartons of soda and a customer buys one bottle.
+    # Without this the two quantities are the same number in the same
+    # column, so receiving ten cartons put TEN on the shelf and the till
+    # ran out after ten bottles while the storeroom was full.
+    #
+    # `units_per_pack` is how many sellable units come in one bought pack.
+    # It defaults to 1, which is the truth for most lines — bread, a bar of
+    # soap, anything bought the way it is sold — and it is what every
+    # existing product means, so the migration needs no data step and
+    # nothing about a shop that does not use this changes.
+    #
+    # ⚠ cost_price AND selling_price ARE BOTH PER UNIT. Always, including
+    #   for a product bought by the carton. The pack price lives on the
+    #   purchase order, where it is what the supplier charges; putting a
+    #   pack price in either of these would make every margin, every
+    #   report and every receipt line wrong by a factor of the pack size.
+    # ══════════════════════════════════════════════════════════════════
+    units_per_pack = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("1"),
+        help_text=(
+            "How many sellable units come in one bought pack. 24 for a "
+            "carton of 24 bottles. Leave at 1 for anything bought the way "
+            "it is sold."
+        ),
+    )
+    # Words for the buyer's screen, not a unit of account. Nothing computes
+    # with this — `units_per_pack` is the number — so a shop that calls it a
+    # "crate" and a shop that calls it a "box" are not two code paths.
+    pack_name = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text="What one pack is called: carton, crate, sack, dozen.",
+    )
+
+    # Per unit. See the banner above.
     cost_price = models.DecimalField(
         max_digits=12,
         decimal_places=2
     )
 
+    # Per unit. See the banner above.
     selling_price = models.DecimalField(
         max_digits=12,
         decimal_places=2
@@ -169,11 +212,46 @@ class CatalogCategoryProduct(models.Model):
                 condition=~models.Q(barcode=""),
                 name="unique_product_barcode_per_organization",
             ),
+            # A pack of zero divides by nothing when a delivery works out
+            # what landed on the shelf, and a negative pack takes stock away
+            # when a lorry arrives. Refused at the database, because the one
+            # that matters is the row nobody validated.
+            models.CheckConstraint(
+                condition=models.Q(units_per_pack__gt=0),
+                name="a_pack_holds_at_least_something",
+            ),
         ]
         ordering = ["name"]
 
     def __str__(self):
         return f"{self.organization} - {self.name}"
+
+    @property
+    def is_bulk(self) -> bool:
+        """Bought differently from how it is sold."""
+        return self.units_per_pack != Decimal("1")
+
+    def units_in(self, packs: Decimal) -> Decimal:
+        """
+        How many sellable units arrive when `packs` are delivered.
+
+        One place, so a buyer's screen, a goods receipt and a stock figure
+        cannot each round it their own way.
+        """
+        return Decimal(packs) * self.units_per_pack
+
+    def unit_cost_from_pack(self, pack_cost: Decimal) -> Decimal:
+        """
+        What one unit cost, given what the supplier charged for a pack.
+
+        Quantised to the money the rest of the system uses. A carton of 24
+        at 1,000 is 41.666… a bottle, and carrying that into a margin makes
+        every total disagree with the sum of its lines by fractions of a
+        cent — which is the shape of error nobody finds for months.
+        """
+        return (Decimal(pack_cost) / self.units_per_pack).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PRICE LISTS — blueprint §9, the `ProductPrice` the Catalog domain was missing

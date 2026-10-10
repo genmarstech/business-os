@@ -69,7 +69,8 @@ def a_subscriber(org, role, *, number, email=None):
     return account
 
 
-def a_product(org, *, name="Milk", cost="70.00", price="100.00"):
+def a_product(org, *, name="Milk", cost="70.00", price="100.00",
+              units_per_pack="1", pack_name=""):
     category, _ = CatalogCategories.objects.get_or_create(
         organization=org, name="General"
     )
@@ -80,6 +81,8 @@ def a_product(org, *, name="Milk", cost="70.00", price="100.00"):
         sku=f"SKU-{name}",
         cost_price=Decimal(cost),
         selling_price=Decimal(price),
+        units_per_pack=Decimal(units_per_pack),
+        pack_name=pack_name,
     )
 
 
