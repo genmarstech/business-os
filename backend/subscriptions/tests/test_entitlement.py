@@ -91,6 +91,7 @@ class SellingNeverStopsTests(TestCase):
             processed_by=self.cashier,
             lines=[{"sale_item": sale.items.first(), "quantity": Decimal("1")}],
             reason="Customer changed their mind",
+            method=Payment.Method.CASH,
         )
         self.assertIsNotNone(refund.pk)
 

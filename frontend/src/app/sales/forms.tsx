@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 
-import { General, Submit, Text } from "@/components/Form";
+import { General, Select, Submit, Text } from "@/components/Form";
 import { refundSale, reprint, voidSale, type State } from "./actions";
 import type { Sale } from "./shape";
 import styles from "./sales.module.css";
@@ -93,39 +93,62 @@ export function RefundForm({
           <tr>
             <th>Line</th>
             <th className={styles.num}>Sold</th>
+            <th className={styles.num}>Can return</th>
             <th className={styles.num}>Coming back</th>
             <th>Back on the shelf</th>
           </tr>
         </thead>
         <tbody>
-          {sale.items.map((item) => (
-            <tr key={item.id}>
-              <td>
-                <div className={styles.name}>{item.product_name}</div>
-                <div className={styles.meta}>{item.sku}</div>
-              </td>
-              <td className={styles.num}>{Number(item.quantity)}</td>
-              <td className={styles.num}>
-                <input
-                  className={styles.qtyInput}
-                  name={`quantity_${item.id}`}
-                  inputMode="decimal"
-                  defaultValue=""
-                  placeholder="0"
-                  max={Number(item.quantity)}
-                  aria-label={`How many ${item.product_name} are coming back`}
-                />
-              </td>
-              <td>
-                <input
-                  type="checkbox"
-                  name={`restock_${item.id}`}
-                  defaultChecked
-                  aria-label={`Put ${item.product_name} back into stock`}
-                />
-              </td>
-            </tr>
-          ))}
+          {sale.items.map((item) => {
+            /*
+             * What is still returnable, not what was sold. Capping at the
+             * sold quantity offered more than the server would take on a
+             * partly-returned sale, and the only way to find out was a
+             * refusal. Falls back to the sold figure when the API predates
+             * the field — the server refuses an over-return either way.
+             */
+            const remaining = Number(
+              item.quantity_refundable ?? item.quantity,
+            );
+            const spent = !(remaining > 0);
+            return (
+              <tr key={item.id}>
+                <td>
+                  <div className={styles.name}>{item.product_name}</div>
+                  <div className={styles.meta}>{item.sku}</div>
+                </td>
+                <td className={styles.num}>{Number(item.quantity)}</td>
+                <td className={styles.num}>
+                  {spent ? (
+                    <span className={styles.meta}>all returned</span>
+                  ) : (
+                    remaining
+                  )}
+                </td>
+                <td className={styles.num}>
+                  <input
+                    className={styles.qtyInput}
+                    name={`quantity_${item.id}`}
+                    inputMode="decimal"
+                    defaultValue=""
+                    placeholder="0"
+                    max={remaining}
+                    disabled={spent}
+                    aria-label={`How many ${item.product_name} are coming back`}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    name={`restock_${item.id}`}
+                    defaultChecked
+                    disabled={spent}
+                    aria-label={`Put ${item.product_name} back into stock`}
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
@@ -136,6 +159,40 @@ export function RefundForm({
         required
         error={state?.field.reason}
       />
+
+      {/*
+        ── HOW THE MONEY WENT BACK, WITH NO PRESELECTED ANSWER ────────────
+        Only a CASH refund comes out of a drawer, and that is the one the
+        shift's expected cash is adjusted for. A default of cash would be
+        right most of the time and wrong silently: an M-Pesa reversal filed
+        as cash reads as a shortfall at a close days later, with nothing
+        left to connect it to. So the first option is not a choice.
+      */}
+      <Select
+        name="method"
+        label="How the money went back"
+        hint="Only cash comes out of a drawer, and only cash changes what the
+              till is expected to hold at the close."
+        defaultValue=""
+        required
+        error={state?.field.method}
+      >
+        <option value="" disabled>
+          Choose…
+        </option>
+        <option value="cash">Cash, out of the drawer</option>
+        <option value="mpesa">M-Pesa</option>
+        <option value="card">Card</option>
+        <option value="bank">Bank transfer</option>
+        {/*
+          Offered only with a customer on the sale. The server refuses a
+          credit refund without one, because there would be no balance to
+          reduce and the money would have been written off instead.
+        */}
+        {sale.customer != null ? (
+          <option value="credit">On account</option>
+        ) : null}
+      </Select>
 
       <Submit pending="Refunding…">Give the money back</Submit>
     </form>

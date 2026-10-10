@@ -362,6 +362,10 @@ def register_status(user, branch_id=None) -> list[dict]:
                 # the close screen: cash that moved mid-shift.
                 "paid_in": counts["paid_in"],
                 "paid_out": counts["paid_out"],
+                # Returns taken at the till. Carried for the same reason as
+                # the two above — a manager comparing this screen with the
+                # close has to see the same reasons for the same figure.
+                "refunded_cash": counts["refunded_cash"],
                 "expected_cash": counts["expected_cash"],
                 "revenue": q(sold["revenue"]),
                 "transactions": sold["transactions"] or 0,

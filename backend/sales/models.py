@@ -449,6 +449,38 @@ class Refund(models.Model):
         max_length=12, choices=Status.choices, default=Status.COMPLETED
     )
 
+    # ══════════════════════════════════════════════════════════════════════
+    # HOW THE MONEY WENT BACK, AND WHY THE DRAWER CANNOT BE RIGHT WITHOUT IT
+    #
+    # A refund is not automatically the reverse of how the sale was paid. A
+    # shirt bought on M-Pesa is routinely handed back as notes out of the
+    # drawer, because reversing a till payment is slower than the queue is
+    # patient. So this cannot be inferred from `sale.payments` — it has to be
+    # recorded at the moment somebody decides it.
+    #
+    # `branches.services.drawer` counts ONLY `cash` here against the shift.
+    # Without the field it would have to count all of them or none, and both
+    # are wrong: counting none makes a cash return read as a shortfall at the
+    # close, counting all makes an M-Pesa reversal read as one. That is the
+    # same bug CashMovement was written to fix, which is worth saying because
+    # it arrived by the same route — a figure derived from part of what
+    # actually moved.
+    #
+    # ⚠ BLANK IS A REAL VALUE AND MEANS "BEFORE THIS WAS RECORDED".
+    #   Refunds written before this field existed have no answer, and
+    #   inventing one for them would silently restate the expected cash of
+    #   shifts that were counted and closed months ago. They are excluded
+    #   from the drawer instead. Services REQUIRE it on anything new, so the
+    #   blank set cannot grow.
+    # ══════════════════════════════════════════════════════════════════════
+    method = models.CharField(
+        max_length=10,
+        choices=Payment.Method.choices,
+        blank=True,
+        help_text="How the money was given back. Blank only on refunds "
+                  "recorded before this was tracked.",
+    )
+
     total = models.DecimalField(**MONEY, default=ZERO)
     # Free text, required by services. "Why was this money given back" is the
     # first question an auditor asks and the one nobody remembers.

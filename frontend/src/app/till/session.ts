@@ -126,9 +126,10 @@ export function rememberedOrganisation(): string {
  *
  * Same origin — Caddy routes /auth, /sls and the rest to Django and
  * everything else to this application, so there is no CORS and no proxy hop.
- * A 401 or 403 clears the session rather than retrying: a revoked credential
- * must put the sign-in screen up at once, which is the whole point of
- * revocation taking effect immediately.
+ * A 401 or 403 on the STORED session clears it rather than retrying: a
+ * revoked credential must put the sign-in screen up at once, which is the
+ * whole point of revocation taking effect immediately. A refusal of a token
+ * the caller passed in clears nothing — see the note inside `call`.
  */
 export class TillError extends Error {
   constructor(
@@ -145,7 +146,29 @@ export async function call<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string } = {},
 ): Promise<T> {
-  const token = options.token ?? load()?.token;
+  /*
+   * ── A TOKEN PASSED IN IS NOT THIS TERMINAL'S SESSION ─────────────────────
+   *
+   * ⚠ GETTING THIS WRONG SIGNS THE CASHIER OUT MID-QUEUE.
+   *
+   * A refusal below clears the stored session, which is right when the
+   * credential that failed is the one this terminal is holding — revocation
+   * has to take effect at once. It is wrong for a token the CALLER supplied.
+   *
+   * Taking a return asks a manager to sign in at the terminal and posts the
+   * refund with their token (see Return.tsx). A manager who mistypes their
+   * password, or who turns out not to hold `sales.refund` at this branch,
+   * gets a 401 or a 403 — and before this distinction existed that ended the
+   * CASHIER's shift, emptying a basket and putting the sign-in screen up
+   * with a customer at the counter. The failed credential was never theirs.
+   *
+   * `undefined` means "use what is stored"; any supplied value, `""`
+   * included, means the caller is naming the credential. SignIn passes `""`
+   * to authenticate nobody, and a failed sign-in must not clear the session
+   * of whoever was already here either.
+   */
+  const supplied = options.token !== undefined;
+  const token = supplied ? options.token : load()?.token;
 
   const response = await fetch(path, {
     method: options.method ?? "GET",
@@ -158,7 +181,7 @@ export async function call<T>(
   });
 
   if (response.status === 401 || response.status === 403) {
-    if (token) forget();
+    if (!supplied && token) forget();
   }
 
   if (!response.ok) {

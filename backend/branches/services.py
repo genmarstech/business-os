@@ -70,13 +70,38 @@ def drawer(shift) -> dict:
     shop's end-of-day figure to disagree with its dashboard, and the one that
     is wrong is whichever the manager is not looking at.
     """
-    from sales.models import Payment, Sale
+    from sales.models import Payment, Refund, Sale
 
     taken = Payment.objects.filter(
         sale__shift=shift,
         sale__status=Sale.Status.COMPLETED,
         method=Payment.Method.CASH,
     ).aggregate(cash=Sum("amount"), change=Sum("change_given"))
+
+    # ── MONEY HANDED BACK OVER THE COUNTER ──────────────────────────────────
+    #
+    # A return paid out of the drawer leaves the drawer holding less, exactly
+    # as a safe drop does. Left out, the close reads short by every return
+    # taken that day — the same failure as banking the takings, arriving by
+    # the same route, and the reason the till could not take a return until
+    # this was here.
+    #
+    # ⚠ `method=cash` AND NOT "every refund against this shift".
+    #   An M-Pesa reversal and a credit note both give money back without
+    #   anybody opening the drawer. Counting those would make the close read
+    #   LONG, which is the same bug facing the other way and harder to spot,
+    #   because a drawer with too much in it looks like somebody being
+    #   careful. Refunds written before `Refund.method` existed are blank and
+    #   so fall outside this filter, which is what keeps already-closed
+    #   shifts reading exactly as they did.
+    #
+    # VOIDED refunds are excluded for the reason completed-only applies to
+    # the takings above: a reversal that was itself reversed moved no money.
+    given_back = Refund.objects.filter(
+        shift=shift,
+        status=Refund.Status.COMPLETED,
+        method=Payment.Method.CASH,
+    ).aggregate(cash=Sum("total"))
 
     # Quantised, every one of them. Sum() hands back whatever the column
     # gave it, so an aggregate of one 100.00 row arrives as Decimal("100")
@@ -100,7 +125,8 @@ def drawer(shift) -> dict:
     change = money(taken["change"] or ZERO)
     paid_in = money(moved["paid_in"] or ZERO)
     paid_out = money(moved["paid_out"] or ZERO)
-    expected = money(opening + cash - change + paid_in - paid_out)
+    refunded = money(given_back["cash"] or ZERO)
+    expected = money(opening + cash - change + paid_in - paid_out - refunded)
 
     counted = money(shift.closing_cash) if shift.closing_cash is not None else None
     return {
@@ -112,6 +138,9 @@ def drawer(shift) -> dict:
         # expected figure is what it is without opening another screen.
         "paid_in": paid_in,
         "paid_out": paid_out,
+        # Same argument, and it is the figure a manager asks about first when
+        # the takings look thin: cash that went back across the counter.
+        "refunded_cash": refunded,
         "expected_cash": expected,
         "counted_cash": counted,
         # Positive is over, negative is short. Null until somebody counts —

@@ -105,11 +105,33 @@ export async function refundSale(
     };
   }
 
+  /*
+   * ── HOW THE MONEY WENT BACK, WHICH THE SERVER NOW REQUIRES ──────────────
+   *
+   * `branches.services.drawer` counts only CASH refunds against a shift's
+   * expected cash. A refund that does not say how it was paid out cannot be
+   * placed, so the API refuses a blank rather than guessing — the banner on
+   * `Refund.method` has the argument.
+   *
+   * There is no default here on purpose. A hidden "cash" would make every
+   * M-Pesa reversal recorded from this screen read as money out of a drawer,
+   * and the shortfall would surface at a close days later with nothing to
+   * connect it to.
+   */
+  const method = text(form, "method");
+  if (!method) {
+    return {
+      field: { method: "Say how the money went back." },
+      general: [],
+    };
+  }
+
   try {
     await post(`/sls/sales/${id}/refund/`, {
       branch,
       processed_by: processedBy,
       reason,
+      method,
       lines,
     });
   } catch (error) {

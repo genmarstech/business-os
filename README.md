@@ -63,9 +63,20 @@ a server component never sees. The same credential now also opens a cookie
 session at `/sign-in`, so the screens that were already written and already
 permission-gated are reachable by the people they were gated for.
 
-What is left of V2: cash reconciliation beyond the drawer count, the returns
-workflow beyond the refund itself, and multi-branch reporting beyond the
-branch comparison.
+**Returns are now taken at the till**, which is where a customer with a
+receipt actually stands. `refund_sale` had worked since module 9, but only
+from the office — so in practice a manager recorded a `pay_out` through Cash
+in/out, which balances the drawer and writes no refund document: nothing goes
+back into stock, the sale still reads as fully paid, and the same line can be
+returned again tomorrow. Closing it needed two things underneath. `Refund`
+learned **how the money went back**, because it cannot be inferred — a shirt
+bought on M-Pesa is routinely refunded in cash — and the drawer learned to
+count cash refunds, having previously read short by every return taken. The
+second was the same bug `CashMovement` was written to fix, arriving the same
+way. See *Taking a return at the till* in `till/Return.tsx`.
+
+What is left of V2: cash reconciliation beyond the drawer count and the
+mid-shift movements, and multi-branch reporting beyond the branch comparison.
 
 **V3 is barely started, and M-Pesa is the piece that is done** — STK push at
 the till, a public callback that decides nothing, and a payment that can be
@@ -482,6 +493,22 @@ A cashier deliberately cannot void or refund. Module 6 lists "manager
 approvals" beside cashier access for exactly this reason: those two are how a
 till is emptied by the person standing at it, and the cheapest second person
 is a permission the first does not hold.
+
+> **The till's Return screen does not bend that, and it is worth saying why,
+> because it looks like it does.** The button is offered to every cashier
+> and it is not gated on `sales.refund`. What the cashier does with it needs
+> no permission they lack: find the sale, count what came back, say whether
+> it goes on the shelf and why. The single request that gives money back
+> carries a manager's own credential, entered on the terminal and used once —
+> and the server checks `access.may(…, SALES_REFUND, branch)` on whatever
+> actually arrives, so the prompt is an arrangement and the refusal is the
+> control. Hiding the button would only return the cashier to sending the
+> customer away to find somebody, which is what the screen replaces.
+>
+> Three tests in `sales/test_returns.py` are what keep this honest: a
+> cashier's token is refused, a manager's is accepted, and a manager cannot
+> record the refund against the cashier. If the first of those ever passes
+> for the wrong reason, the manager prompt is decoration.
 
 `identity/tests/test_access.py` walks the live URL configuration and fails if a
 routed viewset declares no permission, names one that is not in the catalogue,

@@ -419,6 +419,7 @@ class VoidTests(TestCase):
             processed_by=self.staff,
             lines=[{"sale_item": self.sale.items.get(), "quantity": Decimal("1")}],
             reason="Customer changed their mind",
+            method=Payment.Method.CASH,
         )
         with self.assertRaises(services.SaleError):
             services.void_sale(self.sale, reason="Too late")
@@ -437,7 +438,13 @@ class RefundTests(TestCase):
         )
         self.line = self.sale.items.get()
 
-    def refund(self, quantity="1", **kwargs):
+    def refund(self, quantity="1", method=Payment.Method.CASH, **kwargs):
+        """
+        `method` is a named parameter rather than part of **kwargs, because
+        kwargs is spread into the LINE and a refund method is not a property
+        of a line. Cash by default: it is what a counter does, and the tests
+        that care say otherwise.
+        """
         return services.refund_sale(
             sale=self.sale,
             branch=self.branch,
@@ -445,6 +452,7 @@ class RefundTests(TestCase):
             lines=[{"sale_item": self.line, "quantity": Decimal(quantity),
                     **kwargs}],
             reason="Customer returned it",
+            method=method,
         )
 
     def test_the_original_sale_is_untouched(self):
@@ -510,6 +518,7 @@ class RefundTests(TestCase):
             processed_by=self.staff,
             lines=[{"sale_item": line, "quantity": Decimal("1")}],
             reason="One back",
+            method=Payment.Method.CASH,
         )
         self.assertEqual(refund.total, Decimal("75.00"))
 
@@ -521,18 +530,21 @@ class RefundTests(TestCase):
                 processed_by=self.staff,
                 lines=[{"sale_item": self.line, "quantity": Decimal("1")}],
                 reason="",
+                method=Payment.Method.CASH,
             )
 
     def test_a_refund_is_retry_safe(self):
         first = services.refund_sale(
             sale=self.sale, branch=self.branch, processed_by=self.staff,
             lines=[{"sale_item": self.line, "quantity": Decimal("1")}],
-            reason="Returned", idempotency_key="till-1-rf-0001",
+            reason="Returned", method=Payment.Method.CASH,
+            idempotency_key="till-1-rf-0001",
         )
         second = services.refund_sale(
             sale=self.sale, branch=self.branch, processed_by=self.staff,
             lines=[{"sale_item": self.line, "quantity": Decimal("1")}],
-            reason="Returned", idempotency_key="till-1-rf-0001",
+            reason="Returned", method=Payment.Method.CASH,
+            idempotency_key="till-1-rf-0001",
         )
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(Refund.objects.count(), 1)
@@ -546,6 +558,7 @@ class RefundTests(TestCase):
                 processed_by=self.staff,
                 lines=[{"sale_item": self.line, "quantity": Decimal("1")}],
                 reason="Wrong shop",
+                method=Payment.Method.CASH,
             )
 
 
@@ -815,6 +828,7 @@ class ReportTests(TestCase):
             processed_by=self.a_staff,
             lines=[{"sale_item": sale.items.get(), "quantity": Decimal("1")}],
             reason="Returned",
+            method=Payment.Method.CASH,
         )
 
         start, end = self.window()
