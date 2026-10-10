@@ -575,3 +575,102 @@ class WhatSafaricomSaidTests(TestCase):
         push = StkPush.objects.get()
         self.assertEqual(push.status, StkPush.Status.FAILED)
         self.assertIn("Merchant does not exist", push.result_description)
+
+
+class WhenTheKeyItselfIsRefusedTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    THE DOOR AND THE TRANSACTION FAIL DIFFERENTLY, AND MUST SAY SO.
+
+    Daraja refuses an unusable consumer key/secret at `/oauth/v1/generate`,
+    before a shortcode has been mentioned — and frequently with an EMPTY
+    BODY, so there is nothing of Safaricom's to quote. Reported as "M-Pesa
+    refused the request." that is indistinguishable from a rejected push,
+    and it sends whoever reads it to check the till number, which was never
+    the problem.
+
+    The overwhelmingly common cause is sandbox credentials pointed at
+    production. They work perfectly in the sandbox, so every other signal
+    says the credentials are fine.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def refused_token(self, *, environment, body=b""):
+        import urllib.error
+
+        org, (branch,) = a_shop()
+        an_mpesa_till(org, environment=environment)
+
+        refusal = urllib.error.HTTPError(
+            f"{daraja.base_url(environment)}/oauth/v1/generate",
+            400, "Bad Request", {}, None,  # type: ignore[arg-type]
+        )
+        refusal.read = lambda: body  # type: ignore[method-assign]
+
+        with patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaises(services.PaymentError) as refused:
+                services.request(
+                    branch=branch,
+                    amount=Decimal("150.00"),
+                    phone="0700000000",
+                    callback_base="https://example.test",
+                )
+        return str(refused.exception)
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_it_names_the_credentials_not_the_payment(self):
+        said = self.refused_token(environment="production")
+
+        self.assertIn("consumer key", said)
+        self.assertIn("production", said)
+        self.assertNotIn(
+            "refused the request", said,
+            "A rejected key must not read like a rejected payment.",
+        )
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_it_says_which_environment_it_tried(self):
+        """
+        The whole diagnosis is usually "these are the other environment's
+        credentials", and the reader cannot make that deduction without
+        being told which one was attempted.
+        """
+        self.assertIn("sandbox", self.refused_token(environment="sandbox"))
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_it_never_repeats_any_part_of_the_credential(self):
+        from .factories import FAKE_KEY, FAKE_SECRET
+
+        said = self.refused_token(environment="production")
+
+        self.assertNotIn(FAKE_KEY, said)
+        self.assertNotIn(FAKE_SECRET, said)
+
+    @override_settings(MPESA_CREDENTIAL_KEY=KEY)
+    def test_an_empty_bodied_refusal_still_carries_the_status(self):
+        """
+        Nothing to quote is not nothing to say. A bare sentence is what made
+        the live failure unreadable.
+        """
+        import urllib.error
+
+        org, (branch,) = a_shop()
+        an_mpesa_till(org)
+
+        refusal = urllib.error.HTTPError(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            503, "Service Unavailable", {}, None,  # type: ignore[arg-type]
+        )
+        refusal.read = lambda: b""  # type: ignore[method-assign]
+
+        with patch("payments.daraja.access_token", return_value="tok"), \
+                patch("urllib.request.urlopen", side_effect=refusal):
+            with self.assertRaises(services.PaymentError) as refused:
+                services.request(
+                    branch=branch,
+                    amount=Decimal("150.00"),
+                    phone="0700000000",
+                    callback_base="https://example.test",
+                )
+
+        self.assertIn("503", str(refused.exception))
