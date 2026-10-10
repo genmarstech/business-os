@@ -123,6 +123,32 @@ export function ProductForm({
         />
       </Row>
 
+      {/*
+        ── HOW IT IS BOUGHT, WHERE THAT DIFFERS FROM HOW IT IS SOLD ──────
+        A shop orders cartons and a customer buys a bottle. Leaving this at
+        1 is the ordinary case and the hint says so, because a buyer who
+        fills it in for everything would turn every single-unit line into
+        arithmetic nobody needed.
+      */}
+      <Row>
+        <Text
+          name="units_per_pack"
+          label="Units in a pack"
+          hint="24 for a carton of 24 bottles. Leave at 1 if you buy it the way you sell it."
+          inputMode="decimal"
+          mono
+          defaultValue={product?.units_per_pack ?? "1"}
+          error={state?.field.units_per_pack}
+        />
+        <Text
+          name="pack_name"
+          label="What a pack is called"
+          hint="Carton, crate, sack. Only used in words, on the buying screens."
+          defaultValue={product?.pack_name}
+          error={state?.field.pack_name}
+        />
+      </Row>
+
       <Row>
         <Select
           name="tax_rule"

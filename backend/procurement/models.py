@@ -61,7 +61,7 @@ name somebody typed.
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -465,13 +465,54 @@ class GoodsReceiptItem(models.Model):
         PurchaseOrderItem, on_delete=models.PROTECT, related_name="receipt_lines"
     )
 
+    # PACKS, the way the order was raised and the way the lorry was counted.
     quantity = models.DecimalField(
         **QUANTITY, validators=[MinValueValidator(Decimal("0.01"))]
     )
+    # Per PACK, matching `quantity` above and the supplier's invoice.
     unit_cost = models.DecimalField(**MONEY)
+
+    # ── THE PACK SIZE AS IT STOOD, AND WHY IT IS COPIED ─────────────────
+    #
+    # Same instinct as `unit_cost` above and as the snapshots on Invoice and
+    # Contract: a delivery is a document, and what it meant must not change
+    # under it. A shop that switches from cartons of 24 to cartons of 12
+    # next year would otherwise rewrite how many bottles every past delivery
+    # brought — and with it every stock figure anybody tries to reconcile
+    # against them.
+    #
+    # 1 for every row written before this column, which is correct: those
+    # deliveries were counted in the same unit they were shelved in.
+    units_per_pack = models.DecimalField(
+        **QUANTITY, default=Decimal("1"),
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
 
     class Meta:
         ordering = ["id"]
 
     def __str__(self) -> str:
         return f"{self.order_item.product_name} × {self.quantity}"
+
+    @property
+    def units_received(self) -> Decimal:
+        """What actually went onto the shelf."""
+        return self.quantity * self.units_per_pack
+
+    @property
+    def cost_per_unit(self) -> Decimal:
+        """
+        What one sellable unit cost on this delivery.
+
+        ⚠ NOT written to `product.cost_price`. Doing that silently on every
+          delivery would rewrite the margin on every sale and every report
+          the moment a supplier changed their price, and the choice between
+          last cost and a weighted average is a decision for the shop
+          rather than a side effect of unloading a lorry. It is reported
+          here so a buyer can see it and set the figure deliberately.
+        """
+        if not self.units_per_pack:
+            return self.unit_cost
+        return (self.unit_cost / self.units_per_pack).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )

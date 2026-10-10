@@ -43,6 +43,10 @@ export async function saveProduct(
     sku: text(form, "sku"),
     barcode: text(form, "barcode"),
     cost_price: text(form, "cost_price") || "0",
+    // Blank means one — a buyer who leaves it alone buys it the way they
+    // sell it, which is the ordinary case and must not be an error.
+    units_per_pack: text(form, "units_per_pack") || "1",
+    pack_name: text(form, "pack_name"),
     selling_price: text(form, "selling_price"),
     tax_rule: Number(text(form, "tax_rule")) || null,
     is_active: text(form, "is_active") !== "false",

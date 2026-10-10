@@ -29,6 +29,14 @@ export type Product = {
   barcode?: string;
   cost_price: string;
   selling_price: string;
+  /*
+   * How many sellable units come in one bought pack. "1" for anything
+   * bought the way it is sold, which is most things. Both prices above are
+   * always PER UNIT, including for a product bought by the carton — the
+   * pack price lives on the purchase order.
+   */
+  units_per_pack: string;
+  pack_name: string;
   is_active: boolean;
   tax_rule: number | null;
   category: Category | number | null;

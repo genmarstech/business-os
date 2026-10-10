@@ -76,6 +76,10 @@ class CatalogCategoryProductSerializer(serializers.ModelSerializer):
             'tax_rule',
             'cost_price',
             'selling_price',
+            # How it is bought, where that differs from how it is sold. Both
+            # prices above stay PER UNIT — see the banner on the model.
+            'units_per_pack',
+            'pack_name',
             'is_active',
         ]
 

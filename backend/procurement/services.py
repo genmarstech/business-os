@@ -505,9 +505,14 @@ def receive_goods(
     # against an order for ten.
     fresh = {
         item.pk: item
-        for item in PurchaseOrderItem.objects.select_for_update().filter(
-            purchase_order=locked_order
-        )
+        # `select_related` because every line now reads its product's pack
+        # size, which would otherwise be a query per line in the middle of
+        # a locked transaction. `of=("self",)` keeps the lock on the order
+        # lines alone — locking catalog rows here would make unloading a
+        # lorry block somebody editing a price in the office.
+        for item in PurchaseOrderItem.objects.select_for_update(of=("self",))
+        .select_related("product")
+        .filter(purchase_order=locked_order)
     }
 
     prepared = []
@@ -558,10 +563,33 @@ def receive_goods(
     reference = f"Delivery #{receipt.number} · Order #{locked_order.number}"
 
     for item, quantity in prepared:
+        # ── PACKS IN, UNITS ONTO THE SHELF ──────────────────────────────
+        #
+        # The order and the delivery note are both in packs, because that
+        # is what was bought and what was counted off the lorry. The shelf
+        # is in sellable units, because that is what a cashier rings up.
+        #
+        # They were the same number, so ten cartons of soda put TEN on the
+        # shelf and the till ran out after ten bottles with the storeroom
+        # full. `units_in` is the only place the conversion happens.
+        #
+        # The pack size is copied onto the line as it stands now — see the
+        # banner on GoodsReceiptItem.units_per_pack for why a delivery must
+        # not change meaning when a product is edited next year.
+        per_pack = item.product.units_per_pack
         GoodsReceiptItem.objects.create(
-            receipt=receipt, order_item=item, quantity=quantity, unit_cost=item.unit_cost
+            receipt=receipt,
+            order_item=item,
+            quantity=quantity,
+            unit_cost=item.unit_cost,
+            units_per_pack=per_pack,
         )
-        _book_in(locked_order.branch, item.product, quantity, reference)
+        _book_in(
+            locked_order.branch,
+            item.product,
+            item.product.units_in(quantity),
+            reference,
+        )
 
         item.quantity_received = item.quantity_received + quantity
         item.save(update_fields=["quantity_received"])
