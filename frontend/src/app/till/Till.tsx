@@ -10,6 +10,7 @@ import { Return } from "./Return";
 import { Scanner } from "./Scanner";
 import { scanning } from "./barcode";
 import { ChangePassword } from "./ChangePassword";
+import { Reconcile } from "./Reconcile";
 import { ShiftNote } from "./ShiftNote";
 import { SignIn } from "./SignIn";
 import { Tender } from "./Tender";
@@ -552,7 +553,7 @@ function Selling({
   const [push, setPush] = useState<Push | null>(null);
   const [sale, setSale] = useState<Sale | null>(null);
   const [tool, setTool] = useState<
-    "calculator" | "note" | "cash" | "return" | null
+    "calculator" | "note" | "cash" | "return" | "reconcile" | null
   >(null);
   const [camera, setCamera] = useState(false);
   /*
@@ -876,25 +877,41 @@ function Selling({
    * transition, rather than on every tick that happens to see "paid".
    */
   /*
-   * ⚠ `busy` IS A DEPENDENCY, AND LEAVING IT OUT STRANDED A REAL PAYMENT.
+   * ══════════════════════════════════════════════════════════════════════
+   * ONE AUTOMATIC ATTEMPT PER PUSH. THE REF IS THE WHOLE POINT.
    *
-   * The guard read `busy` while the dependency list was `[push?.status]`
-   * alone. If the terminal happened to be busy at the instant the status
-   * became "paid", the effect ran once, the guard refused, and it NEVER
-   * RAN AGAIN — the status stays "paid", so nothing re-triggered it. A
-   * confirmed payment with a basket on screen and no sale, and no sign
-   * that anything was waiting to happen.
+   * This has now been wrong in both directions, and the ref is what makes
+   * it neither.
    *
-   * `sale` is here too: once one is written this must stop, or clearing
-   * an error would ring the basket up twice. The idempotency key makes
-   * that harmless, and "harmless" is not the standard.
+   *   Deps `[push?.status]` with a `!busy` guard — a terminal that was
+   *   busy at the instant the status became "paid" refused once and never
+   *   ran again, because the status stays "paid". A confirmed payment and
+   *   a basket, with nothing waiting to happen.
+   *
+   *   Deps `[push?.status, busy, sale]` — checkout sets `busy` true then
+   *   false, the effect re-runs on the way back down, and if the sale is
+   *   refused it tries again. Production turned that into a POST per
+   *   second against a checkout that could not succeed: the button
+   *   flickered between "Finish the sale" and "Finishing…", the error
+   *   flashed on and off, and the till had to be reloaded.
+   *
+   * So the ATTEMPT is recorded, not inferred from state. One automatic
+   * try per push id; after that the cashier is holding a button and the
+   * till is still.
+   *
+   * ⚠ A refusal here is usually not transient. The one that caused the
+   *   loop was a basket that cannot be sold at this branch at all, and
+   *   retrying that until the heat death of the universe helps nobody.
    */
+  const triedFor = useRef<number | null>(null);
+
   useEffect(() => {
-    if (push?.status === "paid" && basket.length > 0 && !busy && !sale) {
-      void checkout(push);
-    }
+    if (push?.status !== "paid" || basket.length === 0 || busy || sale) return;
+    if (triedFor.current === push.id) return;
+    triedFor.current = push.id;
+    void checkout(push);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [push?.status, busy, sale]);
+  }, [push?.status, push?.id, busy, sale, basket.length]);
 
   /*
    * ── THERE IS NO "CLOSE TILL" BUTTON, AND THERE SHOULD NOT BE ────────────
@@ -979,6 +996,22 @@ function Selling({
             Return
           </button>
 
+          {/*
+            ── WHY THIS IS IN THE BAR AND NOT IN THE OFFICE ───────────────
+            "Did that M-Pesa go through?" is asked at the counter, with the
+            customer standing there, about a payment the till screen has
+            already moved on from. Answering it by ringing a manager is how
+            a queue stops. Every button inside it only ASKS Safaricom — see
+            the banner in Reconcile.
+          */}
+          <button
+            className={styles.barQuiet}
+            onClick={() => setTool(tool === "reconcile" ? null : "reconcile")}
+            aria-expanded={tool === "reconcile"}
+          >
+            Check a payment
+          </button>
+
           <button className={styles.barQuiet} onClick={() => void refresh()}>
             Refresh prices
           </button>
@@ -990,6 +1023,12 @@ function Selling({
 
       {tool === "calculator" ? (
         <Calculator onClose={() => setTool(null)} />
+      ) : null}
+      {tool === "reconcile" ? (
+        <Reconcile
+          branchId={shift.register?.branch?.id ?? null}
+          onClose={() => setTool(null)}
+        />
       ) : null}
       {tool === "note" ? (
         <ShiftNote
@@ -1228,6 +1267,17 @@ function Selling({
                     about this reaches Safaricom.
                   */
                   onFinish={() => push && void checkout(push)}
+                  /*
+                    Clears the till without touching the payment. The push
+                    stays paid and unspent on the server, which is exactly
+                    what happened and what the office needs to see.
+                  */
+                  onSetAside={() => {
+                    setPush(null);
+                    setError("");
+                    setPhone("");
+                  }}
+                  failure={error}
                 />
               ) : null}
 
@@ -1277,6 +1327,8 @@ function Mpesa({
   onAsk,
   onGiveUp,
   onFinish,
+  onSetAside,
+  failure,
 }: {
   totalCents: number;
   phone: string;
@@ -1287,6 +1339,10 @@ function Mpesa({
   onGiveUp: () => void;
   /** Write the sale for a push that is already paid. Never a new charge. */
   onFinish: () => void;
+  /** Release the till, leaving the payment confirmed and unspent. */
+  onSetAside: () => void;
+  /** Why finishing was refused, if it was. */
+  failure: string;
 }) {
   const waiting = push?.status === "requested";
   const settledBadly =
@@ -1309,6 +1365,16 @@ function Mpesa({
           — this finishes it with the payment already made, and does not
           charge the customer again.
         </p>
+        {/*
+          The refusal, repeated here. It is also shown above the payment
+          methods, but this panel is what the cashier is looking at, and a
+          reason they have to go and find is a reason they do not read.
+        */}
+        {failure ? (
+          <p className={styles.mpesaFailed} role="alert">
+            {failure}
+          </p>
+        ) : null}
         <button
           className={styles.take}
           onClick={onFinish}
@@ -1318,10 +1384,23 @@ function Mpesa({
           {busy ? "Finishing…" : "Finish the sale"}
         </button>
         {/*
-          No "give up and take cash" here, which the waiting state does
-          have. There is nothing to give up on: the money has arrived, and
-          taking cash as well would charge the customer twice.
+          ── THERE HAS TO BE A WAY OUT, AND IT IS NOT "TAKE CASH" ────────
+          This panel had one button. When finishing kept failing — a
+          basket that cannot be sold at this branch at all — the cashier
+          was looking at a button that would never work, with no way back
+          to the basket, and reloaded the till to escape. A screen with no
+          exit is a screen somebody escapes destructively.
+
+          It is deliberately NOT "give up and take cash": the money has
+          arrived, and taking cash as well charges twice. What this does
+          is release the till. The payment stays on record, confirmed and
+          unspent, where the office can see it and attach it to a sale —
+          which is the honest state of affairs when the shop has been paid
+          for something it could not sell.
         */}
+        <button className={styles.mpesaQuiet} onClick={onSetAside}>
+          Set aside and carry on — the payment stays on record
+        </button>
       </div>
     );
   }
