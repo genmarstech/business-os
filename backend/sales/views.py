@@ -121,7 +121,10 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
     }
     queryset = (
         Sale.objects.select_related(
-            "branch", "register", "shift", "cashier", "customer", "receipt"
+            # `organization` joins the four names SaleSerializer prints on a
+            # receipt; the rest were already here.
+            "organization", "branch", "register", "shift", "cashier",
+            "customer", "receipt",
         )
         # `items__refund_items__refund` is what keeps the two derived figures
         # on SaleItemSerializer from costing a query per line — see the banner

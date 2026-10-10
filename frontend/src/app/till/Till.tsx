@@ -102,8 +102,40 @@ type Sale = {
   total: string;
   tax_total: string;
   subtotal: string;
-  items: { product_name: string; quantity: string; line_total: string }[];
-  receipt?: { number?: string } | null;
+  discount_total: string;
+  completed_at: string | null;
+  items: {
+    product_name: string;
+    sku: string;
+    quantity: string;
+    unit_price: string;
+    discount_amount: string;
+    tax_amount: string;
+    line_total: string;
+  }[];
+  /*
+   * ── THE NAMES COME FROM THE SALE, NOT FROM THIS TERMINAL ───────────────
+   * A receipt reprinted tomorrow by somebody else must still say who rang
+   * it up today. Filling these from the till's own session would put the
+   * current cashier's name on an old sale, which is exactly the signature
+   * a duplicate-receipt fraud is spotted by.
+   */
+  organisation_name: string;
+  branch_name: string;
+  branch_location: string;
+  register_name: string;
+  cashier_name: string;
+  customer_name: string;
+  customer_phone: string;
+  payments: {
+    method: string;
+    method_label: string;
+    amount: string;
+    reference: string;
+    tendered: string | null;
+    change_given: string | null;
+  }[];
+  receipt?: { number?: string; issued_at?: string } | null;
 };
 
 type Page<T> = { results?: T[] } | T[];
@@ -1251,44 +1283,177 @@ function Mpesa({
  * Every figure here comes from the server's response, never from the preview
  * — see the banner on money.ts. This is the receipt.
  */
+/** Nairobi, always. A receipt is read where it was printed. */
+function stamp(when: string | null | undefined): string {
+  if (!when) return "";
+  return new Date(when).toLocaleString("en-GB", {
+    timeZone: "Africa/Nairobi",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function Receipt({ sale, onNext }: { sale: Sale; onNext: () => void }) {
+  const discount = cents(sale.discount_total || "0");
+  const issued = sale.receipt?.issued_at ?? sale.completed_at;
+
   return (
     <div className={styles.receipt}>
-      <div className={styles.receiptHead}>
-        <div className={styles.receiptTitle}>Paid</div>
-        <div className={styles.receiptNumber}>{sale.number}</div>
-      </div>
-
-      <div className={styles.lines}>
-        {sale.items.map((item, index) => (
-          <div key={index} className={styles.line}>
-            <div className={styles.lineName}>{item.product_name}</div>
-            <div className={styles.lineMeta}>× {Number(item.quantity)}</div>
-            <div className={styles.lineTotal}>
-              {shillings(cents(item.line_total))}
+      {/*
+        ── WHAT IS ON THE PAPER AND WHAT IS NOT ──────────────────────────
+        Everything here is a fact the server returned about THIS sale.
+        There is deliberately no tax PIN: the organisation has no field
+        holding one, and a receipt that prints a plausible-looking PIN the
+        business did not give us is a false tax document. Charter 04 §IV.
+      */}
+      <div className={styles.slip} id="receipt-slip">
+        <div className={styles.slipHead}>
+          <div className={styles.slipShop}>{sale.organisation_name}</div>
+          {sale.branch_name ? (
+            <div className={styles.slipWhere}>
+              {sale.branch_name}
+              {sale.branch_location ? ` · ${sale.branch_location}` : ""}
             </div>
+          ) : null}
+        </div>
+
+        <dl className={styles.slipFacts}>
+          <div>
+            <dt>Receipt</dt>
+            <dd>{sale.receipt?.number ?? sale.number}</dd>
           </div>
-        ))}
+          <div>
+            <dt>Date</dt>
+            <dd>{stamp(issued)}</dd>
+          </div>
+          {sale.register_name ? (
+            <div>
+              <dt>Till</dt>
+              <dd>{sale.register_name}</dd>
+            </div>
+          ) : null}
+          {sale.cashier_name ? (
+            <div>
+              <dt>Served by</dt>
+              <dd>{sale.cashier_name}</dd>
+            </div>
+          ) : null}
+          {/* Only when a customer was actually attached to the sale. A
+              receipt addressed to nobody is worse than an unaddressed one. */}
+          {sale.customer_name ? (
+            <div>
+              <dt>Customer</dt>
+              <dd>
+                {sale.customer_name}
+                {sale.customer_phone ? ` · ${sale.customer_phone}` : ""}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <div className={styles.slipLines}>
+          {sale.items.map((item, index) => (
+            <div key={index} className={styles.slipLine}>
+              <div className={styles.slipName}>
+                {item.product_name}
+                {item.sku ? (
+                  <span className={styles.slipSku}>{item.sku}</span>
+                ) : null}
+              </div>
+              {/* The arithmetic spelled out, because "× 3  189.00" invites
+                  the question this line answers. */}
+              <div className={styles.slipQty}>
+                {Number(item.quantity)} × {shillings(cents(item.unit_price))}
+              </div>
+              <div className={styles.slipAmount}>
+                {shillings(cents(item.line_total))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.slipSums}>
+          <div>
+            <span>Subtotal</span>
+            <span>{shillings(cents(sale.subtotal))}</span>
+          </div>
+          {discount > 0 ? (
+            <div>
+              <span>Discount</span>
+              <span>−{shillings(discount)}</span>
+            </div>
+          ) : null}
+          <div>
+            {/* Kenyan VAT is charged inside the price, so this is a
+                breakdown of the total and not an addition to it. Saying
+                "included" is the difference between a customer reading
+                the total as 1,030 and as 1,172. */}
+            <span>VAT (included)</span>
+            <span>{shillings(cents(sale.tax_total))}</span>
+          </div>
+          <div className={styles.slipTotal}>
+            <span>Total</span>
+            <span>{shillings(cents(sale.total))}</span>
+          </div>
+        </div>
+
+        <div className={styles.slipPaid}>
+          {sale.payments.map((paid, index) => (
+            <div key={index}>
+              <div className={styles.slipPaidRow}>
+                <span>{paid.method_label}</span>
+                <span>{shillings(cents(paid.amount))}</span>
+              </div>
+              {/* The M-Pesa code is what a customer matches against the SMS
+                  on their phone, and the only thing that settles an
+                  argument about whether they paid. */}
+              {paid.reference ? (
+                <div className={styles.slipRef}>Ref {paid.reference}</div>
+              ) : null}
+              {paid.tendered && Number(paid.tendered) > 0 ? (
+                <>
+                  <div className={styles.slipPaidRow}>
+                    <span>Cash given</span>
+                    <span>{shillings(cents(paid.tendered))}</span>
+                  </div>
+                  <div className={styles.slipPaidRow}>
+                    <span>Change</span>
+                    <span>{shillings(cents(paid.change_given ?? "0"))}</span>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.slipFoot}>
+          <div>Thank you</div>
+          <div className={styles.slipFine}>
+            Keep this receipt. Returns need it.
+          </div>
+        </div>
       </div>
 
-      <div className={styles.sums}>
-        <div>
-          <span>Subtotal</span>
-          <span>{shillings(cents(sale.subtotal))}</span>
-        </div>
-        <div>
-          <span>Tax</span>
-          <span>{shillings(cents(sale.tax_total))}</span>
-        </div>
-        <div className={styles.grand}>
-          <span>Total</span>
-          <span>{shillings(cents(sale.total))}</span>
-        </div>
+      <div className={styles.slipActions} id="receipt-actions">
+        {/*
+          The browser's own print dialogue, which is what reaches a thermal
+          printer on a till. print.css hides everything but #receipt-slip,
+          so what comes out is the slip and not the whole register screen.
+        */}
+        <button
+          className={styles.slipPrint}
+          onClick={() => window.print()}
+          type="button"
+        >
+          Print
+        </button>
+        <button className={styles.take} onClick={onNext} autoFocus>
+          Next customer
+        </button>
       </div>
-
-      <button className={styles.take} onClick={onNext} autoFocus>
-        Next customer
-      </button>
     </div>
   );
 }

@@ -242,3 +242,57 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * ── PRINTING A RECEIPT ────────────────────────────────────────────────────
+ *
+ * Here rather than in till.module.css, and not by preference: CSS Modules
+ * refuses a rule that names no local class ("Selector `body *` is not
+ * pure"), and hiding the whole document is exactly a rule that cannot name
+ * one. `:global()` does not get round it either.
+ *
+ * A till's printer is reached through the browser's own print dialogue, so
+ * what matters is that the page sent to it is the slip and not the register
+ * screen behind it. Everything is hidden, the slip alone is put back at the
+ * top of a fresh page, and it is forced to black on white: a thermal
+ * printer has one colour, and the dark theme would otherwise come out as a
+ * solid black rectangle or as nothing at all.
+ *
+ * 72mm of content on an 80mm roll, which is the common width in a Kenyan
+ * shop and leaves the margin the cutter needs.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #receipt-slip,
+  #receipt-slip * {
+    visibility: visible;
+  }
+
+  #receipt-slip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 72mm;
+    max-width: 72mm;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: #fff;
+    color: #000;
+    font-size: 11px;
+  }
+
+  #receipt-slip * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #000 !important;
+  }
+
+  /* The buttons are not part of what the customer is handed. */
+  #receipt-actions {
+    display: none !important;
+  }
+}
