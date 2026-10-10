@@ -81,9 +81,16 @@ twice, so every till in the product read **over** by the day's change — the
 direction nobody investigates, and the one that hides a shortfall. See
 *Reconciling the drawers* below.
 
-What is left of V2: multi-branch reporting beyond the branch comparison, and
-cash reconciliation above the level of a single drawer — banking a day's
-takings across tills, and a safe of its own, are not modelled.
+**A branch can now be reported on, which it could not be.** Every figure on
+`/reports` has always taken `?branch=`, the two reporting permissions exist to
+draw that line, and **nothing in the product ever set it** — there was no
+picker, and the period links were written as `/reports?range=…`, so a
+hand-typed branch was discarded by the first click. The comparison also ranked
+branches on turnover alone. See *Comparing branches* below.
+
+What is left of V2: cash reconciliation above the level of a single drawer —
+banking a day's takings across tills, and a safe of its own, are not
+modelled.
 
 **V3 is barely started, and M-Pesa is the piece that is done** — STK push at
 the till, a public callback that decides nothing, and a payment that can be
@@ -800,6 +807,82 @@ The close screen and **Tills open now** show all six terms too. The lede on
 that panel had asserted "opening, plus taken, less change given" since before
 cash movements existed, so a reader adding three columns to reach a fourth
 that did not match had nothing to tell them why.
+
+## Comparing branches, and reporting on one
+
+Two gaps, both of them in the half of the feature that reaches a person.
+
+### The filter existed everywhere except the screen
+
+`overview`, `by-product`, `by-cashier`, `by-payment-method`, `stock-alerts`,
+`register-status` and now `drawers` all take `?branch=`. `_confine` applies it
+on top of the caller's own confinement, so naming somebody else's branch
+matches nothing rather than reaching it. The whole `reports.branch` /
+`reports.organisation` split exists to draw that line.
+
+And there was no way to set it. No picker anywhere, and the period nav was
+`/reports?range=${key}` — so even a hand-typed `?branch=2` survived until the
+reader clicked a period. A dimension the backend fully supported, the
+permission model was built around, and the product could not reach.
+
+Now: a chip row of the branches the caller may see, and one `href(range,
+branch)` that every link on the page goes through, because two dimensions in a
+URL means every link carries both or one of them cannot be used.
+
+- **The list comes from `/brn/branches/`, not from the comparison.** The
+  comparison is built from completed sales, so a branch that has not sold
+  anything in the window is absent from it — and that is exactly the branch
+  somebody is checking on. The endpoint is tenant-scoped *and* branch-confined
+  (`branch_path = "id"`), so a branch manager is offered their own branches
+  and never the organisation's list.
+- **The header says which branch is selected.** It read *"Every branch,
+  consolidated"* unconditionally, which with a branch selected is a false
+  claim about the numbers under it — and the only thing on the page that would
+  have told the reader otherwise.
+- **A branch that is not theirs is said out loud.** The server already answers
+  with nothing; a page of zeroes reads as a shop with no trade rather than as
+  a refusal. `Number("")` is 0 and `Number("west")` is NaN, and both have to
+  become *no branch* rather than a window that matches nothing.
+- **Offered only above one branch.** A picker with a single option is a
+  control that does nothing.
+- **Capped.** A plan is sold by branches and nothing stops thirty of them;
+  wrapped without a ceiling the nav walks the page down before the first
+  figure, so it scrolls within four rows.
+
+### Ranked on turnover, which is the wrong order
+
+The comparison reported revenue and a transaction count. A branch shifting
+volume at a thin margin sat above a quieter one earning more per shilling
+taken — and where stock, staff and a manager's attention go is the decision
+somebody opens a branch comparison to make.
+
+`overview` has computed gross profit from the `SaleItem` snapshots since it was
+written; the same figure per branch was two annotations away. The comparison
+now carries net revenue, gross profit, margin and refunds, and it is a table
+rather than a ranked bar, because a bar can carry exactly one number — the
+panel that most needed a second column was the one component that could not
+grow one.
+
+- **Two queries, stitched by branch id, and that is not a missed
+  optimisation.** Profit aggregates over `SaleItem` and revenue over `Sale`.
+  Annotating both in one `values()` joins the items, which multiplies the sale
+  row once per line — and `Sum("total")` over a multiplied join counts a
+  two-line sale's total **twice**. There is a test that rings up two lines and
+  asserts 166 rather than 332.
+- **A branch that only refunded is still in it.** The comparison is built from
+  completed sales, so a branch whose only activity in the window was giving
+  money back would have been missing — the one branch most worth looking at.
+  It happens on any short window: a return taken on Monday against Saturday's
+  sale. Those rows are appended, and the branch name behind them is read
+  through `scoped` like everything else in the module.
+- **Margin is figured on net revenue.** Gross profit was earned on the money
+  the branch keeps; dividing by the till total would understate every branch
+  by the VAT it collected on somebody else's behalf. It is also the one figure
+  on the page a browser works out — safe because a ratio is never summed with
+  anything, unlike the money strings, which stay strings.
+- **The comparison keeps ignoring the branch filter**, and the panel says so
+  in words. Narrowing it would leave a table of one row with nothing to
+  compare against.
 
 ## Three doors, and who goes through which
 

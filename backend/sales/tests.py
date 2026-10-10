@@ -807,6 +807,118 @@ class ReportTests(TestCase):
         branches = reports.by_branch(self.account, start, end)
         self.assertEqual([b["branch"] for b in branches], [self.a_branch.pk])
 
+    def test_the_branch_comparison_carries_profit_and_refunds(self):
+        """
+        ══════════════════════════════════════════════════════════════════════
+        TURNOVER ALONE ANSWERS THE WRONG QUESTION.
+
+        Two units at 116 inclusive of 16%, costing 50 each: revenue 232, net
+        200, profit 100. A comparison ranked on the 232 puts a busy
+        low-margin branch above a quieter one that actually makes money —
+        and where to put stock, staff and attention is the decision somebody
+        opens a branch comparison to make.
+
+        Refunds sit beside revenue for the reason the module docstring gives
+        about the overview: a branch with a returns problem must not read the
+        same as one without.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        self.sell("2")
+        start, end = self.window()
+
+        row = reports.by_branch(self.account, start, end)[0]
+        self.assertEqual(row["branch"], self.a_branch.pk)
+        self.assertEqual(row["revenue"], Decimal("232.00"))
+        self.assertEqual(row["net_revenue"], Decimal("200.00"), "tax taken out")
+        self.assertEqual(row["gross_profit"], Decimal("100.00"))
+        self.assertEqual(row["refunded"], Decimal("0.00"))
+        self.assertEqual(row["refunds"], 0)
+
+    def test_a_two_line_sale_does_not_double_its_own_revenue(self):
+        """
+        ⚠ THE FAILURE A SINGLE QUERY WOULD HAVE CAUSED.
+
+        Profit is aggregated over SaleItem and revenue over Sale. Annotating
+        both in one values() joins the items, which multiplies the sale row
+        once per line — and `Sum("total")` over a multiplied join counts a
+        two-line sale's total twice. That is the classic way a revenue figure
+        silently doubles, so the two aggregates are taken apart and stitched
+        by branch id.
+        """
+        second = a_product(self.a_org, name="Bread", price="50.00", cost="20.00")
+        stock(self.a_branch, second, "100")
+        services.checkout(
+            shift=self.a_shift,
+            cashier=self.a_staff,
+            lines=[
+                {"product": self.product, "quantity": Decimal("1")},
+                {"product": second, "quantity": Decimal("1")},
+            ],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("166.00")}],
+        )
+
+        start, end = self.window()
+        row = reports.by_branch(self.account, start, end)[0]
+        self.assertEqual(row["revenue"], Decimal("166.00"), "not 332")
+        self.assertEqual(row["transactions"], 1)
+
+    def test_a_branch_that_only_refunded_is_still_in_the_comparison(self):
+        """
+        The comparison is built from completed SALES, so a branch whose only
+        activity in the window was giving money back would be absent from it
+        — the one branch most worth looking at, missing. It happens on any
+        short window: a return taken on Monday against Saturday's sale.
+        """
+        sale = self.sell("2")
+        start, end = self.window()
+
+        # Move the sale out of the window and leave the refund inside it.
+        Sale.objects.filter(pk=sale.pk).update(
+            completed_at=start - timedelta(days=3)
+        )
+        services.refund_sale(
+            sale=sale,
+            branch=self.a_branch,
+            processed_by=self.a_staff,
+            lines=[{"sale_item": sale.items.get(), "quantity": Decimal("1")}],
+            reason="Returned",
+            method=Payment.Method.CASH,
+        )
+
+        rows = reports.by_branch(self.account, start, end)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["branch"], self.a_branch.pk)
+        self.assertEqual(rows[0]["branch_name"], self.a_branch.branch_name)
+        self.assertEqual(rows[0]["revenue"], Decimal("0.00"))
+        self.assertEqual(rows[0]["refunded"], Decimal("116.00"))
+        self.assertEqual(rows[0]["refunds"], 1)
+
+    def test_another_shops_refund_does_not_add_a_branch_to_the_comparison(self):
+        """
+        The appended rows are the one place this function reaches outside the
+        sales it was given, so the scoping is asserted on that path too.
+        """
+        b_sale = services.checkout(
+            shift=self.b_shift,
+            cashier=self.b_staff,
+            lines=[{"product": self.b_product, "quantity": Decimal("1")}],
+            payments=[{"method": Payment.Method.CASH, "amount": Decimal("100.00")}],
+        )
+        services.refund_sale(
+            sale=b_sale,
+            branch=self.b_branch,
+            processed_by=self.b_staff,
+            lines=[{"sale_item": b_sale.items.get(), "quantity": Decimal("1")}],
+            reason="Returned",
+            method=Payment.Method.CASH,
+        )
+
+        self.sell("2")
+        start, end = self.window()
+
+        rows = reports.by_branch(self.account, start, end)
+        self.assertEqual([row["branch"] for row in rows], [self.a_branch.pk])
+
     def test_a_voided_sale_is_not_revenue(self):
         sale = self.sell("2")
         services.void_sale(sale, reason="Rung up twice")

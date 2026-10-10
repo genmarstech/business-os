@@ -56,6 +56,31 @@ export type BranchRow = {
   branch_name: string;
   revenue: string;
   transactions: number;
+  /** Revenue with the tax taken out — the base the profit is figured on. */
+  net_revenue: string;
+  /**
+   * Why this is here: ranked on turnover alone, the comparison puts a busy
+   * low-margin branch above a quieter one that actually makes money, which is
+   * the opposite of the decision somebody opens it to make.
+   */
+  gross_profit: string;
+  /** Beside revenue, never netted off it. A returns problem has to show. */
+  refunded: string;
+  refunds: number;
+};
+
+/**
+ * A branch the caller may pick, whether or not it traded in the window.
+ *
+ * Taken from `/brn/branches/` rather than from the comparison, which is built
+ * from completed sales — a branch with a till open and nothing sold yet would
+ * be unselectable, and that is the branch somebody is most likely checking
+ * on. The endpoint is tenant-scoped AND branch-confined, so a branch manager
+ * is offered their own branches and never the organisation's list.
+ */
+export type BranchOption = {
+  id: number;
+  branch_name: string;
 };
 
 export type ProductRow = {
@@ -196,6 +221,7 @@ export async function dashboard(window: Window) {
     registers,
     alerts,
     drawers,
+    branchList,
   ] = await Promise.all([
       getOrNull<Overview>(`/sls/reports/overview/${q}`),
       getOrNull<{ branches: BranchRow[] }>(`/sls/reports/by-branch/${q}`),
@@ -209,6 +235,13 @@ export async function dashboard(window: Window) {
       getOrNull<{ shifts: DrawerRow[]; summary: DrawerSummary }>(
         `/sls/reports/drawers/${q}`,
       ),
+      /*
+       * Deliberately NOT narrowed by `window.branch`. This is the list of
+       * branches to choose from, so filtering it by the current choice would
+       * leave the picker holding the one branch already selected and no way
+       * back out of it.
+       */
+      getOrNull<BranchOption[] | { results: BranchOption[] }>("/brn/branches/"),
     ]);
 
   return {
@@ -226,6 +259,14 @@ export async function dashboard(window: Window) {
      * printed at somebody who simply may not see them would be false.
      */
     drawers: drawers ?? null,
+    /*
+     * The viewset may or may not be paginated depending on settings, so both
+     * shapes are accepted. Getting this wrong is a picker that renders empty
+     * while the request succeeded — which looks like a shop with one branch.
+     */
+    branchOptions: Array.isArray(branchList)
+      ? branchList
+      : (branchList?.results ?? []),
   };
 }
 

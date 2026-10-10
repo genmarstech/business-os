@@ -178,22 +178,135 @@ def overview(user, start, end, branch_id=None) -> dict:
 
 
 def by_branch(user, start, end) -> list[dict]:
-    """§4 "Branch comparison"."""
+    """
+    §4 "Branch comparison".
+
+    ══════════════════════════════════════════════════════════════════════════
+    RANKED ON TURNOVER ALONE, THIS ANSWERED THE WRONG QUESTION.
+
+    It reported revenue and a transaction count, which puts a busy branch
+    selling low-margin goods above a quieter one that actually makes money —
+    and the decision somebody opens a branch comparison to make is where to
+    put stock, staff and a manager's attention.
+
+    `overview` has computed gross profit from the SaleItem snapshots since it
+    was written. The same figure per branch was two annotations away and the
+    table showed neither it nor refunds, so a branch with a returns problem
+    was indistinguishable from one without.
+    ══════════════════════════════════════════════════════════════════════════
+
+    ── STILL EVERY BRANCH IN SCOPE, EVEN WHEN ONE IS SELECTED ───────────────
+
+    No `branch_id`, deliberately, unlike every other function here. This IS
+    the comparison: narrowing it to the selected branch would leave a table
+    of one row with nothing to compare it to, and the screen says in words
+    that this panel alone ignores the filter.
+
+    `scoped_to_branch` still applies through `_sales`, so a branch manager
+    compares their own branches and never the organisation's — §5 reserves
+    the consolidated view, and the permission check in the view demands
+    REPORTS_ORGANISATION for a request that names no branch.
+    """
+    sales = _sales(user, start, end)
+
     rows = (
-        _sales(user, start, end)
+        sales
         .values("branch_id", "branch__branch_name")
         .annotate(revenue=Sum("total"), transactions=Count("id"))
         .order_by("-revenue")
     )
-    return [
-        {
-            "branch": row["branch_id"],
-            "branch_name": row["branch__branch_name"],
-            "revenue": q(row["revenue"]),
-            "transactions": row["transactions"],
-        }
-        for row in rows
-    ]
+
+    # ── PROFIT OVER THE ITEMS OF THE SCOPED SALES, NEVER OVER SaleItem ──────
+    #
+    # SaleItem has no organisation of its own. Reaching it through the scoped
+    # sale is the whole of what keeps this inside the tenant, and the same
+    # rule `overview` follows for the identical reason.
+    #
+    # A second query rather than annotating the values() above: a join to the
+    # items multiplies the sale rows, and `Sum("total")` over a multiplied
+    # join counts a two-line sale's total twice. That is the classic way a
+    # revenue figure doubles, so the two aggregates are kept apart and
+    # stitched by branch id below.
+    profit = {
+        row["sale__branch_id"]: row
+        for row in SaleItem.objects.filter(sale__in=sales)
+        .values("sale__branch_id")
+        .annotate(net=Sum(net()), gross_profit=Sum(margin()))
+    }
+
+    # Reported beside revenue and never netted off it — the module docstring
+    # says why: "we sold 400,000 and gave back 90,000" and "we sold 310,000"
+    # are different facts about a branch, and the second hides the problem.
+    refunds = {
+        row["branch_id"]: row
+        for row in _refunds(user, start, end)
+        .values("branch_id")
+        .annotate(refunded=Sum("total"), refund_count=Count("id"))
+    }
+
+    out = []
+    for row in rows:
+        branch_id = row["branch_id"]
+        earned = profit.get(branch_id, {})
+        given_back = refunds.get(branch_id, {})
+        out.append(
+            {
+                "branch": branch_id,
+                "branch_name": row["branch__branch_name"],
+                "revenue": q(row["revenue"]),
+                "transactions": row["transactions"],
+                "net_revenue": q(earned.get("net")),
+                "gross_profit": q(earned.get("gross_profit")),
+                "refunded": q(given_back.get("refunded")),
+                "refunds": given_back.get("refund_count", 0),
+            }
+        )
+
+    # ── BRANCHES THAT REFUNDED AND DID NOT SELL ─────────────────────────────
+    #
+    # `rows` comes from completed sales, so a branch whose only activity in
+    # the window was giving money back would be absent from the comparison
+    # entirely — the one branch most worth looking at, missing. It happens on
+    # a short window: a return taken on Monday morning against Saturday's
+    # sale.
+    for branch_id, given_back in refunds.items():
+        if any(row["branch"] == branch_id for row in out):
+            continue
+        out.append(
+            {
+                "branch": branch_id,
+                "branch_name": _branch_name(user, branch_id),
+                "revenue": ZERO,
+                "transactions": 0,
+                "net_revenue": ZERO,
+                "gross_profit": ZERO,
+                "refunded": q(given_back.get("refunded")),
+                "refunds": given_back.get("refund_count", 0),
+            }
+        )
+
+    return out
+
+
+def _branch_name(user, branch_id) -> str:
+    """
+    The name of a branch the caller has already been shown rows from.
+
+    Read through `scoped` like everything else rather than by primary key —
+    not because the id came from a client here (it came from the caller's own
+    refunds), but because a `.get(pk=...)` in this module would be the one
+    unscoped read in it, and the next person to copy it would be copying the
+    unscoped version.
+    """
+    from branches.models import Branches
+
+    row = (
+        scoped(Branches.objects.all(), user, "organization_id")
+        .filter(pk=branch_id)
+        .values_list("branch_name", flat=True)
+        .first()
+    )
+    return row or ""
 
 
 def by_product(user, start, end, branch_id=None, limit=20) -> list[dict]:
