@@ -123,10 +123,55 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
         Sale.objects.select_related(
             "branch", "register", "shift", "cashier", "customer", "receipt"
         )
-        .prefetch_related("items", "payments", "refunds")
+        # `items__refund_items__refund` is what keeps the two derived figures
+        # on SaleItemSerializer from costing a query per line — see the banner
+        # there for why they are derived rather than stored.
+        .prefetch_related(
+            "items", "payments", "refunds", "items__refund_items__refund"
+        )
         .all()
     )
     serializer_class = SaleSerializer
+
+    def get_queryset(self):
+        """
+        `?number=` finds one sale by the number printed on its receipt.
+
+        ── WHY A FILTER AND NOT A SEARCH ───────────────────────────────────
+        A customer at the counter with a return has a receipt in their hand,
+        and the only thing on it that identifies the sale is its number. The
+        till needs to turn that into a sale without listing a day's trading
+        and paginating through it.
+
+        It narrows an ALREADY-SCOPED queryset: `TenantScoped` has confined it
+        to the caller's organisation and, for an operational principal, to
+        their branches. So the filter needs no authorisation check of its own
+        — §8's rule arranged so that obeying it costs no extra code, the same
+        way the reports do it.
+
+        ⚠ `number` IS UNIQUE PER ORGANISATION, NOT GLOBALLY.
+          Two shops both number their first sale 1000, so this does not
+          "find a sale and check it belongs to you". Asked for 1000, each
+          shop is answered with its OWN sale 1000 and never learns that the
+          other has one — which is the stronger property, and the one
+          test_a_number_both_shops_used_answers_only_with_your_own holds.
+          A number nobody in scope used is an empty list rather than a
+          refusal, because a refusal distinguishes "not yours" from "no such
+          sale".
+
+        A number that is not a number is also an empty list rather than a
+        400: a cashier typing a receipt code with a letter in it should be
+        told nothing was found, which is true, rather than shown a validation
+        error about a field they did not know they were filling in.
+        """
+        queryset = super().get_queryset()
+        raw = self.request.query_params.get("number")
+        if raw:
+            try:
+                return queryset.filter(number=int(raw))
+            except (TypeError, ValueError):
+                return queryset.none()
+        return queryset
 
     @action(detail=False, methods=["post"])
     def checkout(self, request):
@@ -304,6 +349,7 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                     for line in data["lines"]
                 ],
                 reason=data["reason"],
+                method=data["method"],
                 idempotency_key=data.get("idempotency_key", ""),
             )
         except DjangoValidationError as error:

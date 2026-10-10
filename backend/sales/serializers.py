@@ -11,6 +11,8 @@ must never accept from the client is what the customer owes.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from branches.models import Branches, RegisterShift
@@ -45,13 +47,50 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
+    """
+    ── THE TWO RETURN FIGURES ARE DERIVED, NEVER STORED ────────────────────
+    `services.refund_sale` works out what is still refundable by adding up the
+    refund items already written, and says why: a counter on the line would be
+    a second source of truth, and three partial returns of one shirt each
+    must not be able to send four back. A client needs the same answer BEFORE
+    it posts — a till that caps a quantity box at what was sold lets a cashier
+    type 3 against a line with 1 left and learn about it from a refusal, with
+    a customer watching.
+
+    So this computes it the same way from the same rows rather than keeping a
+    number in step with them. `SaleViewSet` prefetches `items__refund_items
+    __refund` to keep it off the database per line.
+    """
+
+    quantity_refunded = serializers.SerializerMethodField()
+    quantity_refundable = serializers.SerializerMethodField()
+
     class Meta:
         model = SaleItem
         fields = [
             "id", "product", "product_name", "sku", "note", "unit_price", "quantity",
             "discount_amount", "tax_rate", "tax_amount", "line_total",
+            "quantity_refunded", "quantity_refundable",
         ]
         read_only_fields = fields
+
+    def _refunded(self, item) -> Decimal:
+        # VOIDED refunds do not count, exactly as in refund_sale: a reversal
+        # that was itself reversed sent nothing back.
+        return sum(
+            (
+                row.quantity
+                for row in item.refund_items.all()
+                if row.refund.status == Refund.Status.COMPLETED
+            ),
+            Decimal("0.00"),
+        )
+
+    def get_quantity_refunded(self, item) -> str:
+        return f"{self._refunded(item):.2f}"
+
+    def get_quantity_refundable(self, item) -> str:
+        return f"{item.quantity - self._refunded(item):.2f}"
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -184,6 +223,10 @@ class RefundRequestSerializer(serializers.Serializer):
     )
     lines = RefundLineSerializer(many=True)
     reason = serializers.CharField(max_length=200)
+    # Required, with no default. The banner on `Refund.method` says why a
+    # sensible-looking default here would be a drawer that reads short on
+    # every M-Pesa reversal.
+    method = serializers.ChoiceField(choices=Payment.Method.choices)
     idempotency_key = serializers.CharField(
         max_length=64, required=False, allow_blank=True, default=""
     )
@@ -203,12 +246,17 @@ class RefundItemSerializer(serializers.ModelSerializer):
 class RefundSerializer(serializers.ModelSerializer):
     items = RefundItemSerializer(many=True, read_only=True)
     sale_number = serializers.IntegerField(source="sale.number", read_only=True)
+    method_label = serializers.CharField(source="get_method_display", read_only=True)
+    processed_by_name = serializers.CharField(
+        source="processed_by.full_name", read_only=True
+    )
 
     class Meta:
         model = Refund
         fields = [
             "id", "number", "status", "organization", "sale", "sale_number",
-            "branch", "shift", "processed_by", "total", "reason", "items",
+            "branch", "shift", "processed_by", "processed_by_name",
+            "method", "method_label", "total", "reason", "items",
             "created_at",
         ]
         read_only_fields = fields

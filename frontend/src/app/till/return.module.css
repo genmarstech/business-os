@@ -1,0 +1,351 @@
+/*
+ * Taking a return, over the top of the till.
+ *
+ * ── WHY THIS IS A FULL-SCREEN OVERLAY AND NOT A `.tool` PANEL ──────────────
+ *
+ * The calculator, the shift note and Cash in/out are 20rem panels pinned
+ * under the bar, which is right for things that are glanced at and dismissed.
+ * A return is not one of those: it carries a sale's worth of lines, a
+ * quantity per line, a reason, a method and a manager's sign-in. At 20rem the
+ * table would scroll in two directions on the shop's own terminal.
+ *
+ * It also wants the cashier's whole attention. A basket half-built behind a
+ * narrow panel invites ringing up the next customer mid-return, and the
+ * return is the half holding somebody's money.
+ *
+ * The till underneath is NOT unmounted, so the basket survives — the overlay
+ * covers it and gives it back untouched on Cancel.
+ */
+
+.wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(12px, 4vh, 48px) 16px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+}
+
+.sheet {
+  width: min(44rem, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-lg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
+  padding: clamp(16px, 3vw, 26px);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.125rem;
+  color: var(--ink);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sold {
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.lede {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  line-height: 1.55;
+  margin: 0 0 14px;
+}
+
+.error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  border-radius: var(--r-md);
+  padding: 9px 11px;
+  margin: 0 0 12px;
+}
+
+.label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  margin: 12px 0 5px;
+}
+
+.hint {
+  display: block;
+  font-size: 0.71rem;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  margin-top: 5px;
+}
+
+.input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9375rem;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.input:focus-visible,
+.qty:focus-visible,
+.method:focus-visible,
+.primary:focus-visible,
+.quiet:focus-visible,
+.quietWide:focus-visible {
+  outline: 2px solid var(--accent-fill);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.findRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.findRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── the lines ──────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  /* Its own scroller, so a long product name never makes the PAGE scroll
+     sideways. */
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-top: 6px;
+}
+
+.lines {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.lines th[scope="col"] {
+  padding: 9px 11px;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line-firm);
+  white-space: nowrap;
+}
+
+.lines td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.lines tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.sku {
+  font-size: 0.71rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A line with nothing left to give back. Dimmed rather than removed: the
+   cashier is looking at a receipt that lists it, and a row that is simply
+   absent reads as the wrong sale. */
+.spent {
+  color: var(--ink-faint);
+}
+
+.spent .name {
+  font-weight: 400;
+}
+
+.spentWord {
+  font-size: 0.71rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.qty {
+  width: 4.5rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  min-height: 40px;
+  padding: 0 8px;
+  text-align: right;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.qty:disabled {
+  background: var(--sunken);
+  color: var(--ink-faint);
+}
+
+/* ── the amount ─────────────────────────────────────────────────────────── */
+
+.amount {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  margin: 14px 0 0;
+}
+
+.amountWord {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+/* ── how the money goes back ────────────────────────────────────────────── */
+
+.methods {
+  display: grid;
+  /* Wraps to two rows on a phone rather than squeezing five 44px targets
+     into one. */
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: 7px;
+}
+
+.method {
+  font: inherit;
+  font-size: 0.875rem;
+  min-height: 44px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.methodOn {
+  border-color: var(--accent-fill);
+  background: var(--sunken);
+  font-weight: 500;
+}
+
+/* ── the second person ──────────────────────────────────────────────────── */
+
+.gate {
+  margin-top: 18px;
+  padding: 14px 15px 16px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+}
+
+.gateTitle {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.gateLede {
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.primary {
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
+  color: var(--on-fill);
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.quiet {
+  font: inherit;
+  font-size: 0.875rem;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.quietWide {
+  composes: quiet;
+  width: 100%;
+  margin-top: 10px;
+  justify-content: center;
+}

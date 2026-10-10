@@ -6,6 +6,7 @@ import { BusinessMark } from "@/components/BusinessMark";
 import { Calculator } from "./Calculator";
 import { CashMovement } from "./CashMovement";
 import { Count } from "./Count";
+import { Return } from "./Return";
 import { Scanner } from "./Scanner";
 import { scanning } from "./barcode";
 import { ChangePassword } from "./ChangePassword";
@@ -518,7 +519,9 @@ function Selling({
   const [phone, setPhone] = useState("");
   const [push, setPush] = useState<Push | null>(null);
   const [sale, setSale] = useState<Sale | null>(null);
-  const [tool, setTool] = useState<"calculator" | "note" | "cash" | null>(null);
+  const [tool, setTool] = useState<
+    "calculator" | "note" | "cash" | "return" | null
+  >(null);
   const [camera, setCamera] = useState(false);
   /*
    * Asked once, after mount. `scanning()` reads `window`, so calling it
@@ -870,6 +873,26 @@ function Selling({
           >
             Cash in/out
           </button>
+          {/*
+            ── IN THE BAR, AND OFFERED TO EVERY CASHIER ───────────────────
+            Not hidden behind `sales.refund`, which no cashier holds. The
+            cashier is the person a customer hands a receipt to, and they do
+            all of the work on this screen — finding the sale, counting what
+            came back, saying where it goes. A manager signs the one request
+            that gives money back.
+
+            Hiding it would leave the cashier with nothing to do but send
+            the customer away to find somebody, which is the behaviour this
+            replaces. Same reasoning as the pay-out option in CashMovement:
+            the thing a cashier needs to know is that a manager can do it.
+          */}
+          <button
+            className={styles.barQuiet}
+            onClick={() => setTool(tool === "return" ? null : "return")}
+            aria-expanded={tool === "return"}
+          >
+            Return
+          </button>
 
           <button className={styles.barQuiet} onClick={() => void refresh()}>
             Refresh prices
@@ -899,6 +922,19 @@ function Selling({
           // lets the screen explain in advance rather than after a refusal.
           maySendOut={permissions.includes("shift.close")}
           onRecorded={() => setTool(null)}
+          onClose={() => setTool(null)}
+        />
+      ) : null}
+      {tool === "return" ? (
+        <Return
+          session={session}
+          shiftId={shift.id}
+          branchId={shift.register?.branch?.id ?? null}
+          // The sale rung up a moment ago, so "I've changed my mind" is one
+          // press rather than a receipt number typed back in. Null once the
+          // basket moves on, which is correct — by then the receipt is the
+          // only thing that identifies it.
+          lastSale={sale ? { id: sale.id, number: sale.number } : null}
           onClose={() => setTool(null)}
         />
       ) : null}

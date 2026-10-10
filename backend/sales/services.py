@@ -537,6 +537,7 @@ def refund_sale(
     processed_by,
     lines: list[dict],
     reason: str,
+    method: str,
     shift: RegisterShift | None = None,
     idempotency_key: str = "",
 ) -> Refund:
@@ -544,10 +545,18 @@ def refund_sale(
     Give money back against a sale, without touching the sale.
 
     `lines`: [{"sale_item": <SaleItem>, "quantity": Decimal, "restock": bool}]
+    `method`: how the money goes back — one of Payment.Method.
 
     The original stays exactly as it was — blueprint §10. What changes is that
     a new document exists pointing at it, and the stock of anything restocked
     goes back up through a movement like everything else.
+
+    ── `method` IS REQUIRED AND HAS NO DEFAULT, DELIBERATELY ────────────────
+    Defaulting it to cash would be right most of the time, and the times it
+    was wrong would be an M-Pesa reversal quietly subtracted from a drawer
+    nobody took notes out of — a shortfall at the close with no cause anybody
+    can find. The banner on `Refund.method` has the rest. A caller that does
+    not know the answer has not finished asking.
     """
     organization_id = sale.organization_id
 
@@ -566,6 +575,16 @@ def refund_sale(
         raise SaleError({"lines": "Choose what is being returned."})
     if branch.organization_id != organization_id:
         raise SaleError({"branch": "No such branch."})
+    if method not in Payment.Method.values:
+        raise SaleError({"method": "Say how the money is going back."})
+    # On account only means something if there is an account. Without this a
+    # credit refund against a walk-in would reduce nobody's balance and the
+    # money would simply have been written off.
+    if method == Payment.Method.CREDIT and not sale.customer_id:
+        raise SaleError(
+            {"method": "This sale has no customer, so there is no account to "
+                       "put the money back on."}
+        )
 
     # ── how much of each line is still refundable ───────────────────────────
     #
@@ -628,6 +647,7 @@ def refund_sale(
         number=_next_number(Refund, organization_id, FIRST_REFUND_NUMBER),
         total=total,
         reason=reason.strip()[:200],
+        method=method,
         idempotency_key=idempotency_key,
     )
 
@@ -654,9 +674,20 @@ def refund_sale(
                     f"Refund #{refund.number} against sale #{sale.number}",
                 )
 
-    # Money back on an account sale reduces what is owed before it reduces
-    # anything else — the customer never paid it in the first place.
-    if sale.customer_id:
+    # ── PUTTING IT BACK ON THE ACCOUNT, WHICH IS NOT EVERY REFUND ───────────
+    #
+    # Money owed is reduced only when the refund ITSELF is on account. This
+    # used to happen on any refund against a sale with a credit payment, and
+    # that was a double refund waiting to be noticed: hand a customer their
+    # 1,500 in notes, and their debt fell by 1,500 as well. Nothing caught it
+    # because `Refund` could not say how the money went back, so the code had
+    # to guess from the sale and guessed the same way every time.
+    #
+    # Nothing is lost by narrowing it. A refund that really does cancel a
+    # debt is `method=credit`, which is also the only one where no money
+    # moves — and `credit` is refused above when there is no customer, so
+    # this cannot be reached without one.
+    if method == Payment.Method.CREDIT:
         on_account = sale.payments.filter(method=Payment.Method.CREDIT).first()
         if on_account is not None:
             Customer.objects.filter(pk=sale.customer_id).update(
