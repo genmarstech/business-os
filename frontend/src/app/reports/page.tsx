@@ -8,6 +8,8 @@ import {
   amount,
   dashboard,
   ksh,
+  type DrawerRow,
+  type DrawerSummary,
   type Overview,
 } from "@/lib/reports";
 import { CloseTill } from "./CloseTill";
@@ -116,11 +118,21 @@ export default async function ReportsPage({
         {data.registers.length > 0 ? (
           <section className={styles.panel}>
             <h2 className={styles.panelTitle}>Tills open now</h2>
+            {/*
+              ── THIS LEDE STATED A FORMULA THE COLUMNS DID NOT FOLLOW ──────
+              It said "the cash it opened with, plus what it has taken, less
+              change given", which stopped being the whole of it when cash
+              movements were added and again when returns were. A reader
+              adding three columns to reach a fourth that did not match had
+              no way to find out why. Every term is a column now, and the
+              sentence names all of them.
+            */}
             <p className={styles.panelLede}>
-              What should be in each drawer: the cash it opened with, plus what
-              it has taken, less change given. Counting against it is how a
-              shift ends — a till cannot be closed without a count, and the
-              difference is recorded against the shift.
+              What should be in each drawer: what it opened with, plus what was
+              handed over, less change handed back, plus or minus cash moved
+              in or out, less any returns paid out of it. Counting against it
+              is how a shift ends — a till cannot be closed without a count,
+              and the difference is recorded against the shift.
             </p>
             <div className={styles.scroll}>
               <table className={styles.table}>
@@ -131,6 +143,9 @@ export default async function ReportsPage({
                     <th className={styles.num}>Opened with</th>
                     <th className={styles.num}>Taken</th>
                     <th className={styles.num}>Change out</th>
+                    <th className={styles.num}>Cash in</th>
+                    <th className={styles.num}>Cash out</th>
+                    <th className={styles.num}>Returned</th>
                     <th className={styles.num}>Should hold</th>
                     {canClose ? <th /> : null}
                   </tr>
@@ -152,6 +167,9 @@ export default async function ReportsPage({
                       <td className={styles.num}>{ksh(row.opening_cash)}</td>
                       <td className={styles.num}>{ksh(row.cash_taken)}</td>
                       <td className={styles.num}>{ksh(row.change_given)}</td>
+                      <td className={styles.num}>{ksh(row.paid_in)}</td>
+                      <td className={styles.num}>{ksh(row.paid_out)}</td>
+                      <td className={styles.num}>{ksh(row.refunded_cash)}</td>
                       <td className={`${styles.num} ${styles.strong}`}>
                         {ksh(row.expected_cash)}
                       </td>
@@ -170,6 +188,14 @@ export default async function ReportsPage({
               </table>
             </div>
           </section>
+        ) : null}
+
+        {data.drawers !== null ? (
+          <Drawers
+            rows={data.drawers.shifts}
+            summary={data.drawers.summary}
+            range={range}
+          />
         ) : null}
 
         {data.alerts.length > 0 ? (
@@ -292,6 +318,248 @@ export default async function ReportsPage({
       </div>
     </Shell>
   );
+}
+
+/**
+ * The drawers that have already been counted, and by how much each was out.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE VARIANCE WAS PRODUCED AND THEN UNREADABLE, WHICH IS MOST OF THE WAY TO
+ * NOT PRODUCING IT.
+ *
+ * "Tills open now" above lists OPEN shifts, so a drawer's figures were
+ * visible for exactly as long as the shift had no variance, and disappeared
+ * at the moment it acquired one. The number a till exists to produce was
+ * computed, put in a notification, and then had nowhere to be looked at.
+ *
+ * So "is it always the same till" had no answer in the product. This is that
+ * answer, and it is the reason a branch auditor — who holds reports.branch
+ * and cannot close a till at all — has a screen worth opening.
+ * ══════════════════════════════════════════════════════════════════════════
+ */
+function Drawers({
+  rows,
+  summary,
+  range,
+}: {
+  rows: DrawerRow[];
+  summary: DrawerSummary;
+  range: string;
+}) {
+  /*
+   * Written out per period rather than lower-casing the nav label, which
+   * produced "No till was closed in last 7 days".
+   */
+  const WHEN: Record<string, string> = {
+    today: "today",
+    week: "in the last 7 days",
+    month: "this month",
+    year: "this year",
+  };
+  const when = WHEN[range] ?? "in this period";
+
+  if (rows.length === 0) {
+    return (
+      <section className={styles.panel}>
+        <h2 className={styles.panelTitle}>Drawers counted</h2>
+        <p className={styles.empty}>
+          No till was closed {when}. A drawer appears here once somebody
+          counts it.
+        </p>
+      </section>
+    );
+  }
+
+  /*
+   * ── THE NET IS SHOWN LAST AND NAMED AS A NET ─────────────────────────────
+   *
+   * One till 500 short and another 500 over nets to zero. A panel that led
+   * with that number would report a day as reconciled while one drawer is
+   * missing money and another holds money nothing accounts for — two
+   * problems rather than none. So the counts come first and the net carries
+   * the word.
+   */
+  const net = Number(summary.net_variance);
+  const unbalanced = summary.short + summary.over;
+
+  return (
+    <section className={styles.panel}>
+      <h2 className={styles.panelTitle}>Drawers counted</h2>
+      <p className={styles.panelLede}>
+        Every till closed in this period, and what each came out at against
+        what it should have held. A count cannot be redone — a second one only
+        agrees with itself — so what is here is what was found.
+      </p>
+
+      <dl className={styles.tally}>
+        <div>
+          <dt>Counted</dt>
+          <dd>{summary.counted}</dd>
+        </div>
+        <div>
+          <dt>Balanced</dt>
+          <dd className={summary.balanced > 0 ? styles.exact : undefined}>
+            {summary.balanced}
+          </dd>
+        </div>
+        <div>
+          <dt>Short</dt>
+          <dd className={summary.short > 0 ? styles.short : undefined}>
+            {summary.short}
+          </dd>
+        </div>
+        <div>
+          <dt>Over</dt>
+          <dd className={summary.over > 0 ? styles.over : undefined}>
+            {summary.over}
+          </dd>
+        </div>
+        <div>
+          <dt>Worst shortfall</dt>
+          <dd className={Number(summary.worst_short) < 0 ? styles.short : undefined}>
+            {/*
+              The magnitude, not the signed figure: the label already says
+              "shortfall", and "-500.00" under it reads as a double negative.
+            */}
+            {Number(summary.worst_short) < 0
+              ? ksh(summary.worst_short.slice(1))
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>Net, over all tills</dt>
+          <dd className={net === 0 ? undefined : net < 0 ? styles.short : styles.over}>
+            {net === 0 ? "Nil" : ksh(summary.net_variance)}
+          </dd>
+        </div>
+      </dl>
+
+      {unbalanced > 0 && net === 0 ? (
+        <p className={styles.footnote}>
+          The net is nil and {unbalanced} drawer
+          {unbalanced === 1 ? "" : "s"} did not balance. Tills that cancel each
+          other out are two problems, not none — the usual cause is a sale rung
+          up on the wrong till.
+        </p>
+      ) : null}
+
+      <div className={styles.scroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Till</th>
+              <th>On the till</th>
+              <th className={styles.num}>Opened with</th>
+              <th className={styles.num}>Taken</th>
+              <th className={styles.num}>Change out</th>
+              <th className={styles.num}>Cash in</th>
+              <th className={styles.num}>Cash out</th>
+              <th className={styles.num}>Returned</th>
+              <th className={styles.num}>Should have held</th>
+              <th className={styles.num}>Counted</th>
+              <th className={styles.num}>Out by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const variance = row.variance === null ? null : Number(row.variance);
+              return (
+                <tr key={row.shift}>
+                  <td>
+                    <div className={styles.name}>{row.register_name}</div>
+                    <div className={styles.meta}>
+                      {row.branch_name} · {closedAt(row.closed_at)}
+                    </div>
+                  </td>
+                  <td>
+                    <div>{row.operator_name}</div>
+                    {row.note ? (
+                      <div className={styles.shiftNote} title={row.note}>
+                        {row.note}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className={styles.num}>{ksh(row.opening_cash)}</td>
+                  <td className={styles.num}>{ksh(row.cash_taken)}</td>
+                  <td className={styles.num}>{ksh(row.change_given)}</td>
+                  <td className={styles.num}>{ksh(row.paid_in)}</td>
+                  <td className={styles.num}>{ksh(row.paid_out)}</td>
+                  <td className={styles.num}>{ksh(row.refunded_cash)}</td>
+                  <td className={`${styles.num} ${styles.strong}`}>
+                    {ksh(row.expected_cash)}
+                  </td>
+                  <td className={styles.num}>
+                    {/*
+                      An em dash, never a zero. A drawer closed before the
+                      count existed was never counted, and printing 0.00 here
+                      would read as "checked, and correct" — the most
+                      flattering possible lie about it.
+                    */}
+                    {row.counted_cash === null ? "—" : ksh(row.counted_cash)}
+                  </td>
+                  <td
+                    className={`${styles.num} ${
+                      variance === null
+                        ? ""
+                        : variance === 0
+                          ? styles.exact
+                          : variance < 0
+                            ? styles.short
+                            : styles.over
+                    }`}
+                  >
+                    {variance === null
+                      ? "Not counted"
+                      : variance === 0
+                        ? "Balanced"
+                        : `${variance < 0 ? "Short" : "Over"} ${ksh(
+                            String(Math.abs(variance)),
+                          )}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {summary.truncated ? (
+        <p className={styles.footnote}>
+          Showing the {rows.length} most recently counted of{" "}
+          {summary.closed_in_window}. The tally above describes these
+          {" "}{rows.length} and not the whole period — narrow the window to
+          account for all of them.
+        </p>
+      ) : null}
+
+      {rows.some((row) => row.uncounted) ? (
+        <p className={styles.footnote}>
+          A drawer marked <strong>not counted</strong> was closed before this
+          product required a count. There is no variance for it and never will
+          be; it is listed so the gap is visible rather than absent.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The close time, in the shop's own words.
+ *
+ * ⚠ FIXED TIMEZONE AND LOCALE, NOT THE READER'S.
+ *   `toLocaleString` with neither reads the environment — which is UTC in the
+ *   container this page renders in, so a till counted at 00:30 in Nairobi
+ *   would be printed as the previous day. A reconciliation screen whose dates
+ *   disagree with the shop's own day is worse than one with no dates.
+ */
+function closedAt(when: string): string {
+  return new Date(when).toLocaleString("en-GB", {
+    timeZone: "Africa/Nairobi",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /**

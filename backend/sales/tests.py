@@ -870,9 +870,22 @@ class ReportTests(TestCase):
 
     def test_register_status_shows_what_should_be_in_the_drawer(self):
         """
-        Opening float plus cash taken minus change given. This is the figure a
-        close is reconciled against, and it could not be computed at all
-        before sales existed.
+        Opening float, plus what was handed over, less what was handed back.
+
+        ⚠ THIS TEST ASSERTED THE BUG, AND ITS DOCSTRING STATED THE WRONG
+          FORMULA AS THOUGH IT WERE THE RULE.
+
+          A 200 note against a 116 sale leaves the drawer 116 heavier, so a
+          till opening with 1,000 should expect 1,116. It asserted 1,032 —
+          1,000 + 116 − 84 — because `Payment.amount` is ALREADY net of
+          change and `drawer()` subtracted the change from it a second time.
+          See the banner in branches/services.py: the effect was every drawer
+          in the product reading over by the day's change.
+
+          Written down as the expected answer, a wrong figure stops being a
+          bug and becomes a specification. `cash_taken` is now the 200 that
+          crossed the counter, which is also what the column of that name
+          means on every screen that shows it.
         """
         services.checkout(
             shift=self.a_shift,
@@ -884,9 +897,9 @@ class ReportTests(TestCase):
         self.assertEqual(len(status_rows), 1)
         row = status_rows[0]
         self.assertEqual(row["opening_cash"], Decimal("1000.00"))
-        self.assertEqual(row["cash_taken"], Decimal("116.00"))
-        self.assertEqual(row["change_given"], Decimal("84.00"))
-        self.assertEqual(row["expected_cash"], Decimal("1032.00"))
+        self.assertEqual(row["cash_taken"], Decimal("200.00"), "handed over")
+        self.assertEqual(row["change_given"], Decimal("84.00"), "handed back")
+        self.assertEqual(row["expected_cash"], Decimal("1116.00"))
 
     def test_naming_another_shops_branch_reports_nothing(self):
         """
@@ -934,6 +947,7 @@ class ReportApiTests(TestCase):
         for path in (
             "overview", "by-branch", "by-product", "by-cashier",
             "by-payment-method", "stock-alerts", "register-status",
+            "drawers",
         ):
             response = self.client.get(f"/sls/reports/{path}/")
             self.assertIn(

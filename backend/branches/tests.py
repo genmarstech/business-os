@@ -19,6 +19,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from branches.models import Branches, Register, RegisterShift, staffAssignment
+from branches import services as branch_services
 from catalog.models import CatalogCategories, CatalogCategoryProduct, TaxRule
 from identity import access, services as identity_services
 from identity.authentication import SUBSCRIBER_SESSION_KEY
@@ -78,10 +79,23 @@ class ClosingATillTests(TestCase):
         session[SUBSCRIBER_SESSION_KEY] = self.owner.pk
         session.save()
 
-    def sell(self, *, cash: str, change: str = "0.00"):
+    def sell(self, *, cash: str, quantity: str = "1"):
+        """
+        Ring up `quantity` at 100 each and tender `cash`.
+
+        `cash` is what the customer HANDED OVER, so tendering more than the
+        total gives change — which is the ordinary case in a shop and was the
+        case none of these tests made until the drawer was found reading over
+        by every shilling of it.
+
+        This used to take a `change` argument and ignore it entirely. A test
+        calling `sell(change="300")` would have read as though it covered the
+        change path while exercising nothing, which is worse than the gap.
+        Change is not an input: `checkout` works it out from the tender.
+        """
         return sales_services.checkout(
             shift=self.shift, cashier=self.jane,
-            lines=[{"product": self.product, "quantity": Decimal("1")}],
+            lines=[{"product": self.product, "quantity": Decimal(quantity)}],
             payments=[{"method": "cash", "amount": Decimal(cash)}],
         )
 
@@ -101,6 +115,63 @@ class ClosingATillTests(TestCase):
         ).json()
         self.assertEqual(body["cash_taken"], "100.00")
         self.assertEqual(body["expected_cash"], "1100.00")
+
+    def test_change_given_is_not_taken_out_of_the_drawer_twice(self):
+        """
+        ══════════════════════════════════════════════════════════════════════
+        THE BUG THIS PINS MADE EVERY DRAWER READ OVER.
+
+        A 500 note against a 100 sale: the customer hands over 500, takes 400
+        back, and the drawer is 100 heavier. `checkout` records that as
+        `amount` 100 and `change_given` 400 — net, by design.
+
+        `drawer()` summed `amount` and then subtracted `change_given` from it,
+        so the sale contributed 100 − 400 = −300. Expected came out BELOW the
+        opening float on a day the till took money.
+
+        Nothing caught it because every test here tendered the exact amount,
+        which is the one kind of cash sale a shop almost never makes. And a
+        drawer reading over looks like nothing is wrong — see the banner in
+        branches/services.py for what it hides.
+        ══════════════════════════════════════════════════════════════════════
+        """
+        self.sell(cash="500.00")
+
+        counts = branch_services.drawer(self.shift)
+        self.assertEqual(counts["expected_cash"], Decimal("1100.00"))
+
+    def test_the_columns_a_manager_reads_add_up_to_the_figure_beside_them(self):
+        """
+        "Taken" is what came across the counter and "Change out" is what went
+        back, so opening + taken − change is the money that stayed. A screen
+        showing three numbers that do not reconcile to the fourth is a screen
+        a manager stops believing.
+        """
+        self.sell(cash="500.00")
+        self.sell(cash="100.00")
+
+        counts = branch_services.drawer(self.shift)
+        self.assertEqual(counts["cash_taken"], Decimal("600.00"), "handed over")
+        self.assertEqual(counts["change_given"], Decimal("400.00"), "handed back")
+        self.assertEqual(
+            counts["opening_cash"] + counts["cash_taken"] - counts["change_given"],
+            counts["expected_cash"],
+        )
+
+    def test_a_drawer_with_change_given_balances_when_it_is_right(self):
+        """
+        The end-to-end version, and the one a shop would have met daily: open
+        with 1,000, sell one at 100 for a 500 note, and there are 1,100 in the
+        drawer. Before the fix this closed 400 OVER.
+        """
+        self.sell(cash="500.00")
+
+        response = self.client.post(
+            f"/brn/register-shifts/{self.shift.pk}/close/",
+            {"counted_cash": "1100.00"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["drawer"]["variance"], "0.00")
 
     def test_an_uncounted_drawer_has_no_variance_rather_than_a_zero_one(self):
         """

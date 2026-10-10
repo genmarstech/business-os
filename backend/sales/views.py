@@ -537,6 +537,35 @@ class ReportViewSet(viewsets.ViewSet):
             _exact({"alerts": reports.stock_alerts(request.user, self._branch(request))})
         )
 
+    @action(detail=False, methods=["get"], url_path="drawers")
+    def drawers(self, request):
+        """
+        The drawers already counted in this window, and what each came out at.
+
+        REPORTS_BRANCH for the same reason `register-status` takes it: a list
+        of tills and what was in them is an operational view of a branch, not
+        a consolidated figure, and the aggregate underneath is confined by
+        `branch_scope` either way.
+
+        ⚠ NOT A WEAKER PERMISSION THAN THE CLOSE ITSELF, BUT A DIFFERENT ONE.
+          Counting a drawer is SHIFT_CLOSE and is a manager's act. READING the
+          variances afterwards is reporting, and the branch auditor who holds
+          REPORTS_BRANCH and no till permission at all is precisely the person
+          this screen exists for — somebody who can see that Friday is always
+          short without being able to close a till themselves.
+        """
+        refused = self.check(request, access.REPORTS_BRANCH)
+        if refused is not None:
+            return refused
+        start, end = reports.parse_window(request)
+        return Response(
+            _exact(
+                reports.drawers_counted(
+                    request.user, start, end, self._branch(request)
+                )
+            )
+        )
+
     @action(detail=False, methods=["get"], url_path="register-status")
     def register_status(self, request):
         # Always the branch permission, even with no branch named: this lists

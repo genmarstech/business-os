@@ -16,14 +16,29 @@ shift ends.
 
 ── THE VARIANCE IS DERIVED, NEVER STORED ─────────────────────────────────────
 
-Expected cash is the opening float plus cash taken less change given, all of it
-read from COMPLETED sales — rows that blueprint §10 makes immutable. So the
+Expected cash is six terms, and the list has grown twice since it was three:
+
+    opening float
+  + cash handed over the counter
+  − change handed back
+  + cash brought in mid-shift          (CashMovement, inward)
+  − cash taken out mid-shift           (CashMovement, outward)
+  − returns paid out of the drawer     (Refund, method=cash)
+
+All of it read from COMPLETED rows that blueprint §10 makes immutable. So the
 expected figure for a shift is the same today as it will be at an audit in two
 years, and storing it would only create a second number that can drift from the
 sales it came from.
 
 What IS stored is the count, because a human read it off a drawer and nothing
 else can reproduce it.
+
+⚠ EVERY TERM IS ALSO RETURNED SEPARATELY, AND THAT IS NOT DECORATION. The
+  screens show all six beside the total, because a manager checks a figure
+  they do not believe by adding up what it came from. A term that existed in
+  this arithmetic and nowhere on a screen is how the double subtraction
+  described in `drawer()` — fixed on 2026-10-10 — survived for as long as it
+  did.
 """
 
 from __future__ import annotations
@@ -72,11 +87,37 @@ def drawer(shift) -> dict:
     """
     from sales.models import Payment, Refund, Sale
 
+    # ── `amount` IS ALREADY NET OF CHANGE, AND THIS SUBTRACTED IT TWICE ─────
+    #
+    # ⚠ THE BUG THAT WAS HERE MADE EVERY DRAWER READ OVER, WHICH IS THE
+    #   DIRECTION NOBODY INVESTIGATES.
+    #
+    #   `checkout` records a 1,000 note against a 700 total as `amount` 700
+    #   and `change_given` 300 — its comment says so. This aggregate summed
+    #   `amount` and then subtracted `change_given` from it, so that sale
+    #   contributed 400 to the expected figure when the drawer was 700
+    #   heavier. Expected came out LOW by the whole day's change, and a
+    #   drawer counted against it read OVER by the same amount.
+    #
+    #   Which is why it survived: a till reported as over looks like nothing
+    #   is wrong. It also hides theft, pound for pound — a cashier taking 500
+    #   from a day that gave 2,000 in change leaves a drawer reading 1,500
+    #   over instead of 500 short, and the one number a till exists to
+    #   produce says the opposite of what happened.
+    #
+    #   Every existing test passed because they all tender the exact amount,
+    #   which is the one kind of cash sale a shop almost never makes.
+    #
+    # `tendered` is the field whose own comment says the drawer is reconciled
+    # against what was physically handed over, and it is NOT used here: it is
+    # nullable, so a row written before it existed would drop out of a Sum()
+    # and take its sale's cash with it. `amount + change_given` is the same
+    # number by construction and cannot be null.
     taken = Payment.objects.filter(
         sale__shift=shift,
         sale__status=Sale.Status.COMPLETED,
         method=Payment.Method.CASH,
-    ).aggregate(cash=Sum("amount"), change=Sum("change_given"))
+    ).aggregate(kept=Sum("amount"), change=Sum("change_given"))
 
     # ── MONEY HANDED BACK OVER THE COUNTER ──────────────────────────────────
     #
@@ -121,8 +162,12 @@ def drawer(shift) -> dict:
     )
 
     opening = money(shift.opening_cash or ZERO)
-    cash = money(taken["cash"] or ZERO)
     change = money(taken["change"] or ZERO)
+    # What came across the counter, which is what "Taken" means on every
+    # screen that shows it. Reported gross rather than net so that the
+    # columns a manager reads add up to the figure beside them: taken less
+    # change is the money that stayed, and that is the sum below.
+    cash = money((taken["kept"] or ZERO) + change)
     paid_in = money(moved["paid_in"] or ZERO)
     paid_out = money(moved["paid_out"] or ZERO)
     refunded = money(given_back["cash"] or ZERO)
@@ -150,7 +195,6 @@ def drawer(shift) -> dict:
     }
 
 
-@transaction.atomic
 @transaction.atomic
 def record_cash_movement(*, shift, kind: str, amount, reason: str, actor=None):
     """
