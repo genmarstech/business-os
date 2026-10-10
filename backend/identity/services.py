@@ -11,6 +11,7 @@ Views call the functions here and do no reasoning of their own.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import NamedTuple
@@ -19,6 +20,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from . import emails
 from .models import (
     GENERIC_SIGN_IN_FAILURE,
     INVITATION_LIFETIME,
@@ -31,6 +33,8 @@ from .models import (
     TenantInvitation,
     TenantMembership,
 )
+
+log = logging.getLogger(__name__)
 
 TOKEN_BYTES = 32
 PREFIX_LENGTH = 12
@@ -153,13 +157,59 @@ def invite_subscriber(*, organization, email: str, role: str, invited_by=None):
         open_invite.revoked_at = timezone.now()
         open_invite.save(update_fields=["revoked_at"])
 
-    return TenantInvitation.objects.create(
+    invitation = TenantInvitation.objects.create(
         organization=organization,
         email=email,
         role=role,
         invited_by=invited_by,
         expires_at=timezone.now() + INVITATION_LIFETIME,
     )
+
+    # ── TELLING THEM IS NOT OPTIONAL, AND IT USED TO BE ABSENT ──────────
+    #
+    # This function wrote the row and sent nothing. The owner watched the
+    # invitation appear in Settings → People and reasonably concluded the
+    # person had been told; nobody had been told anything. It worked only
+    # when the invited party happened to sign on by themselves with the
+    # matching address — so it appeared to work for whoever was sitting
+    # beside the owner and silently failed for everybody else.
+    #
+    # ⚠ A MAIL FAILURE MUST NOT UNDO THE INVITATION, AND MUST NOT BE
+    #   SWALLOWED EITHER.
+    #
+    #   Rolling back would mean an owner cannot invite anybody while
+    #   Resend is having a bad afternoon, for a message that can be sent
+    #   again. Swallowing is the bug one paragraph up, wearing a hat. So
+    #   the row stands, the failure is recorded on the returned object,
+    #   and the view says so — "invited, but we could not email them" is
+    #   something an owner can act on by picking up a phone.
+    #
+    # `on_commit` because the row has to exist before the mail describes
+    # it, and because a send inside the transaction is a send that can
+    # happen for a row that is then rolled back.
+    invitation.notified = True
+    try:
+        emails.send_subscriber_invitation(
+            to=invitation.email,
+            organisation=organization.name,
+            role=invitation.role,
+            invited_by=(
+                invited_by.full_name or invited_by.email if invited_by else ""
+            ),
+            days=INVITATION_LIFETIME.days,
+        )
+    except Exception:  # noqa: BLE001 — any mail failure, reported not raised
+        log.exception(
+            "could not email invitation %s to %s",
+            invitation.pk,
+            # The address is the thing being diagnosed and is not a secret;
+            # nothing else from the message reaches the log. See the banner
+            # in mail_backends.py.
+            invitation.email,
+        )
+        invitation.notified = False
+
+    return invitation
 
 
 @transaction.atomic

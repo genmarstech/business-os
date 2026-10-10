@@ -504,6 +504,14 @@ TILL_SIGN_IN_URL = os.environ.get(
     "TILL_SIGN_IN_URL", "https://business.genmars.co.ke/till"
 )
 
+# Where somebody OFFERED AUTHORITY in a business is told to go. A separate
+# setting from the till above for the reason the banner gives: the two
+# addresses are different screens for different tiers of principal, and one
+# standing in for the other sends an accountant to a register.
+SUBSCRIBER_SIGN_IN_URL = os.environ.get(
+    "SUBSCRIBER_SIGN_IN_URL", "https://business.genmars.co.ke/"
+)
+
 GENMARS_SIGN_ON_CLIENT_ID = os.environ.get("GENMARS_SIGN_ON_CLIENT_ID", "")
 GENMARS_SIGN_ON_CLIENT_SECRET = os.environ.get("GENMARS_SIGN_ON_CLIENT_SECRET", "")
 GENMARS_SIGN_ON_REDIRECT_URI = os.environ.get("GENMARS_SIGN_ON_REDIRECT_URI", "")

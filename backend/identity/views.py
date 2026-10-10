@@ -1043,9 +1043,20 @@ class TenantInvitationViewSet(TenantScoped, viewsets.ModelViewSet):
         except services.InvitationError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            self.get_serializer(invitation).data, status=status.HTTP_201_CREATED
-        )
+        body = self.get_serializer(invitation).data
+        # ── SAY SO WHEN THE MESSAGE DID NOT GO ─────────────────────────
+        # The invitation is valid either way — it is bound to the address,
+        # not to the mail — so a send failure must not undo it. But an
+        # owner who is not told assumes the person has been written to,
+        # which is the exact failure this whole change exists to end.
+        if not getattr(invitation, "notified", True):
+            body["warning"] = (
+                f"{invitation.email} has been invited, but the email could "
+                "not be sent just now. Tell them to sign in at "
+                "business.genmars.co.ke with that address — the invitation "
+                "is waiting for them either way."
+            )
+        return Response(body, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
     def revoke(self, request, pk=None):
