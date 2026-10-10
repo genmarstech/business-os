@@ -88,6 +88,45 @@ class _Csrf(CsrfViewMiddleware):
         return reason
 
 
+def _presents_a_bearer_token(request) -> bool:
+    """
+    Is the caller naming a credential explicitly, rather than carrying one?
+
+    ══════════════════════════════════════════════════════════════════════════
+    AN AMBIENT COOKIE MUST NOT OUTRANK A CREDENTIAL THE CALLER NAMED.
+
+    `/till` and the office are the SAME ORIGIN — business.genmars.co.ke serves
+    both — so a Django session cookie set by the office is attached by the
+    browser to every request the till makes, alongside the till's own
+    `Authorization: Bearer`. DRF tries the authentication classes in order and
+    takes the first that answers, and the two cookie classes are listed first.
+
+    The cookie therefore won, and the effect on one shared shop browser was
+    not subtle. A manager signs in at /sign-in in one tab; somebody opens the
+    till in another:
+
+      · every unsafe till request — checkout, refund, cash in or out, closing
+        the drawer — fails with "CSRF failed: CSRF token missing", because a
+        bearer request has no CSRF token and never needs one;
+      · every read resolves to the MANAGER. `/auth/me` presented a cashier's
+        token and answered with the office user's name, so the till would draw
+        its screens from the wrong person's permissions — and `checkout` pins
+        the cashier to the authenticated principal, so the sale would be
+        attributed to whoever was signed into the office.
+
+    Declining here is also the fail-CLOSED direction. A caller who sends a
+    bogus Authorization header to dodge this does not fall back to their
+    cookie; they are refused by the token class with no session at all.
+
+    ⚠ ANY Authorization header counts, not only a well-formed one. A header
+      that is present but malformed is still somebody naming a credential,
+      and treating it as absent would hand the request back to the cookie —
+      which is the behaviour being removed.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+    return bool(authentication.get_authorization_header(request))
+
+
 class SubscriberSessionAuthentication(authentication.BaseAuthentication):
     """
     A subscriber who completed the Genmars sign-on handoff.
@@ -113,6 +152,11 @@ class SubscriberSessionAuthentication(authentication.BaseAuthentication):
     """
 
     def authenticate(self, request):
+        # See `_presents_a_bearer_token`: a named credential beats a carried
+        # one, and the till and the office share an origin.
+        if _presents_a_bearer_token(request):
+            return None
+
         account_id = request.session.get(SUBSCRIBER_SESSION_KEY)
         if not account_id:
             return None
@@ -208,6 +252,13 @@ class StaffSessionAuthentication(authentication.BaseAuthentication):
     """
 
     def authenticate(self, request):
+        # See `_presents_a_bearer_token`. This is the class the till actually
+        # collided with: both transports resolve the same StaffCredential, so
+        # the cookie answered as a DIFFERENT member of staff than the token
+        # being presented, with no sign anything was wrong.
+        if _presents_a_bearer_token(request):
+            return None
+
         session_id = request.session.get(STAFF_SESSION_KEY)
         if not session_id:
             return None

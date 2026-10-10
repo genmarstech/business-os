@@ -14,7 +14,7 @@ from __future__ import annotations
 from django.test import Client, TestCase
 
 from branches.models import Branches, staffAssignment
-from identity import services
+from identity import access, services
 from identity.authentication import SUBSCRIBER_SESSION_KEY
 from identity.models import PlatformAccount, StaffCredential, StaffSession, TenantMembership
 from organisations.models import BusinessOrganization, OrganizationStaff
@@ -276,22 +276,62 @@ class WithdrawingALoginTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(self.still_signed_in())
 
-    def test_a_bearer_token_beside_a_session_cookie_does_not_become_a_second_way_in(self):
+    def test_a_bearer_token_beside_a_session_cookie_names_the_token(self):
         """
-        Both credentials on one request. DRF walks the authentication classes
-        in order and stops at the first that answers, so the session cookie
-        wins and the token is never looked at.
+        Both credentials on one request, and the TOKEN is the answer.
 
-        Pinned because it reads like an oversight and is the safe half of the
-        pair: the answer that matters is that the till's token can never
-        ESCALATE a request — it cannot turn the owner's session into
-        something else, and it cannot lend its own authority to one.
+        ══════════════════════════════════════════════════════════════════════
+        THIS ASSERTED THE OPPOSITE UNTIL 2026-10-10, ON REASONING THAT WAS
+        RIGHT AS FAR AS IT WENT.
+
+        It said the cookie wins, pinned as "the safe half of the pair": a
+        till's token can never ESCALATE a request, so a token arriving beside
+        the owner's session could not turn it into something more. That is
+        still true, and it is still the property worth having — a downgrade
+        is safe and an upgrade would not be.
+
+        What it did not weigh is that the collision is ROUTINE rather than
+        hypothetical. `/till` and `/sign-in` are the same origin, and
+        Django's session cookie has no path restriction, so the office cookie
+        is attached to every request the till makes. One manager signing in
+        on the shop's browser was therefore enough to:
+
+          · fail every unsafe till request with "CSRF failed: CSRF token
+            missing" — checkout, refunds, cash in and out, closing a drawer;
+          · answer every till read as the OFFICE user, so a cashier's token
+            went up and somebody else's name came back.
+
+        Its own docstring said it "reads like an oversight". It was one.
+
+        Reversing it keeps the escalation property: when both are presented
+        the request now carries the TOKEN's authority, which is the narrower
+        of the two, and a caller who suppresses their cookie with a junk
+        header gets no session at all. See `_presents_a_bearer_token` and
+        ACookieMustNotOutrankATokenTests in test_staff_in_the_office.py.
+        ══════════════════════════════════════════════════════════════════════
         """
         self.register.cookies = self.client.cookies  # the owner's session
         response = self.register.get("/auth/me", **self.till())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["kind"], "subscriber")
+        self.assertEqual(response.json()["kind"], "staff")
+        self.assertEqual(response.json()["username"], "jmwangi")
+
+    def test_the_token_beside_a_cookie_cannot_escalate_the_request(self):
+        """
+        The property the old assertion was protecting, asserted directly
+        rather than as a side effect of which class answered first.
+
+        A cashier's token beside an OWNER's cookie must come out with the
+        cashier's authority, never the owner's. It is a downgrade, which is
+        the safe direction.
+        """
+        self.register.cookies = self.client.cookies
+        body = self.register.get("/auth/me", **self.till()).json()
+
+        self.assertNotIn(access.MEMBERS_MANAGE, body["permissions"])
+        self.assertNotIn(access.SETTINGS_ORGANISATION, body["permissions"])
+        self.assertIn(access.SALES_CHECKOUT, body["permissions"], "a cashier")
 
     def test_a_login_cannot_be_deleted(self):
         """

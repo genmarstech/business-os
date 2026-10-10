@@ -892,6 +892,59 @@ grow one.
   in words. Narrowing it would leave a table of one row with nothing to
   compare against.
 
+## A cookie must not outrank a token
+
+The till and the office are the **same origin**. `business.genmars.co.ke`
+serves `/till` and `/sign-in`, and Django's session cookie has no path
+restriction — so an office cookie is attached by the browser to every request
+the till makes, alongside the till's own `Authorization: Bearer`.
+
+DRF takes the first authentication class that answers, and the two cookie
+classes are listed first. **The cookie won.** One manager signing in on the
+shop's browser was enough to break the till in two ways at once:
+
+- **Every unsafe till request failed** with `CSRF failed: CSRF token missing`
+  — checkout, refunds, cash in and out, closing a drawer. A bearer request
+  carries no CSRF token and must never need one; the cookie class was
+  demanding one on its behalf.
+- **Every read answered as the office user.** `/auth/me` was handed a
+  cashier's token and came back with somebody else's name, so the till would
+  draw its screens from the wrong person's permissions — and `checkout` pins
+  the cashier to the authenticated principal.
+
+There was a third consequence, and it is the one that matters most. The till's
+Return screen borrows a manager's session for exactly three requests and closes
+it in a `finally` — `till/Return.tsx` says *"their token is never saved and
+their session is closed immediately"*. That sign-out is a POST, so it failed
+CSRF like the rest: **the borrowed manager session stayed open on a shared
+terminal**, which is the one thing that screen is built to prevent.
+
+The fix is `_presents_a_bearer_token` in `identity/authentication.py`: both
+cookie classes decline when the caller names a credential in a header.
+
+- **A named credential beats a carried one.** The explicit thing wins over the
+  ambient thing.
+- **It fails closed.** Suppressing a cookie session with a junk header does not
+  fall back to the cookie — the token class refuses, and the caller has no
+  session at all.
+- **Any `Authorization` header counts**, not just a well-formed one. A
+  malformed header is still somebody naming a credential, and treating it as
+  absent would hand the request back to the cookie.
+- **The office still enforces CSRF on its own writes.** That is a separate
+  test, because it is the regression this change could most easily have caused.
+
+> ⚠ **A test asserted the old behaviour and had to be reversed.** It said the
+> cookie wins, pinned as *"the safe half of the pair"* because a till's token
+> can never **escalate** a request. That reasoning was right and is preserved —
+> when both are presented the request now carries the token's narrower
+> authority, which is a downgrade. What it missed is that the collision is
+> routine rather than hypothetical, because the two share an origin. Its own
+> docstring said it *"reads like an oversight"*. It was one.
+
+**It was found by opening the till in a browser**, not by the suite — the
+default Django test client sets `enforce_csrf_checks=False`, so no existing
+test could see the CSRF half of it at all.
+
 ## Three doors, and who goes through which
 
 | who | where | credential |

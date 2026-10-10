@@ -312,3 +312,145 @@ class TheTiersStillDoNotMeetTests(Base):
         session.save()
 
         self.assertIn(self.client.get("/auth/me").status_code, (401, 403))
+
+
+class ACookieMustNotOutrankATokenTests(Base):
+    """
+    The till and the office are the SAME ORIGIN, and the browser does not
+    know the difference.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    THE FAILURE THE BANNER AT THE TOP OF THIS FILE PREDICTED, ARRIVED AT FROM
+    THE OTHER SIDE.
+
+    Item 1 up there says a request's principal must not depend on the order of
+    DEFAULT_AUTHENTICATION_CLASSES. It was written about one SESSION holding
+    two principals, and guarded there. What it did not cover is one BROWSER
+    holding a cookie and a token at once — which needs no misuse at all:
+    business.genmars.co.ke serves `/till` and `/sign-in`, Django's session
+    cookie has no path restriction, and so the office cookie is attached to
+    every request the till makes.
+
+    DRF takes the first class that answers, and the two cookie classes are
+    listed first. So the cookie won:
+
+      · POST from the till → "CSRF failed: CSRF token missing". A bearer
+        request carries no CSRF token and must never need one, so checkout,
+        refunds, cash in and out and closing the drawer all stopped.
+      · GET from the till → answered as the OFFICE user. A cashier's token
+        went up and somebody else's name came back.
+
+    One manager signing in on the shop's browser was enough to do it, and
+    nothing on either screen would have said why.
+    ═══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        super().setUp()
+        # A second person, with a till login of their own — the cashier whose
+        # token gets overridden.
+        self.cashier = OrganizationStaff.objects.create(
+            organization=self.org,
+            full_name="Tom Cashier",
+            email="tom@shop.co.ke",
+            phone_number="+254700000002",
+            address="Nairobi",
+            id_number=10000002,
+        )
+        staffAssignment.objects.create(
+            staff_member=self.cashier, branch=self.branch, staff_assignment="CA"
+        )
+        credential = services.issue_credential(
+            staff=self.cashier, username="tom", password=PASSWORD
+        )
+        _, self.token = services.open_staff_session(credential)
+
+    def till(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def test_the_token_names_the_cashier_even_with_an_office_cookie_present(self):
+        """
+        The one that matters. The till said Tom; the server used to say Fay.
+        """
+        self.sign_in()  # the office, in another tab of the same browser
+
+        me = self.client.get("/auth/me", **self.till())
+        self.assertEqual(me.status_code, 200, me.content)
+        self.assertEqual(me.json()["username"], "tom", "the token was presented")
+
+    def test_a_till_write_is_not_refused_for_a_missing_csrf_token(self):
+        """
+        A bearer request has no CSRF token and needs none — the cookie class
+        was demanding one on its behalf. `enforce_csrf_checks=True` is the
+        point of this test: the default client switches the check off, which
+        is exactly why the suite never saw this.
+        """
+        client = Client(enforce_csrf_checks=True)
+        self.sign_in(client)
+
+        response = client.post(
+            "/auth/staff/sign-out", {}, content_type="application/json",
+            **self.till(),
+        )
+        self.assertNotEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.status_code, 204, response.content)
+
+    def test_the_cookie_still_works_when_no_token_is_presented(self):
+        """
+        The control. Declining to a token must not break the office, which is
+        the whole reason the cookie transport exists.
+        """
+        self.sign_in()
+        me = self.client.get("/auth/me")
+        self.assertEqual(me.status_code, 200, me.content)
+        self.assertEqual(me.json()["username"], "fclerk")
+
+    def test_the_office_still_enforces_csrf_on_its_own_writes(self):
+        """
+        ⚠ THE REGRESSION THIS CHANGE COULD EASILY HAVE INTRODUCED.
+
+        If declining to an Authorization header were the only rule, a
+        cross-site POST could skip CSRF simply by attaching a junk header.
+        It cannot: without a cookie principal the request is anonymous, and
+        the token class refuses the junk. But the cookie path itself must
+        still demand a token, and that is what this asserts.
+        """
+        client = Client(enforce_csrf_checks=True)
+        self.sign_in(client)
+
+        refused = client.post(
+            "/auth/staff/sign-out", {}, content_type="application/json"
+        )
+        self.assertEqual(refused.status_code, 403, refused.content)
+        self.assertIn("CSRF", refused.json()["detail"])
+
+    def test_a_junk_authorization_header_is_refused_rather_than_falling_back(self):
+        """
+        Fail CLOSED. Somebody who suppresses their cookie session with a
+        bogus header does not get the cookie's authority back — they get
+        nothing, which is a refusal and not an escalation.
+        """
+        self.sign_in()
+
+        response = self.client.get(
+            "/auth/me", HTTP_AUTHORIZATION="Bearer not-a-real-token"
+        )
+        self.assertEqual(response.status_code, 403, response.content)
+
+    def test_a_subscriber_cookie_does_not_outrank_a_till_token_either(self):
+        """
+        Same rule, the other cookie class. An owner signed in to the office
+        on the shop's browser must not become the principal behind the till.
+        """
+        owner = PlatformAccount.objects.create(
+            genmars_account_id=99001, email="owner@shop.co.ke"
+        )
+        TenantMembership.objects.create(account=owner, organization=self.org)
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = owner.pk
+        session.save()
+
+        me = self.client.get("/auth/me", **self.till())
+        self.assertEqual(me.status_code, 200, me.content)
+        self.assertEqual(me.json()["kind"], "staff")
+        self.assertEqual(me.json()["username"], "tom")
