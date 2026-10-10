@@ -113,10 +113,11 @@ class OrganizationsStaffViewSet(TenantScoped, viewsets.ModelViewSet):
 
     tenant_path = "organization_id"
     # OrganizationStaff carries a concrete `branch` FK, so the list is a
-    # branch's list. Only an owner holds STAFF_MANAGE today and owners are
-    # organisation-wide, so this changes nothing now — it is here for the day
-    # a branch manager is granted it, which is when forgetting would show a
-    # manager every other branch's employees.
+    # branch's list. STAFF_MANAGE is held by owners and admins, both of them
+    # SUBSCRIBERS, whose branch scope is None — unrestricted — so this
+    # changes nothing for either. It is here for the day a branch manager is
+    # granted it, which is when forgetting would show a manager every other
+    # branch's employees.
     branch_path = "branch_id"
     default_permission = access.STAFF_MANAGE
     queryset = OrganizationStaff.objects.all()

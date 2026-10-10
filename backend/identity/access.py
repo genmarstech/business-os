@@ -180,10 +180,33 @@ _ADMIN = KNOWN - {
     # who else may administer it, and its own registered identity. Same
     # instinct as gen-portal reserving `can_manage_access` to a founder — the
     # permission that grants every other permission is the narrow one.
-    STAFF_MANAGE,
     MEMBERS_MANAGE,
     SETTINGS_ORGANISATION,
 }
+
+# ── WHY STAFF_MANAGE IS NO LONGER IN THAT SET ───────────────────────────────
+#
+# It was, and the comment above has always described the withheld set as a
+# PAIR while the code withheld three. The odd one out was this, and the
+# banner on MEMBERS_MANAGE says why in as many words: staff.manage "is about
+# who may work a till", which is neither "who else may administer the
+# business" nor "its registered identity". It is the day-to-day running of
+# a shop, which is the whole of what an admin is for.
+#
+# The practical shape of withholding it: every new cashier, every leaver,
+# every forgotten till password went to the owner. A business whose owner is
+# not in the shop on a Tuesday could not put somebody on a register.
+#
+# ⚠ AND IT IS NOT AN ESCALATION PATH, WHICH IS THE QUESTION TO ASK.
+#   staff.manage issues OPERATIONAL credentials — cashier, branch manager,
+#   stock clerk — and every one of those is strictly less authority than the
+#   admin already holds organisation-wide. There is no cashier login that
+#   reaches anything an admin cannot already reach, and #37 means the person
+#   issuing one never learns the password. Handing out a credential weaker
+#   than your own is not a way to gain one.
+#
+#   What WOULD be an escalation is members.manage, which hands somebody
+#   authority over the business itself. That stays with the owner.
 
 _ACCOUNTANT = frozenset(
     {
