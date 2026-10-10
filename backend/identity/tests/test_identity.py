@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest import mock
 
+from django.core import mail
+from unittest.mock import patch
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +23,7 @@ from identity.models import (
     PlatformAccount,
     StaffCredential,
     StaffSession,
+    TenantInvitation,
     TenantMembership,
 )
 from identity.permissions import scoped, tenant_scope
@@ -663,3 +666,97 @@ class TheBrowserCanActuallyWriteTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(BusinessOrganization.objects.count(), 0)
+
+
+class InvitingSomebodySendsThemSomethingTests(TestCase):
+    """
+    ══════════════════════════════════════════════════════════════════════════
+    THE INVITATION WROTE A ROW AND TOLD NOBODY.
+
+    `invite_subscriber` created the offer and sent no mail at all. The owner
+    saw it appear in Settings → People and reasonably concluded the person
+    had been written to; nothing had been sent. It only ever completed when
+    the invited party happened to sign on by themselves with the matching
+    address, so it appeared to work for whoever was sitting next to the
+    owner and failed silently for everybody else. Three real invitations sat
+    open on production having notified no one.
+    ══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        self.org = BusinessOrganization.objects.create(name="Jamii Supermarket")
+        mail.outbox = []
+
+    def test_inviting_somebody_emails_them(self):
+        services.invite_subscriber(
+            organization=self.org,
+            email="Mary@Example.CO.KE",
+            role=TenantMembership.Role.ACCOUNTANT,
+        )
+
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["mary@example.co.ke"])
+        self.assertIn("Jamii Supermarket", sent.subject)
+
+    def test_it_says_what_the_person_will_be_able_to_do(self):
+        """
+        "You have been invited as ADMIN" is a database value read aloud. The
+        reader has to be able to tell whether to accept.
+        """
+        services.invite_subscriber(
+            organization=self.org,
+            email="mary@example.co.ke",
+            role=TenantMembership.Role.ACCOUNTANT,
+        )
+
+        body = mail.outbox[0].body
+        self.assertIn("see the figures", body)
+        self.assertNotIn("ACCOUNTANT", body)
+
+    def test_it_carries_no_code_and_no_link_that_grants_anything(self):
+        """
+        ⚠ A subscriber is authenticated by their GENMARS account. There is
+          no credential here to hand out, and a token in this mail would be
+          inventing a second way into one — worth phishing, and unnecessary,
+          because the flow works without it.
+        """
+        invitation = services.invite_subscriber(
+            organization=self.org,
+            email="mary@example.co.ke",
+            role=TenantMembership.Role.ADMIN,
+        )
+
+        body = mail.outbox[0].body
+        self.assertNotIn("?token=", body)
+        self.assertNotIn("/accept", body)
+        self.assertNotIn("?", body.split("business.genmars.co.ke")[1][:40])
+        # It says so in as many words, so a reader who was phished later can
+        # tell the real message from the one with a button on it.
+        self.assertIn("no code in this message", body)
+        self.assertTrue(invitation.notified)
+
+    def test_a_mail_failure_does_not_undo_the_invitation(self):
+        """
+        Rolling back would mean an owner cannot invite anybody while the
+        mail provider is having a bad afternoon, for a message that can be
+        sent again. The offer is bound to the address, not to the mail.
+        """
+        with patch(
+            "identity.emails.send_subscriber_invitation",
+            side_effect=RuntimeError("resend is down"),
+        ):
+            invitation = services.invite_subscriber(
+                organization=self.org,
+                email="mary@example.co.ke",
+                role=TenantMembership.Role.ADMIN,
+            )
+
+        self.assertTrue(
+            TenantInvitation.objects.filter(pk=invitation.pk).exists()
+        )
+        self.assertFalse(
+            invitation.notified,
+            "A failure that is not reported is the bug this class exists "
+            "for, wearing a hat.",
+        )
