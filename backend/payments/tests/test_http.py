@@ -17,12 +17,15 @@ from identity.models import TenantMembership
 from payments.models import MpesaTill, StkPush
 
 from .factories import (
+    a_product,
+    a_shift,
     a_shop,
     a_staff,
     a_subscriber,
     a_till_credential,
     an_mpesa_till,
     assign,
+    stocked,
 )
 
 KEY = Fernet.generate_key().decode()
@@ -270,3 +273,147 @@ class RequestPaymentTests(Base):
             **self.auth(),
         )
         self.assertEqual(response.status_code, 405, response.content)
+
+
+@override_settings(MPESA_CREDENTIAL_KEY=KEY)
+class SpendingThePushOverHttpTests(Base):
+    """
+    The checkout ENDPOINT must spend the push, not just the service.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    THE GAP THAT HID A DEAD SAFETY GUARANTEE FOR THE LIFE OF THE FEATURE.
+
+    `CheckoutPaymentSerializer` declares `stk_push`, the till sends it, and
+    `sales.services.checkout` reads it to spend the push inside the sale's own
+    transaction. Between those two, `sales/views.py` rebuilt each payment as a
+    hand-written dict of three keys and dropped it.
+
+    So `spend()` was never called from a real request. `StkPush.sale` stayed
+    NULL on every paid push — no M-Pesa receipt could be matched to the sale
+    it paid for — and the single-use guard was inert, because the only thing
+    that marks a push used is the call that was not being made.
+
+    Every existing test of this calls `services.checkout` directly with
+    `stk_push` already in the dict. Correct, and exactly one layer below where
+    the field went missing. These go over HTTP, which is the only way to see
+    it: it was found by ringing up a real basket in a browser.
+    ═══════════════════════════════════════════════════════════════════════════
+    """
+
+    def setUp(self):
+        super().setUp()
+        an_mpesa_till(self.org)
+        self.cashier = self.sign_in_cashier(self.west)
+        self.product = a_product(self.org, name="Milk", price="150.00")
+        stocked(self.west, self.product, "50")
+        self.shift = a_shift(self.west, self.cashier)
+
+    def a_paid_push(self, amount="150.00"):
+        """A push the customer has already approved."""
+        return StkPush.objects.create(
+            organization=self.org,
+            branch=self.west,
+            amount=Decimal(amount),
+            phone_number="254712345678",
+            status=StkPush.Status.PAID,
+            checkout_request_id="ws_CO_test",
+            mpesa_receipt="SGR1234567",
+            callback_token_digest=StkPush.new_token(),
+        )
+
+    def ring_up(self, push_id, *, amount="150.00", key="k-1"):
+        return self.client.post(
+            "/sls/sales/checkout/",
+            json.dumps({
+                "shift": self.shift.pk,
+                "cashier": self.cashier.pk,
+                "idempotency_key": key,
+                "lines": [{"product": self.product.pk, "quantity": "1"}],
+                "payments": [{
+                    "method": "mpesa",
+                    "amount": amount,
+                    "stk_push": push_id,
+                    "reference": "SGR1234567",
+                }],
+            }),
+            content_type="application/json",
+            **self.auth(),
+        )
+
+    def test_the_sale_the_endpoint_writes_spends_the_push(self):
+        """The one that was broken. 201 and an unspent push is the bug."""
+        push = self.a_paid_push()
+
+        response = self.ring_up(push.pk)
+        self.assertEqual(response.status_code, 201, response.content)
+
+        push.refresh_from_db()
+        self.assertIsNotNone(
+            push.sale_id, "the push was sent, accepted and never spent"
+        )
+        self.assertEqual(push.sale.number, response.json()["number"])
+
+    def test_the_same_push_cannot_pay_for_a_second_basket(self):
+        """
+        What the dead guard was supposed to prevent. The second sale must be
+        refused outright — not written with the payment quietly reused.
+        """
+        push = self.a_paid_push()
+        first = self.ring_up(push.pk, key="k-1")
+        self.assertEqual(first.status_code, 201, first.content)
+
+        second = self.ring_up(push.pk, key="k-2")
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertIn("already paid", json.dumps(second.json()).lower())
+
+        push.refresh_from_db()
+        self.assertEqual(
+            push.sale.number, first.json()["number"], "still the first sale"
+        )
+
+    def test_a_push_that_was_never_confirmed_is_refused(self):
+        """A pending push is not money. The sale must not be written."""
+        push = self.a_paid_push()
+        push.status = StkPush.Status.REQUESTED
+        push.save(update_fields=["status"])
+
+        response = self.ring_up(push.pk)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("not been confirmed", json.dumps(response.json()))
+
+    def test_another_shops_push_cannot_pay_here(self):
+        """
+        The serializer resolves the push from an UNSCOPED queryset on purpose,
+        so that the service can answer in words. That only holds if the
+        service actually runs — which is the whole point of this class.
+        """
+        other, (other_branch,) = a_shop("Shop B")
+        theirs = StkPush.objects.create(
+            organization=other,
+            branch=other_branch,
+            amount=Decimal("150.00"),
+            phone_number="254700000000",
+            status=StkPush.Status.PAID,
+            checkout_request_id="ws_CO_other",
+            callback_token_digest=StkPush.new_token(),
+        )
+
+        response = self.ring_up(theirs.pk)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("another business", json.dumps(response.json()))
+
+    def test_a_cash_sale_still_needs_no_push(self):
+        """The control: the field is optional and its absence is ordinary."""
+        response = self.client.post(
+            "/sls/sales/checkout/",
+            json.dumps({
+                "shift": self.shift.pk,
+                "cashier": self.cashier.pk,
+                "idempotency_key": "cash-1",
+                "lines": [{"product": self.product.pk, "quantity": "1"}],
+                "payments": [{"method": "cash", "amount": "150.00"}],
+            }),
+            content_type="application/json",
+            **self.auth(),
+        )
+        self.assertEqual(response.status_code, 201, response.content)

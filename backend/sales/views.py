@@ -262,14 +262,36 @@ class SaleViewSet(TenantScoped, viewsets.ReadOnlyModelViewSet):
                     }
                     for line in data["lines"]
                 ],
-                payments=[
-                    {
-                        "method": p["method"],
-                        "amount": p["amount"],
-                        "reference": p.get("reference", ""),
-                    }
-                    for p in data["payments"]
-                ],
+                # ── EVERY FIELD THE SERIALISER VALIDATED, NOT A SUBSET ──
+                #
+                # ⚠ THIS DROPPED `stk_push` AND NOBODY NOTICED FOR THE LIFE
+                #   OF THE FEATURE.
+                #
+                #   `CheckoutPaymentSerializer` declares it, the till sends
+                #   it, and `services.checkout` reads it to spend the push
+                #   inside the sale's own transaction. This dict is the only
+                #   thing between those two, and it copied three keys by
+                #   hand. So `payment.get("stk_push")` was always None,
+                #   `spend()` never ran, and the comment three files deep
+                #   promising a payment is "spent exactly once" described
+                #   something that could not happen:
+                #
+                #     · `StkPush.sale` stayed NULL on every paid push, so no
+                #       M-Pesa receipt could be matched to the sale it paid
+                #       for;
+                #     · and the single-use guard was inert, because the only
+                #       thing that marks a push used is the call that was
+                #       never made.
+                #
+                #   The suite could not see it. Every test of this exercises
+                #   `services.checkout` directly with `stk_push` in the dict
+                #   — correct, and one layer below where the field goes
+                #   missing. There is an endpoint test now.
+                #
+                # Spread rather than named keys, so the next field added to
+                # the serialiser arrives on its own instead of waiting for
+                # somebody to remember this list.
+                payments=[dict(p) for p in data["payments"]],
                 idempotency_key=data.get("idempotency_key", ""),
             )
         except DjangoValidationError as error:
