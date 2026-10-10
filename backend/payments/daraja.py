@@ -115,7 +115,11 @@ def _request(url: str, *, method: str = "GET", headers: dict, body=None) -> dict
         said, code = _what_they_said(detail)
         raise DarajaError(
             f"M-Pesa refused the request: {said}" if said
-            else "M-Pesa refused the request.",
+            # Daraja refuses with an empty body often enough that this is a
+            # real case and not a defensive branch. The status is the only
+            # thing left to say, and saying nothing is what made the last
+            # one unreadable.
+            else f"M-Pesa refused the request (HTTP {error.code}).",
             status=error.code,
             code=code,
         ) from None
@@ -138,10 +142,40 @@ def access_token(till) -> str:
     """
     secrets_ = till.credentials()
     pair = f"{secrets_['consumer_key']}:{secrets_['consumer_secret']}".encode()
-    payload = _request(
-        f"{base_url(till.environment)}/oauth/v1/generate?grant_type=client_credentials",
-        headers={"Authorization": "Basic " + base64.b64encode(pair).decode()},
-    )
+    try:
+        payload = _request(
+            f"{base_url(till.environment)}"
+            "/oauth/v1/generate?grant_type=client_credentials",
+            headers={"Authorization": "Basic " + base64.b64encode(pair).decode()},
+        )
+    except DarajaError as error:
+        # ── A REJECTED KEY IS NOT A REJECTED PAYMENT ────────────────────
+        #
+        # This is the door, not the transaction, and the two failures want
+        # different repairs — one is Settings, the other is the basket. The
+        # generic message sent somebody hunting a shortcode for an hour when
+        # Daraja had refused the consumer key before a shortcode was ever
+        # mentioned.
+        #
+        # Daraja answers an unusable key/secret pair with a 400 and
+        # FREQUENTLY AN EMPTY BODY, so there is nothing to quote and the
+        # environment has to carry the diagnosis. Sandbox credentials
+        # against api.safaricom.co.ke is the overwhelmingly common cause:
+        # they work perfectly in the sandbox, so everything points at the
+        # shop's numbers instead of at the pair.
+        #
+        # Says which environment it tried. Never which credential, never
+        # any part of one.
+        where = "production" if till.environment == "production" else "the sandbox"
+        raise DarajaError(
+            f"M-Pesa would not accept this shop's consumer key and secret for "
+            f"{where}. Check they are the ones from the matching Daraja app — "
+            f"sandbox credentials are refused by production and the other way "
+            f"round.",
+            status=error.status,
+            code=error.code,
+        ) from None
+
     token = payload.get("access_token")
     if not token:
         raise DarajaError("M-Pesa did not return an access token.")
