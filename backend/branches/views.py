@@ -5,7 +5,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from . import services
 from .serializers import RegisterSerializer, RegisterShiftSerializer, BranchesSerializer, StaffAssignmentSerializer
-from .models import Branches, CashMovement, Register, RegisterShift, staffAssignment
+from .models import Branches, CashMovement, Register, RegisterShift, Safe, SafeMovement, staffAssignment
 from identity import access
 from identity.permissions import acting
 from identity.scoping import TenantScoped
@@ -40,9 +40,124 @@ class BranchesViewSets(GrowthLimited, TenantScoped, viewsets.ModelViewSet):
     permissions = {
         "list": access.CATALOG_VIEW,
         "retrieve": access.CATALOG_VIEW,
+        # The weaker, documentation-only entry — see the banner on each
+        # action below for why the real check is done by hand with this
+        # branch's own id.
+        "safe": access.SHIFT_CLOSE,
+        "safe_receive": access.SHIFT_CLOSE,
+        "safe_bank": access.SHIFT_CLOSE,
     }
     queryset = Branches.objects.all()
     serializer_class = BranchesSerializer
+
+    # ══════════════════════════════════════════════════════════════════════
+    # THE SAFE — RECEIVING A DROP, AND BANKING WHAT IT HOLDS
+    #
+    # ⚠ `TenantScoped.initial` CHECKS `may(user, needed)` WITH NO BRANCH ID.
+    #   That is the right question for "may this caller reach this endpoint
+    #   at all", and the wrong one for "may they do it AT THIS BRANCH" — a
+    #   person who is a cashier at Westlands and the manager at Karen holds
+    #   `shift.close` somewhere, and the declarative check alone would let
+    #   them bank Westlands' safe on the strength of authority they hold
+    #   fifteen kilometres away. `RegisterShiftViewSets.cash` hits the same
+    #   gap for the same reason and closes it the same way: every action
+    #   below re-checks `access.may` BY HAND against `branch.pk`.
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _may_manage_safe(self, request, branch):
+        return access.may(request.user, access.SHIFT_CLOSE, branch.pk)
+
+    @staticmethod
+    def _refused_safe(detail: str) -> Response:
+        return Response({"detail": detail}, status=status.HTTP_403_FORBIDDEN)
+
+    @action(detail=True, methods=["get"], url_path="safe")
+    def safe(self, request, pk=None):
+        """What this branch's safe holds, what is waiting to be received, and
+        the movements that got it there."""
+        branch = self.get_object()
+        if not self._may_manage_safe(request, branch):
+            return self._refused_safe(
+                "Seeing a branch's safe needs a manager at this branch."
+            )
+        return Response(_safe_payload(services.get_or_create_safe(branch)))
+
+    @action(detail=True, methods=["post"], url_path="safe/receive")
+    def safe_receive(self, request, pk=None):
+        """
+        Confirm a SAFE_DROP cash movement has arrived in this branch's safe.
+
+        `cash_movement_id` is a direct PK from the request body, not an
+        object `get_object()` has already scoped — identity/scoping.py's own
+        banner on `TenantScoped` is explicit that a `@action` is only as
+        safe as the checks it does by hand for exactly this reason. So the
+        drop's own branch is compared against this one before anything is
+        recorded.
+        """
+        branch = self.get_object()
+        if not self._may_manage_safe(request, branch):
+            return self._refused_safe(
+                "Receiving cash into a safe needs a manager at this branch."
+            )
+
+        try:
+            cash_movement = CashMovement.objects.select_related(
+                "shift__register__branch"
+            ).get(pk=request.data.get("cash_movement_id"))
+        except (CashMovement.DoesNotExist, ValueError, TypeError):
+            return Response(
+                {"cash_movement_id": "That drop could not be found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if cash_movement.shift.register.branch_id != branch.pk:
+            return Response(
+                {"cash_movement_id": "That drop did not come from this branch."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            services.receive_into_safe(
+                cash_movement=cash_movement, actor=acting(request)
+            )
+        except DjangoValidationError as error:
+            return Response(
+                error.message_dict if hasattr(error, "message_dict") else
+                {"detail": error.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            _safe_payload(services.get_or_create_safe(branch)),
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="safe/bank")
+    def safe_bank(self, request, pk=None):
+        """Record cash leaving the safe for the bank, against a reference."""
+        branch = self.get_object()
+        if not self._may_manage_safe(request, branch):
+            return self._refused_safe(
+                "Banking a safe needs a manager at this branch."
+            )
+
+        safe = services.get_or_create_safe(branch)
+        try:
+            services.bank_from_safe(
+                safe=safe,
+                amount=request.data.get("amount"),
+                reference=request.data.get("reference", ""),
+                note=request.data.get("note", ""),
+                actor=acting(request),
+            )
+        except DjangoValidationError as error:
+            return Response(
+                error.message_dict if hasattr(error, "message_dict") else
+                {"detail": error.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(_safe_payload(safe), status=status.HTTP_201_CREATED)
 
 
 class RegisterViewSets(GrowthLimited, TenantScoped, viewsets.ModelViewSet):
@@ -265,6 +380,48 @@ class RegisterShiftViewSets(TenantScoped, viewsets.ModelViewSet):
                 "drawer": _money(services.drawer(closed)),
             }
         )
+
+
+def _safe_payload(safe) -> dict:
+    """What a branch's safe screen needs in one call: the balance, every
+    drop still waiting to be received, and the ledger that produced it."""
+    pending = CashMovement.objects.filter(
+        kind=CashMovement.Kind.SAFE_DROP,
+        shift__register__branch_id=safe.branch_id,
+        safe_receipt__isnull=True,
+    ).select_related("shift__register").order_by("created_at")
+
+    movements = SafeMovement.objects.filter(safe=safe).order_by("-created_at")
+
+    return {
+        "safe": {
+            "id": safe.pk,
+            "branch_id": safe.branch_id,
+            "balance": str(services.safe_balance(safe)),
+        },
+        "pending_drops": [
+            {
+                "id": drop.pk,
+                "amount": str(drop.amount),
+                "reason": drop.reason,
+                "register_name": drop.shift.register.name,
+                "created_at": drop.created_at,
+            }
+            for drop in pending
+        ],
+        "movements": [
+            {
+                "id": movement.pk,
+                "kind": movement.kind,
+                "kind_label": movement.get_kind_display(),
+                "amount": str(movement.amount),
+                "reference": movement.reference,
+                "note": movement.note,
+                "created_at": movement.created_at,
+            }
+            for movement in movements
+        ],
+    }
 
 
 def _money(figures: dict) -> dict:

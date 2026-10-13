@@ -21,6 +21,7 @@
 import { revalidatePath } from "next/cache";
 
 import { asFormErrors, post, type FormErrors } from "@/lib/api";
+import type { SafePayload } from "@/lib/reports";
 
 export type Drawer = {
   opening_cash: string;
@@ -75,4 +76,65 @@ export async function closeTill(
   revalidatePath("/reports");
   revalidatePath("/");
   return { field: {}, general: [], drawer: result.drawer };
+}
+
+/**
+ * The safe — the other end of a SAFE_DROP.
+ *
+ * Both actions return the whole payload rather than just the row that
+ * changed, for the same reason `closeTill` returns the whole drawer: the
+ * balance, the pending list and the ledger are one screen's worth of state,
+ * and a caller re-deriving one from the other is a second implementation of
+ * arithmetic the server already did once.
+ */
+export type SafeState = (FormErrors & { payload?: SafePayload }) | null;
+
+export async function receiveDrop(
+  _previous: SafeState,
+  form: FormData,
+): Promise<SafeState> {
+  const branchId = Number(String(form.get("branch_id") ?? "").trim());
+  const cashMovementId = String(form.get("cash_movement_id") ?? "").trim();
+
+  if (!branchId || !cashMovementId) {
+    return { field: {}, general: ["Nothing to receive."] };
+  }
+
+  let payload: SafePayload;
+  try {
+    payload = await post<SafePayload>(`/brn/branch/${branchId}/safe/receive/`, {
+      cash_movement_id: cashMovementId,
+    });
+  } catch (error) {
+    return asFormErrors(error);
+  }
+
+  revalidatePath("/reports");
+  return { field: {}, general: [], payload };
+}
+
+export async function bankSafe(
+  _previous: SafeState,
+  form: FormData,
+): Promise<SafeState> {
+  const branchId = Number(String(form.get("branch_id") ?? "").trim());
+  const amount = String(form.get("amount") ?? "").trim();
+  const reference = String(form.get("reference") ?? "").trim();
+  const note = String(form.get("note") ?? "").trim();
+
+  if (!branchId) return { field: {}, general: ["No branch to bank for."] };
+
+  let payload: SafePayload;
+  try {
+    payload = await post<SafePayload>(`/brn/branch/${branchId}/safe/bank/`, {
+      amount,
+      reference,
+      note,
+    });
+  } catch (error) {
+    return asFormErrors(error);
+  }
+
+  revalidatePath("/reports");
+  return { field: {}, general: [], payload };
 }

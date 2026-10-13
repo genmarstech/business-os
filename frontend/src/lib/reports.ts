@@ -283,6 +283,50 @@ export async function dashboard(window: Window) {
   };
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+ * THE SAFE — THE OTHER END OF A DROP
+ *
+ * CashMovement.Kind.SAFE_DROP only ever lowered a till's drawer; nothing
+ * recorded that the cash arrived anywhere. These three types are
+ * `branches/views.py`'s own payload for `/brn/branch/{id}/safe/` — what the
+ * safe holds, what is waiting to be received into it, and the ledger that
+ * produced the balance.
+ * ════════════════════════════════════════════════════════════════════════
+ */
+
+export type SafePendingDrop = {
+  id: number;
+  amount: string;
+  reason: string;
+  register_name: string;
+  created_at: string;
+};
+
+export type SafeMovementRow = {
+  id: number;
+  kind: "received" | "banked";
+  kind_label: string;
+  amount: string;
+  reference: string;
+  note: string;
+  created_at: string;
+};
+
+export type SafePayload = {
+  safe: { id: number; branch_id: number; balance: string };
+  pending_drops: SafePendingDrop[];
+  movements: SafeMovementRow[];
+};
+
+/**
+ * Null for anybody refused — a cashier asking for a branch's safe, or a
+ * branch that is not theirs — rather than an error. `/reports` only renders
+ * the panel when this comes back with something in it.
+ */
+export async function safe(branchId: number): Promise<SafePayload | null> {
+  return getOrNull<SafePayload>(`/brn/branch/${branchId}/safe/`);
+}
+
 export { amount, ksh } from "./money";
 
 /* ════════════════════════════════════════════════════════════════════════
