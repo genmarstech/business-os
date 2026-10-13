@@ -8,12 +8,14 @@ import {
   amount,
   dashboard,
   ksh,
+  safe,
   type BranchRow,
   type DrawerRow,
   type DrawerSummary,
   type Overview,
 } from "@/lib/reports";
 import { CloseTill } from "./CloseTill";
+import { Safe } from "./Safe";
 import styles from "./reports.module.css";
 
 /**
@@ -101,6 +103,25 @@ export default async function ReportsPage({
    * they learn who to ask instead of learning the feature does not exist.
    */
   const canClose = may(me, PERM.shiftClose);
+
+  /*
+   * ── A SAFE BELONGS TO ONE BRANCH, SO ONE HAS TO BE PICKED ──────────────
+   *
+   * `/brn/branch/{id}/safe/` answers for exactly one branch, and a
+   * consolidated view has no single safe to ask about. A shop with only one
+   * branch never sees the picker above and `selected` stays undefined on
+   * the first load — so that one branch is used without being asked for,
+   * the same equivalence the rest of this page already treats "all
+   * branches" and "the only branch" as.
+   */
+  const safeBranchId =
+    selected ??
+    (data.branchOptions.length === 1 ? data.branchOptions[0]!.id : undefined);
+  const safeBranchName = data.branchOptions.find(
+    (option) => option.id === safeBranchId,
+  )?.branch_name;
+  const safePayload =
+    canClose && safeBranchId ? await safe(safeBranchId) : null;
 
   /*
    * ── THE NONCE, FOR THE ONE THING ON THIS PAGE THAT CANNOT USE A CLASS ────
@@ -276,6 +297,14 @@ export default async function ReportsPage({
             rows={data.drawers.shifts}
             summary={data.drawers.summary}
             range={range}
+          />
+        ) : null}
+
+        {safePayload && safeBranchId && safeBranchName ? (
+          <Safe
+            branchId={safeBranchId}
+            branchName={safeBranchName}
+            initial={safePayload}
           />
         ) : null}
 

@@ -264,3 +264,100 @@ class CashMovement(models.Model):
     def signed_amount(self):
         """What this does to the expected figure."""
         return self.amount if self.is_inward else -self.amount
+
+
+class Safe(models.Model):
+    """
+    One per branch — the holding point between a till's drawer and the bank.
+
+    ══════════════════════════════════════════════════════════════════════
+    WHAT THIS CLOSES: "BANKING A DAY'S TAKINGS ACROSS TILLS" HAD NOWHERE TO
+    LAND.
+
+    `CashMovement.Kind.SAFE_DROP` has existed since the drawer count did —
+    "dropped to the safe or banked" — and it does exactly one thing: it
+    lowers what a single till's drawer should hold. Nothing on the other
+    end ever recorded that the cash arrived anywhere, so three tills each
+    dropping 5,000 produced three lighter drawers and no branch-level
+    figure for what a manager is actually holding, what has already gone
+    to the bank, or whether a drop that left a till ever turned up.
+
+    A Safe is that other end: one per branch, fed by SafeMovement rows the
+    same append-only way a shift's cash moves, and the one place a branch's
+    cash-on-hand can be answered without adding up every till's drops by
+    hand.
+    ══════════════════════════════════════════════════════════════════════
+    """
+
+    branch = models.OneToOneField(
+        "branches.Branches", on_delete=models.PROTECT, related_name="safe"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Safe at {self.branch}"
+
+
+class SafeMovement(models.Model):
+    """
+    Cash arriving from a till, or leaving for the bank. Append-only, like
+    CashMovement above it: a row recorded wrongly is corrected by another
+    row in the opposite direction, never edited or deleted.
+    """
+
+    class Kind(models.TextChoices):
+        RECEIVED = "received", "Received from a till"
+        BANKED = "banked", "Banked"
+
+    INWARD = frozenset({Kind.RECEIVED})
+    OUTWARD = frozenset({Kind.BANKED})
+
+    safe = models.ForeignKey(Safe, on_delete=models.PROTECT, related_name="movements")
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+
+    # Always positive, same reason CashMovement.amount is: the direction is
+    # the kind, not the sign.
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    # The SAFE_DROP this receipt confirms arrived. A OneToOne, so the same
+    # drop cannot be received into the safe twice under two different
+    # amounts — enforced by the database, not just by convention. Null for
+    # BANKED movements, which draw down the safe's own balance rather than
+    # confirm a single drop.
+    cash_movement = models.OneToOneField(
+        CashMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="safe_receipt",
+    )
+
+    # Required only for BANKED — services.bank_from_safe says why: it is the
+    # one movement in this chain the application cannot itself verify.
+    reference = models.CharField(max_length=100, blank=True, default="")
+    note = models.CharField(max_length=200, blank=True, default="")
+
+    recorded_by_staff = models.ForeignKey(
+        "organisations.OrganizationStaff",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="safe_movements",
+    )
+    recorded_by_account = models.ForeignKey(
+        "identity.PlatformAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="safe_movements",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["safe", "created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} {self.amount}"

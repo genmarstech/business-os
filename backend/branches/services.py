@@ -51,7 +51,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 from notifications import services as notifications
 
-from .models import CashMovement
+from .models import CashMovement, Safe, SafeMovement
 
 ZERO = Decimal("0.00")
 CENTS = Decimal("0.01")
@@ -288,3 +288,122 @@ def close_shift(*, shift, counted_cash):
     notifications.shift_closed(shift=locked, variance=counts.get("variance"))
 
     return locked
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE SAFE — THE OTHER END OF A SAFE_DROP
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def get_or_create_safe(branch):
+    """
+    Every branch gets exactly one, made the first time anything asks for it.
+
+    Not created alongside the branch itself: most of this application's own
+    tests build a `Branches` row and never touch cash, and a Safe nothing
+    ever uses is a row to explain, not a feature.
+    """
+    safe, _ = Safe.objects.get_or_create(branch=branch)
+    return safe
+
+
+def safe_balance(safe) -> Decimal:
+    """What this safe is holding right now, summed from its own ledger."""
+    moved = SafeMovement.objects.filter(safe=safe).aggregate(
+        received=Sum("amount", filter=Q(kind=SafeMovement.Kind.RECEIVED)),
+        banked=Sum("amount", filter=Q(kind=SafeMovement.Kind.BANKED)),
+    )
+    return money((moved["received"] or ZERO) - (moved["banked"] or ZERO))
+
+
+@transaction.atomic
+def receive_into_safe(*, cash_movement, actor=None):
+    """
+    Confirm that a SAFE_DROP taken off a till has actually arrived.
+
+    ⚠ ONE DROP, ONE RECEIPT, FOR THE SAME REASON A SALE IS NOT DOUBLE-PAID.
+      `SafeMovement.cash_movement` is a OneToOne, so a drop already
+      confirmed cannot be confirmed again under a second amount — refused
+      by the database itself, not merely by this function failing to call
+      it twice.
+
+    The amount received is the amount the drop recorded, never a fresh
+    figure entered here. If less cash arrived than left the till, that is a
+    loss in transit and belongs in a conversation and a note against the
+    shift — not a smaller number quietly written into the safe, which would
+    make the till's own drop look wrong instead of the journey between them.
+    """
+    if cash_movement.kind != CashMovement.Kind.SAFE_DROP:
+        raise ValidationError(
+            {"detail": "Only a drop to the safe can be received into one."}
+        )
+
+    if SafeMovement.objects.filter(cash_movement=cash_movement).exists():
+        raise ValidationError(
+            {"detail": "This drop has already been received into the safe."}
+        )
+
+    branch = cash_movement.shift.register.branch
+    safe = get_or_create_safe(branch)
+
+    from identity.models import PlatformAccount
+    from organisations.models import OrganizationStaff
+
+    return SafeMovement.objects.create(
+        safe=safe,
+        kind=SafeMovement.Kind.RECEIVED,
+        amount=cash_movement.amount,
+        cash_movement=cash_movement,
+        recorded_by_account=actor if isinstance(actor, PlatformAccount) else None,
+        recorded_by_staff=actor if isinstance(actor, OrganizationStaff) else None,
+    )
+
+
+@transaction.atomic
+def bank_from_safe(*, safe, amount, reference, note: str = "", actor=None):
+    """
+    Cash physically leaves the safe for the bank.
+
+    A reference is required because this is the one movement in the whole
+    cash chain the application cannot itself verify: a till is counted
+    against its own sales, a drop is confirmed by somebody here — this is
+    the step that hands money to an institution with no API into this
+    database. The deposit slip number is the only thing left tying the row
+    to a receipt somebody could be asked to produce.
+    """
+    amount = as_money(amount)
+    if amount <= ZERO:
+        raise ValidationError({"amount": "How much was banked? It must be positive."})
+
+    reference = (reference or "").strip()
+    if not reference:
+        raise ValidationError(
+            {"reference": "Enter the deposit slip or reference number."}
+        )
+
+    # Locked for the same reason close_shift locks its shift: two people
+    # banking the same safe within the same second must not both read a
+    # balance that only one of them is actually taking.
+    locked = Safe.objects.select_for_update().get(pk=safe.pk)
+    balance = safe_balance(locked)
+    if amount > balance:
+        raise ValidationError(
+            {"amount": f"The safe holds KSh {balance}. It cannot bank more than that."}
+        )
+
+    from identity.models import PlatformAccount
+    from organisations.models import OrganizationStaff
+
+    movement = SafeMovement.objects.create(
+        safe=locked,
+        kind=SafeMovement.Kind.BANKED,
+        amount=amount,
+        reference=reference[:100],
+        note=(note or "").strip()[:200],
+        recorded_by_account=actor if isinstance(actor, PlatformAccount) else None,
+        recorded_by_staff=actor if isinstance(actor, OrganizationStaff) else None,
+    )
+
+    notifications.cash_banked(safe=locked, amount=amount, reference=movement.reference)
+
+    return movement

@@ -67,6 +67,7 @@ class Notification(models.Model):
         # ── the day's shape ────────────────────────────────────────────────
         SHIFT_CLOSED = "shift.closed", "Till closed"
         SHIFT_SHORT = "shift.short", "Till closed short"
+        CASH_BANKED = "cash.banked", "Cash banked"
 
     class Urgency(models.TextChoices):
         """

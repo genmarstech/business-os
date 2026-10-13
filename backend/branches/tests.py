@@ -494,6 +494,199 @@ class ShiftNoteTests(TestCase):
         self.assertEqual(body["note"], "Till jammed at 3pm")
 
 
+class SafeTests(TestCase):
+    """
+    The other end of a SAFE_DROP: receiving cash into a branch's safe, and
+    banking what it holds.
+
+    `record_cash_movement` is called directly rather than through the drawer
+    endpoint, the same shortcut `ClosingATillTests` takes for sales — these
+    tests are about what happens to a drop AFTER it leaves the till, not
+    about how the till recorded it.
+    """
+
+    def setUp(self):
+        from branches import services as branch_services
+
+        self.org = BusinessOrganization.objects.create(name="Shop A")
+        self.branch = Branches.objects.create(
+            organization=self.org, branch_name="Westlands",
+            branch_location="Nairobi", branch_allocation="Ground floor",
+            branch_manager="A Manager", is_active=True,
+        )
+        self.other_branch = Branches.objects.create(
+            organization=self.org, branch_name="Karen",
+            branch_location="Nairobi", branch_allocation="Ground floor",
+            branch_manager="Another Manager", is_active=True,
+        )
+        self.jane = OrganizationStaff.objects.create(
+            organization=self.org, full_name="Jane", email="jane@a.co.ke",
+            phone_number="+254700000010", address="Nairobi", id_number=8010,
+        )
+        staffAssignment.objects.create(
+            staff_member=self.jane, branch=self.branch, staff_assignment="CA"
+        )
+        self.register = Register.objects.create(
+            branch=self.branch, name="Till 1", register_number="T1"
+        )
+        self.shift = RegisterShift.objects.create(
+            register=self.register, operator=self.jane,
+            opening_cash=Decimal("1000.00"),
+        )
+        self.drop = branch_services.record_cash_movement(
+            shift=self.shift, kind="safe_drop", amount=Decimal("5000.00"),
+            reason="Banking the morning's takings",
+        )
+
+        self.owner = PlatformAccount.objects.create(
+            genmars_account_id=8400, email="owner@a.co.ke"
+        )
+        TenantMembership.objects.create(
+            account=self.owner, organization=self.org,
+            role=TenantMembership.Role.OWNER,
+        )
+
+    def as_owner(self):
+        session = self.client.session
+        session[SUBSCRIBER_SESSION_KEY] = self.owner.pk
+        session.save()
+
+    def staff_session(self, staff):
+        credential = identity_services.issue_credential(
+            staff=staff, username=f"staff{staff.pk}", password="not-a-real-password"
+        )
+        _, token = identity_services.open_staff_session(credential)
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    # ── seeing the safe ──────────────────────────────────────────────────
+
+    def test_an_untouched_safe_holds_nothing(self):
+        self.as_owner()
+        body = self.client.get(f"/brn/branch/{self.branch.pk}/safe/").json()
+        self.assertEqual(body["safe"]["balance"], "0.00")
+        self.assertEqual(len(body["pending_drops"]), 1)
+        self.assertEqual(body["pending_drops"][0]["amount"], "5000.00")
+
+    def test_a_cashier_may_not_see_the_safe(self):
+        """Seeing a branch's safe needs a manager at this branch."""
+        response = self.client.get(
+            f"/brn/branch/{self.branch.pk}/safe/", **self.staff_session(self.jane)
+        )
+        self.assertEqual(response.status_code, 403, response.content)
+
+    # ── receiving a drop ─────────────────────────────────────────────────
+
+    def test_receiving_a_drop_raises_the_balance(self):
+        self.as_owner()
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/receive/",
+            {"cash_movement_id": self.drop.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["safe"]["balance"], "5000.00")
+        self.assertEqual(response.json()["pending_drops"], [])
+
+    def test_a_drop_cannot_be_received_twice(self):
+        self.as_owner()
+        self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/receive/",
+            {"cash_movement_id": self.drop.pk}, content_type="application/json",
+        )
+        second = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/receive/",
+            {"cash_movement_id": self.drop.pk}, content_type="application/json",
+        )
+        self.assertEqual(second.status_code, 400, second.content)
+
+    def test_only_a_safe_drop_can_be_received(self):
+        from branches import services as branch_services
+
+        pay_out = branch_services.record_cash_movement(
+            shift=self.shift, kind="pay_out", amount=Decimal("200.00"),
+            reason="Supplier delivery, paid cash",
+        )
+        self.as_owner()
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/receive/",
+            {"cash_movement_id": pay_out.pk}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_a_drop_from_another_branch_is_refused(self):
+        self.as_owner()
+        response = self.client.post(
+            f"/brn/branch/{self.other_branch.pk}/safe/receive/",
+            {"cash_movement_id": self.drop.pk}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("cash_movement_id", response.json())
+
+    # ── banking ───────────────────────────────────────────────────────────
+
+    def receive(self):
+        self.as_owner()
+        self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/receive/",
+            {"cash_movement_id": self.drop.pk}, content_type="application/json",
+        )
+
+    def test_banking_requires_a_reference(self):
+        self.receive()
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/bank/",
+            {"amount": "1000.00"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("reference", response.json())
+
+    def test_banking_cannot_exceed_the_balance(self):
+        self.receive()
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/bank/",
+            {"amount": "9000.00", "reference": "DEP-1"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_banking_reduces_the_balance_and_notifies(self):
+        from notifications.models import Notification
+
+        self.receive()
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/bank/",
+            {"amount": "3000.00", "reference": "DEP-1"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["safe"]["balance"], "2000.00")
+        self.assertTrue(
+            Notification.objects.filter(
+                kind=Notification.Kind.CASH_BANKED, organization_id=self.org.pk,
+            ).exists()
+        )
+
+    # ── the escalation this exists to refuse ─────────────────────────────
+
+    def test_a_manager_elsewhere_cannot_bank_a_branch_they_do_not_manage(self):
+        """
+        Jane is a cashier at Westlands and the manager at Karen. `shift.close`
+        held somewhere in the organisation is not the same as holding it AT
+        WESTLANDS — see the banner on `BranchesViewSets._may_manage_safe`.
+        """
+        staffAssignment.objects.create(
+            staff_member=self.jane, branch=self.other_branch,
+            staff_assignment="AM",
+        )
+        response = self.client.post(
+            f"/brn/branch/{self.branch.pk}/safe/bank/",
+            {"amount": "100.00", "reference": "DEP-1"},
+            content_type="application/json",
+            **self.staff_session(self.jane),
+        )
+        self.assertEqual(response.status_code, 403, response.content)
+
+
 class TheBranchListPathTests(TestCase):
     """
     `/brn/branch/`, singular, which six screens depend on by name.

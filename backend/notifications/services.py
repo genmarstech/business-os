@@ -695,3 +695,32 @@ def shift_closed(*, shift, variance) -> None:
         path="/reports",
         subject_key=f"shift:{shift.pk}",
     )
+
+
+def cash_banked(*, safe, amount, reference: str) -> None:
+    """
+    Cash left the branch for the bank.
+
+    Addressed to `reports.branch`, the same audience as a short drawer —
+    this is money leaving the premises, and the branch's own figures are
+    exactly where somebody would otherwise notice it missing and ask why.
+    """
+    branch = getattr(safe, "branch", None)
+    organization_id = getattr(branch, "organization_id", None)
+    if organization_id is None:
+        return
+
+    name = getattr(branch, "branch_name", None) or "A branch"
+    _safely(
+        "cash.banked",
+        raise_notification,
+        kind=Notification.Kind.CASH_BANKED,
+        organization_id=organization_id,
+        branch_id=getattr(branch, "pk", None),
+        permission=access.REPORTS_BRANCH,
+        urgency=Notification.Urgency.INFORM,
+        subject=f"KSh {amount} banked from {name}'s safe",
+        body=f"Reference {reference}.",
+        path="/reports",
+        subject_key="",
+    )
