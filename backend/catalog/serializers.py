@@ -80,6 +80,10 @@ class CatalogCategoryProductSerializer(serializers.ModelSerializer):
             # prices above stay PER UNIT — see the banner on the model.
             'units_per_pack',
             'pack_name',
+            # Who an automatic reorder is raised against — see the banner on
+            # the model field. procurement.services.auto_replenish is the
+            # only thing that reads it.
+            'preferred_supplier',
             'is_active',
         ]
 

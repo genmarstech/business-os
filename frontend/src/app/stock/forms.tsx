@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 
 import { General, Row, Select, Submit, Text } from "@/components/Form";
-import { adjustStock, stockAProduct, type State } from "./actions";
+import { adjustStock, setReorder, stockAProduct, type State } from "./actions";
 import styles from "./stock.module.css";
 
 const NONE: State = null;
@@ -126,17 +126,94 @@ export function StockAProductForm({
         </Select>
       </Row>
 
-      <Text
-        name="reorder_level"
-        label="Tell me when it drops to"
-        hint="What counts as running low here. Leave at 0 for no warning."
-        inputMode="decimal"
-        mono
-        defaultValue="0"
-        error={state?.field.reorder_level}
-      />
+      <Row>
+        <Text
+          name="reorder_level"
+          label="Tell me when it drops to"
+          hint="What counts as running low here. Leave at 0 for no warning."
+          inputMode="decimal"
+          mono
+          defaultValue="0"
+          error={state?.field.reorder_level}
+        />
+        <Text
+          name="reorder_quantity"
+          label="And order this many"
+          hint="Drafts an order automatically when it does — only if the product also names a supplier to auto-order from. Leave at 0 to never draft one."
+          inputMode="decimal"
+          mono
+          defaultValue="0"
+          error={state?.field.reorder_quantity}
+        />
+      </Row>
 
       <Submit pending="Adding…">Put it on the shelf</Submit>
+    </form>
+  );
+}
+
+/**
+ * Change an existing line's reorder settings.
+ *
+ * ── THESE TWO FIELDS HAD NO WAY TO BE CHANGED AFTER A PRODUCT WAS FIRST
+ *    STOCKED, AND THAT WAS ALREADY TRUE OF `reorder_level` BEFORE THIS
+ *    EXISTED ──
+ * `StockAProductForm` above only ever asked once, at the moment a product
+ * first went on a shelf. A shop that wants to raise or lower either figure
+ * later had no screen for it. This is that screen, following the same
+ * open/close pattern as `AdjustForm` beside it.
+ */
+export function ReorderForm({
+  inventoryId,
+  productName,
+  reorderLevel,
+  reorderQuantity,
+}: {
+  inventoryId: number;
+  productName: string;
+  reorderLevel: string;
+  reorderQuantity: string;
+}) {
+  const [state, action] = useActionState(setReorder, NONE);
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <button className={styles.quiet} onClick={() => setOpen(true)}>
+        Set reorder
+      </button>
+    );
+  }
+
+  return (
+    <form action={action} className={styles.inlineForm}>
+      <input type="hidden" name="inventory_id" value={inventoryId} />
+      <General messages={state?.general ?? []} />
+
+      <p className={styles.formLede}>{productName}</p>
+
+      <Row>
+        <Text
+          name="reorder_level"
+          label="Tell me when it drops to"
+          hint="Leave at 0 for no warning."
+          inputMode="decimal"
+          mono
+          defaultValue={reorderLevel}
+          error={state?.field.reorder_level}
+        />
+        <Text
+          name="reorder_quantity"
+          label="And order this many"
+          hint="Needs the product to also name a supplier to auto-order from. Leave at 0 to never draft one."
+          inputMode="decimal"
+          mono
+          defaultValue={reorderQuantity}
+          error={state?.field.reorder_quantity}
+        />
+      </Row>
+
+      <Submit pending="Saving…">Save</Submit>
     </form>
   );
 }

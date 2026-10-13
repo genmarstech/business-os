@@ -16,6 +16,21 @@ class BranchInventory(models.Model):
         default=0
     )
 
+    # How many sellable units to ask for when `reorder_level` is crossed —
+    # procurement.services.auto_replenish reads this, never the other way
+    # round. Zero, the same default reorder_level itself takes, means "do
+    # not auto-order this": a shop that has not decided how much to ask for
+    # gets no automatic order rather than a guessed one. In the SAME units
+    # as `quantity` above, not purchase packs — the conversion to whole
+    # packs happens once, at the point an order is actually raised, the
+    # same boundary CatalogCategoryProduct.units_in() already owns for the
+    # opposite direction.
+    reorder_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0
+    )
+
     is_active = models.BooleanField(
         default=True
     )

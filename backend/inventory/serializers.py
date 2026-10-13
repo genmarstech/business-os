@@ -56,6 +56,7 @@ class BranchInventorySerializer(serializers.ModelSerializer):
             "product_barcode",
             "quantity",
             "reorder_level",
+            "reorder_quantity",
             "is_active",
             "created_at",
             "updated_at",
@@ -83,6 +84,14 @@ class BranchInventorySerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError(
                 "Reorder level cannot be negative."
+            )
+
+        return value
+
+    def validate_reorder_quantity(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Reorder quantity cannot be negative."
             )
 
         return value

@@ -4,7 +4,7 @@ import { Shell } from "@/components/Shell";
 import { getOrNull } from "@/lib/api";
 import { amount } from "@/lib/reports";
 import { PERM, may, me as whoAmI } from "@/lib/session";
-import { AdjustForm, StockAProductForm } from "./forms";
+import { AdjustForm, ReorderForm, StockAProductForm } from "./forms";
 import styles from "./stock.module.css";
 
 /**
@@ -29,6 +29,7 @@ type Row = {
   product_sku: string;
   quantity: string;
   reorder_level: string;
+  reorder_quantity: string;
   is_active: boolean;
 };
 
@@ -163,11 +164,19 @@ export default async function StockPage() {
                           </td>
                           <td className={styles.right}>
                             {canAdjust ? (
-                              <AdjustForm
-                                inventoryId={line.id}
-                                productName={line.product_name}
-                                onHand={amount(line.quantity)}
-                              />
+                              <div className={styles.rowActions}>
+                                <AdjustForm
+                                  inventoryId={line.id}
+                                  productName={line.product_name}
+                                  onHand={amount(line.quantity)}
+                                />
+                                <ReorderForm
+                                  inventoryId={line.id}
+                                  productName={line.product_name}
+                                  reorderLevel={line.reorder_level}
+                                  reorderQuantity={line.reorder_quantity}
+                                />
+                              </div>
                             ) : null}
                           </td>
                         </tr>

@@ -175,6 +175,17 @@ def _move_stock(inventory: BranchInventory, delta: Decimal, kind: str, reference
         inventory=inventory, before=before, after=inventory.quantity
     )
 
+    # Imported here, not at the top: procurement/services.py already imports
+    # this module's neighbours and a module-level import both ways is a
+    # cycle — the same reason payments is imported inside checkout() rather
+    # than at the top of this file. Cannot fail a sale either; see the
+    # banner on auto_replenish.
+    from procurement import services as procurement_services
+
+    procurement_services.auto_replenish(
+        inventory=inventory, before=before, after=inventory.quantity
+    )
+
 
 # ── checkout ─────────────────────────────────────────────────────────────────
 

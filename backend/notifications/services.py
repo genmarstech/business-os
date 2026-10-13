@@ -559,6 +559,37 @@ def order_awaiting_approval(*, order, actor=None) -> None:
     )
 
 
+def order_drafted_automatically(*, order) -> None:
+    """
+    A shelf crossed its reorder level and procurement.services.auto_replenish
+    raised a draft against it, unattended.
+
+    Addressed to `purchasing.manage`, not `purchasing.approve` — this order is
+    a DRAFT, not yet submitted, so it is not the approver's business until
+    somebody who can edit a draft has looked at it and sent it on. Without
+    this nothing distinguishes a draft a person is about to work on from one
+    that drafted itself and that nobody has looked at yet, which is exactly
+    the kind of order a shop forgets until the shelf is empty again.
+    """
+    _safely(
+        "order.drafted",
+        raise_notification,
+        kind=Notification.Kind.ORDER_DRAFTED,
+        organization_id=order.organization_id,
+        branch_id=getattr(order, "branch_id", None),
+        permission=access.PURCHASING_MANAGE,
+        urgency=Notification.Urgency.ATTEND,
+        subject=f"Order {order.number} drafted automatically for {order.supplier.name}",
+        body=(
+            "A product fell to its reorder level and nobody has raised an "
+            "order for it yet. This draft needs checking and sending."
+        ),
+        path="/buying",
+        subject_key=f"purchaseorder:{order.pk}",
+        dedupe=True,
+    )
+
+
 def order_approved(*, order) -> None:
     """The order is no longer waiting, so the notification stops being true."""
     _safely(

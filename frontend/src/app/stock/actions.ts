@@ -14,7 +14,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { asFormErrors, post, type FormErrors } from "@/lib/api";
+import { asFormErrors, patch, post, type FormErrors } from "@/lib/api";
 
 export type State = FormErrors | null;
 
@@ -74,6 +74,7 @@ export async function stockAProduct(
       product,
       quantity: "0",
       reorder_level: text(form, "reorder_level") || "0",
+      reorder_quantity: text(form, "reorder_quantity") || "0",
       is_active: true,
     });
   } catch (error) {
@@ -82,4 +83,30 @@ export async function stockAProduct(
 
   revalidatePath("/stock");
   return { field: {}, general: ["Added. Book the first delivery in below."] };
+}
+
+/**
+ * Change when a shelf warns, and how much it asks for when it does.
+ *
+ * The only two fields this touches — never `quantity`, which moves only
+ * through `adjust` above, with a reason attached. Configuration, not stock.
+ */
+export async function setReorder(
+  _previous: State,
+  form: FormData,
+): Promise<State> {
+  const id = Number(text(form, "inventory_id"));
+  if (!id) return { field: {}, general: ["No stock line."] };
+
+  try {
+    await patch(`/invt/inventory/${id}/`, {
+      reorder_level: text(form, "reorder_level") || "0",
+      reorder_quantity: text(form, "reorder_quantity") || "0",
+    });
+  } catch (error) {
+    return asFormErrors(error);
+  }
+
+  revalidatePath("/stock");
+  return { field: {}, general: [] };
 }

@@ -40,6 +40,8 @@ export type Product = {
   is_active: boolean;
   tax_rule: number | null;
   category: Category | number | null;
+  /** Who an automatic reorder is raised against. Null means never. */
+  preferred_supplier: number | null;
 };
 
 export function categoryOf(product: Product): number | null {

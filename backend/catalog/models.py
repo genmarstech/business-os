@@ -173,6 +173,32 @@ class CatalogCategoryProduct(models.Model):
         help_text="What one pack is called: carton, crate, sack, dozen.",
     )
 
+    # ══════════════════════════════════════════════════════════════════
+    # WHO A DRAFT ORDER GOES TO, WHEN ONE DRAFTS ITSELF.
+    #
+    # `procurement.services.auto_replenish` fires the moment this product
+    # crosses its reorder level, and it needs a supplier before it can
+    # raise anything — guessing one from order history is exactly the kind
+    # of inference this codebase keeps refusing elsewhere (TaxRule's own
+    # `is_default`, MpesaTill.for_branch, a price list's precedence): a
+    # choice produced by a formula nobody made is a choice nobody can
+    # explain when the wrong lorry turns up. Nullable, so a shop that has
+    # not set one up simply gets no automatic order — see the guard at the
+    # top of `auto_replenish`.
+    #
+    # SET_NULL rather than PROTECT: archiving a supplier is an ordinary
+    # thing a shop does, and it must not leave every product that once
+    # preferred them permanently unbuyable.
+    # ══════════════════════════════════════════════════════════════════
+    preferred_supplier = models.ForeignKey(
+        "procurement.Supplier",
+        on_delete=models.SET_NULL,
+        related_name="preferred_by_products",
+        null=True,
+        blank=True,
+        help_text="Who an automatic reorder is raised against. Leave blank to never auto-order this.",
+    )
+
     # Per unit. See the banner above.
     cost_price = models.DecimalField(
         max_digits=12,
