@@ -93,14 +93,30 @@ What is left of V2: cash reconciliation above the level of a single drawer —
 banking a day's takings across tills, and a safe of its own, are not
 modelled.
 
-**V3 is barely started, and M-Pesa is the piece that is done** — STK push at
-the till, a public callback that decides nothing, and a payment that can be
-spent exactly once. See *Taking M-Pesa at the till* below. The rest is
-untouched: offline mode, loyalty, accounting integrations, e-commerce sync,
-advanced analytics, automated replenishment. §11 asks for
-idempotency keys and transaction identifiers to be defined *before* production
-rollout, and they are — sales and refunds both take one — so the offline
-queue has something to synchronise against when it is built.
+**V3 has started, and two pieces of it exist.** M-Pesa is the first — STK
+push at the till, a public callback that decides nothing, and a payment that
+can be spent exactly once. See *Taking M-Pesa at the till* below. §11 asks
+for idempotency keys and transaction identifiers to be defined *before*
+production rollout, and they are — sales and refunds both take one — so the
+offline queue has something to synchronise against when it is built.
+
+**Automatic replenishment is the second.** A product crossing its reorder
+level used to raise a notification and nothing else — somebody still had to
+notice it, open *Buying*, and raise the order by hand, on every shelf, every
+time. A product that names a preferred supplier and a branch that names a
+reorder quantity now get a draft order the moment the shelf crosses the
+line, exactly as if a purchasing officer had raised it — `purchasing.manage`
+still has to check it and send it on, because this drafts and never
+approves. Neither field is inferred: guessing a supplier from order history,
+or a quantity from "enough to reach the level again", is the kind of
+decision this codebase keeps refusing to make silently elsewhere (a tax
+rule's own `is_default`, an M-Pesa till's branch default, a price list's
+precedence) — see `procurement.services.auto_replenish`. Both default to
+off, the same way `reorder_level` itself already does, so a shop that has
+not set either up sees no automatic order, never a guessed one.
+
+The rest of V3 is untouched: offline mode, loyalty, accounting integrations,
+e-commerce sync, advanced analytics.
 
 ## What things cost
 
@@ -415,6 +431,42 @@ And three decisions worth knowing before changing it:
 A delivery writes a `PURCHASE` StockMovement and **no** StockAdjustment:
 `inventory/services.adjust` writes both because a manual correction has no
 other document to point at, and a delivery has one.
+
+### Ordering itself, before anybody notices
+
+A product crossing its reorder level raised a notification and nothing
+else — somebody still had to see it, open this screen, and raise the order
+by hand. `procurement.services.auto_replenish` is called from every place
+stock goes down (a sale, a manual adjustment) the same way
+`notifications.stock_level_changed` already is, and drafts an order the
+moment the crossing happens, if two things are configured:
+
+- `CatalogCategoryProduct.preferred_supplier` — who the draft goes to.
+- `BranchInventory.reorder_quantity` — how much it asks for, in the same
+  sellable units as `reorder_level`, converted to whole purchase packs
+  (rounded up — a supplier cannot deliver three-quarters of a carton) at
+  the moment the order is raised.
+
+Both default to off, the same way `reorder_level` itself does. Neither is
+inferred: a supplier guessed from order history, or a quantity worked back
+from "enough to reach the level again", is a number nobody chose and nobody
+can explain when the wrong lorry turns up — the same reasoning behind
+`TaxRule.is_default`, `MpesaTill.for_branch`, and a price list's
+precedence.
+
+**It drafts, and it does not submit.** `purchasing.manage` still has to
+look at it and send it on; `purchasing.approve` still commits the money.
+This is the clerk reaching for the order pad, nothing more — and it is
+addressed to whoever holds `purchasing.manage` as its own notification kind
+(`order.drafted`), so an order that raised itself is not indistinguishable
+from one a person is already halfway through.
+
+Never a second draft while one from the same product, branch and supplier
+is still open — the next sale of a slow-moving line while a lorry is
+already on its way must not raise a duplicate. And it cannot fail the sale,
+the adjustment or the delivery that triggered it: a failure here is logged
+and swallowed, the same contract `notifications.services._safely` already
+keeps for the notification beside it.
 
 ### What the buying reports will and will not say
 

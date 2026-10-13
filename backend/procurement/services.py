@@ -29,7 +29,8 @@ report that counts adjustments.
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import logging
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -49,6 +50,8 @@ from .models import (
     PurchaseOrderItem,
     Supplier,
 )
+
+log = logging.getLogger(__name__)
 
 ZERO = Decimal("0.00")
 CENTS = Decimal("0.01")
@@ -237,6 +240,107 @@ def raise_order(
         ]
     )
 
+    return order
+
+
+def auto_replenish(*, inventory, before, after) -> PurchaseOrder | None:
+    """
+    Draft an order the moment a shelf crosses its reorder level downward.
+
+    ══════════════════════════════════════════════════════════════════════
+    TWO THINGS HAVE TO BE CONFIGURED, AND BOTH DEFAULT TO "DO NOTHING" —
+    THE SAME DEFAULT reorder_level ITSELF ALREADY TAKES.
+
+    `CatalogCategoryProduct.preferred_supplier` and
+    `BranchInventory.reorder_quantity`. Neither is inferred — not a
+    supplier guessed from order history, not a quantity worked back from
+    "enough to reach the reorder level again" — for the reason the field's
+    own comment gives: a number produced by a formula nobody chose is a
+    number nobody can explain when the lorry that turns up is the wrong
+    one, or the wrong size.
+
+    It drafts, and nothing more. `PurchasingApprove` still has to commit
+    the shop's money — see the banner on PurchaseOrder.Status. This is the
+    clerk reaching for the order pad, not signing the cheque, and
+    `submit_order` is still a human's to call.
+
+    ── THE CROSSING, NOT THE STATE — stock_level_changed MAKES THE SAME
+       ARGUMENT, FOR THE SAME REASON ──
+    Fires only when `after` crosses the level DOWNWARD. Without that, a
+    slow-moving line sold once every few minutes while already below the
+    line would draft a fresh order on every sale.
+
+    ── NEVER A SECOND DRAFT WHILE ONE IS ALREADY WORKING ITS WAY THROUGH ──
+    An order already open (`PurchaseOrder.OPEN`) for this product, at this
+    branch, from this supplier, is left alone.
+
+    ── THIS FUNCTION DOES NOT RAISE ─────────────────────────────────────
+    Called from inside the same `@transaction.atomic` blocks that are doing
+    the real work — a sale, a manual adjustment, a delivery — the same
+    position `notifications.stock_level_changed` is in and for the same
+    reason: automatic replenishment must never be able to fail a sale.
+    Mirrors `notifications.services._safely` rather than importing it,
+    because that helper is notifications' own and this is a different
+    failure to guard.
+    ══════════════════════════════════════════════════════════════════════
+    """
+    try:
+        return _auto_replenish(inventory=inventory, before=before, after=after)
+    except Exception:
+        log.exception("could not auto-replenish inventory %s", inventory.pk)
+        return None
+
+
+@transaction.atomic
+def _auto_replenish(*, inventory, before, after) -> PurchaseOrder | None:
+    level = inventory.reorder_level
+    if level is None:
+        return None
+
+    if not (before > level and after <= level):
+        return None
+
+    product = inventory.product
+    supplier = product.preferred_supplier
+    if supplier is None or not supplier.is_active:
+        return None
+
+    reorder_quantity = inventory.reorder_quantity
+    if reorder_quantity is None or reorder_quantity <= ZERO:
+        return None
+
+    already_open = PurchaseOrderItem.objects.filter(
+        product=product,
+        purchase_order__branch=inventory.branch,
+        purchase_order__supplier=supplier,
+        purchase_order__status__in=PurchaseOrder.OPEN,
+    ).exists()
+    if already_open:
+        return None
+
+    # `reorder_quantity` is in the same sellable units as `quantity` and
+    # `reorder_level`; an order is raised in whole packs, because a
+    # supplier cannot deliver three-quarters of a carton. `units_in()` is
+    # the one place this conversion happens going from packs to sellable
+    # units — this is the one place it happens the other way.
+    packs = (reorder_quantity / product.units_per_pack).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+    if packs <= 0:
+        packs = Decimal("1")
+
+    order = raise_order(
+        branch=inventory.branch,
+        supplier=supplier,
+        lines=[{"product": product, "quantity": packs}],
+        note=(
+            f"Drafted automatically: {product.name} fell to {after} at "
+            f"{inventory.branch.branch_name}, against a reorder level of "
+            f"{level}."
+        ),
+    )
+
+    notifications.order_drafted_automatically(order=order)
     return order
 
 
@@ -437,6 +541,14 @@ def _book_in(branch, product, quantity: Decimal, reference: str) -> None:
     notifications.stock_level_changed(
         inventory=locked, before=before, after=locked.quantity
     )
+
+    # A delivery raises stock, so this is ordinarily a no-op here — the
+    # crossing auto_replenish watches for is downward. Called anyway, for
+    # the same reason the notification above is: all three places stock is
+    # written call both, so the day a fourth is added and does not is the
+    # day somebody notices a stale `# the other two call sites` comment
+    # rather than a silent gap.
+    auto_replenish(inventory=locked, before=before, after=locked.quantity)
 
 
 @transaction.atomic

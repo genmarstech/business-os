@@ -34,6 +34,7 @@ export default async function CataloguePage({
   const { edit } = await searchParams;
   const { products, categories, taxRules } = await catalogue();
   const branches = await branchChoices();
+  const suppliers = await supplierChoices();
   const organisationId =
     me.kind === "subscriber" ? me.organisations[0]?.id : me.organisation.id;
 
@@ -128,6 +129,7 @@ export default async function CataloguePage({
                   categories={categories}
                   taxRules={taxRules}
                   branches={branches}
+                  suppliers={suppliers}
                   product={editing}
                 />
               )}
@@ -252,4 +254,21 @@ async function branchChoices(): Promise<{ id: number; branch_name: string }[]> {
   >("/brn/branch/");
   if (!page) return [];
   return Array.isArray(page) ? page : (page.results ?? []);
+}
+
+/**
+ * Who a product's automatic reorder can be raised against.
+ *
+ * Archived suppliers are left out — the same reason /buying/suppliers does
+ * not offer them when raising an order by hand: a shop that archived one did
+ * not mean for it to keep receiving orders it never sees.
+ */
+async function supplierChoices(): Promise<{ id: number; name: string }[]> {
+  const { getOrNull } = await import("@/lib/api");
+  const page = await getOrNull<
+    { results?: { id: number; name: string; is_active: boolean }[] } | { id: number; name: string; is_active: boolean }[]
+  >("/prc/suppliers/");
+  if (!page) return [];
+  const rows = Array.isArray(page) ? page : (page.results ?? []);
+  return rows.filter((s) => s.is_active);
 }

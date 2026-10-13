@@ -110,6 +110,11 @@ REFERENCE_TO_ORGANISATION = {
     # here per the warning above.
     "mpesa_till": lambda obj: obj.organization_id,
     "stk_push": lambda obj: obj.organization_id,
+    # A product's preferred supplier — added in the same commit that
+    # introduced the field, per the warning above. Without this a write
+    # could point a product at another tenant's supplier and the guard
+    # would wave it through, finding nothing here it recognised.
+    "preferred_supplier": lambda obj: obj.organization_id,
 }
 
 

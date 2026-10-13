@@ -175,6 +175,13 @@ def adjust(*, inventory: BranchInventory, delta: Decimal, reason: str, note: str
         inventory=locked, before=before, after=after
     )
 
+    # Deferred import — see the same note in sales/services.py.
+    from procurement import services as procurement_services
+
+    procurement_services.auto_replenish(
+        inventory=locked, before=before, after=after
+    )
+
     return adjustment
 
 

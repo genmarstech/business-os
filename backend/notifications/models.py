@@ -63,6 +63,7 @@ class Notification(models.Model):
         STOCK_OUT = "stock.out", "Out of stock"
         # ── things waiting for a second person ─────────────────────────────
         ORDER_AWAITING = "order.awaiting", "Purchase order awaiting approval"
+        ORDER_DRAFTED = "order.drafted", "Purchase order drafted automatically"
         COUNT_AWAITING = "count.awaiting", "Stock take awaiting sign-off"
         # ── the day's shape ────────────────────────────────────────────────
         SHIFT_CLOSED = "shift.closed", "Till closed"

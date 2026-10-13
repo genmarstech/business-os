@@ -27,6 +27,7 @@ export function ProductForm({
   categories,
   taxRules,
   branches,
+  suppliers,
   product,
 }: {
   organisationId: number;
@@ -34,6 +35,8 @@ export function ProductForm({
   taxRules: TaxRule[];
   /** Somewhere to put the opening count. Only asked when adding. */
   branches: { id: number; branch_name: string }[];
+  /** Who an automatic reorder can be raised against. */
+  suppliers: { id: number; name: string }[];
   product?: Product;
 }) {
   const [state, action] = useActionState(saveProduct, NONE);
@@ -148,6 +151,29 @@ export function ProductForm({
           error={state?.field.pack_name}
         />
       </Row>
+
+      {/*
+        ── WHO A SHELF ASKS WHEN IT RUNS LOW, WITHOUT BEING ASKED ITSELF ──
+        Left blank, this product is never auto-ordered — see the model's
+        own comment on why guessing a supplier from order history is worse
+        than asking nobody. "Tell me when it drops to" on /stock still
+        warns somebody either way; this only decides whether an order
+        drafts itself before they get there.
+      */}
+      <Select
+        name="preferred_supplier"
+        label="Auto-order from"
+        hint="Who a draft order goes to when this falls to its reorder level. Leave blank to never auto-order it."
+        defaultValue={product?.preferred_supplier ?? ""}
+        error={state?.field.preferred_supplier}
+      >
+        <option value="">Never auto-order this</option>
+        {suppliers.map((supplier) => (
+          <option key={supplier.id} value={supplier.id}>
+            {supplier.name}
+          </option>
+        ))}
+      </Select>
 
       <Row>
         <Select

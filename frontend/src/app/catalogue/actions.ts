@@ -49,6 +49,7 @@ export async function saveProduct(
     pack_name: text(form, "pack_name"),
     selling_price: text(form, "selling_price"),
     tax_rule: Number(text(form, "tax_rule")) || null,
+    preferred_supplier: Number(text(form, "preferred_supplier")) || null,
     is_active: text(form, "is_active") !== "false",
   };
 
