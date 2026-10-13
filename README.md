@@ -399,8 +399,6 @@ Endpoints are under `/prc/`: `suppliers`, `purchase-orders` (with `submit`,
 `approve`, `cancel` and `receive` actions), a read-only `goods-receipts`, and
 `reports` (`overview`, `by-supplier`, `by-product`, `outstanding`,
 `reliability`). Screens are under `/buying`.
-`approve`, `cancel` and `receive` actions) and a read-only `goods-receipts`.
-Screens are under `/buying`.
 
 **The approval is the point, and it is built as a permission, not an `if`.**
 `purchasing.manage` raises and sends; `purchasing.approve` commits the
