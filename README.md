@@ -25,9 +25,9 @@ root `CLAUDE.md` carry the full reasoning.
 
 ## Against the blueprint
 
-`Multi_Tenant_POS_System_Blueprint.pdf` §12 sets the roadmap. V1 is complete;
-V2 has started with procurement and is otherwise untouched, and the table says
-so rather than letting somebody discover it.
+`Multi_Tenant_POS_System_Blueprint.pdf` §12 sets the roadmap. V1 and V2 are
+both complete; V3 has started with M-Pesa and is otherwise untouched, and the
+table says so rather than letting somebody discover it.
 
 | §9 domain | Models | State |
 |---|---|---|
@@ -43,11 +43,12 @@ inventory, POS checkout, payments, customers, receipts and a basic
 dashboard/reports. Subscriptions were the last thing §9 listed and did not
 have — see *Paying for it* below.
 
-**V2 is part built.** Two of its pieces exist. Closing a till by counting it
-is one — `RegisterShift`, `GET /sls/reports/register-status` for the expected
-drawer figure, and a cashier who cannot count their own. **Purchasing is the
-other, and it is new**: suppliers, purchase orders with an approval step, and
-goods receipts that move stock. See *Buying* below.
+**V2 is complete.** Closing a till by counting it is one piece —
+`RegisterShift`, `GET /sls/reports/register-status` for the expected drawer
+figure, and a cashier who cannot count their own. Purchasing is the second:
+suppliers, purchase orders with an approval step, and goods receipts that
+move stock. See *Buying* below. The third and last piece was a branch's cash
+once it leaves a drawer — see *the safe* further down.
 
 **Purchasing now reports on itself** — what each supplier has cost, what is
 committed and not yet delivered, and which of them turn up when they said
@@ -89,9 +90,16 @@ picker, and the period links were written as `/reports?range=…`, so a
 hand-typed branch was discarded by the first click. The comparison also ranked
 branches on turnover alone. See *Comparing branches* below.
 
-What is left of V2: cash reconciliation above the level of a single drawer —
-banking a day's takings across tills, and a safe of its own, are not
-modelled.
+**A branch's cash now has somewhere to go once it leaves a drawer.**
+`CashMovement.Kind.SAFE_DROP` only ever lowered a single till's own figure;
+nothing on the other end recorded that the cash arrived anywhere, so three
+tills each dropping 5,000 produced three lighter drawers and no branch-level
+answer to what a manager is holding, what has been banked, or whether a drop
+ever turned up. `Safe` and `SafeMovement` are that other end — one safe per
+branch, an append-only ledger of confirmed receipts and bank deposits against
+a reference, surfaced on `/reports`. That was the whole of what V2 had left.
+
+V2 is now complete.
 
 **V3 is barely started, and M-Pesa is the piece that is done** — STK push at
 the till, a public callback that decides nothing, and a payment that can be
