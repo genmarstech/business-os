@@ -1,7 +1,8 @@
 # business-os
 
 The Genmars Business Platform: a multi-tenant point of sale sold to other
-businesses. Backend only so far — Django + DRF at `business.genmars.co.ke`.
+businesses. Django + DRF backend and a Next.js till/office frontend, both at
+`business.genmars.co.ke`.
 
 Registered in the Genmars system registry as `business-os`. Deployment lives
 in `compose.yaml` and `deploy/business.caddy`; read the header comments in
