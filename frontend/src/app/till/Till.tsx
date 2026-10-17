@@ -1034,10 +1034,7 @@ function Selling({
         <Calculator onClose={() => setTool(null)} />
       ) : null}
       {tool === "reconcile" ? (
-        <Reconcile
-          branchId={shift.register?.branch?.id ?? null}
-          onClose={() => setTool(null)}
-        />
+        <Reconcile onClose={() => setTool(null)} />
       ) : null}
       {tool === "note" ? (
         <ShiftNote
