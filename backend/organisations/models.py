@@ -1,5 +1,3 @@
-import uuid
-
 from django.db import models
 from django.utils import timezone
 import random
@@ -125,14 +123,6 @@ def staffNumberGenerator():
 
 
 class OrganizationStaff(models.Model):
-
-    # External identity from the company/authentication backend
-    external_user_id = models.UUIDField(
-        unique=True,
-        db_index=True,
-        editable=False,
-        default=uuid.uuid4,
-    )
 
     # ── personal details ────────────────────────────────────────────────
     #
