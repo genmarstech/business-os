@@ -97,10 +97,8 @@ function verdict(push: Push): { tone: string; says: string } {
 }
 
 export function Reconcile({
-  branchId,
   onClose,
 }: {
-  branchId: number | null;
   onClose: () => void;
 }) {
   const [pushes, setPushes] = useState<Push[] | null>(null);

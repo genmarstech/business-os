@@ -1215,10 +1215,6 @@ These are written down rather than left to be rediscovered.
   ```bash
   DATABASE_URL=postgres://… virtual/bin/python manage.py test
   ```
-- **`OrganizationStaff.external_user_id`** is an orphan. It defaults to a
-  fresh `uuid4()`, so it never equalled an id from anywhere, and the scoping
-  that once joined through it has been replaced by `identity/scoping.py`. The
-  field and its comment are still there and still misleading.
 - **A cashier can reset a forgotten password themselves**, by a six-digit code
   emailed to the address their manager holds. It leaves `must_change_password`
   FALSE, unlike the manager reset which sets it True — a code sent to the
@@ -1273,6 +1269,10 @@ Left here briefly because a gap list nobody trusts is worse than no gap list.
   always complete; nothing in the frontend called it. A cashier was told to
   "ask your manager to show you how", and there was no how: a manager can only
   RESET a password, which sets the flag again, so the loop had no exit.
+- ~~`OrganizationStaff.external_user_id` is an orphan~~ — removed, along with
+  its now-wrong comment. Grepped clean across the whole backend first;
+  nothing but the field itself and two historical comments explaining the
+  September scoping change that made it dead ever named it.
 
 ## The frontend
 
